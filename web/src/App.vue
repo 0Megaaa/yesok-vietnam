@@ -24,6 +24,7 @@ onMounted(async () => {
 
   tg.ready()
   tg.expand()
+  tg.setHeaderColor('#0D47A1')
 
   const initData = tg.initData
   if (!initData) {

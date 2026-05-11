@@ -1,5 +1,5 @@
 <script setup>
-import { RouterLink, RouterView, useRoute } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
 import { useClientStore } from '@/store/client'
 
 const client = useClientStore()
@@ -7,75 +7,54 @@ const route = useRoute()
 </script>
 
 <template>
-  <div class="client-layout">
-    <header class="client-header">
-      <nav class="client-nav">
-        <RouterLink to="/" :class="{ active: route.path === '/' }">首页</RouterLink>
-        <RouterLink to="/profile" :class="{ active: route.path === '/profile' }">个人中心</RouterLink>
-        <button v-if="client.isLoggedIn" class="logout-btn" @click="client.logout()">退出</button>
-      </nav>
-      <div v-if="client.isLoggedIn && client.userInfo" class="user-badge">
-        {{ client.userInfo.username }} · {{ client.userInfo.role }}
+  <div id="app">
+    <!-- Header -->
+    <div class="tb-main">
+      <div class="logo-wrap">
+        <div class="logo-ic">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          </svg>
+        </div>
+        <div class="logo-tx-wrap">
+          <span class="logo-tx"><span class="yes">Yes</span><span class="ok">ok</span></span>
+        </div>
       </div>
-    </header>
-    <main class="client-main">
+      <div class="tb-ics">
+        <div class="tb-btn">🔔</div>
+      </div>
+    </div>
+
+    <!-- Main content -->
+    <div id="scroll">
       <RouterView />
-    </main>
+    </div>
+
+    <!-- Bottom Navigation -->
+    <nav id="botnav">
+      <RouterLink to="/" :class="['bni', { on: route.path === '/' }]">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+        </svg>
+        <span class="bni-lb">首页</span>
+        <div class="bni-dot"></div>
+      </RouterLink>
+
+      <RouterLink to="/profile" :class="['bni', { on: route.path === '/profile' }]">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+          <circle cx="12" cy="7" r="4"/>
+        </svg>
+        <span class="bni-lb">我的</span>
+        <div class="bni-dot"></div>
+      </RouterLink>
+    </nav>
+
+    <!-- FAB: New Order -->
+    <RouterLink to="/profile" id="fab" title="提交新需求">+</RouterLink>
   </div>
 </template>
 
 <style scoped>
-.client-layout {
-  min-height: 100svh;
-  display: flex;
-  flex-direction: column;
-}
-.client-header {
-  padding: 1rem 2rem;
-  border-bottom: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-}
-.client-nav {
-  display: flex;
-  gap: 1.5rem;
-  align-items: center;
-}
-.client-nav a {
-  color: var(--text);
-  text-decoration: none;
-  font-size: 1rem;
-  padding: 0.25rem 0;
-  border-bottom: 2px solid transparent;
-  transition: color 0.2s, border-color 0.2s;
-}
-.client-nav a:hover,
-.client-nav a.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
-}
-.logout-btn {
-  background: none;
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 0.25rem 0.75rem;
-  border-radius: 4px;
-  cursor: pointer;
-  font-size: 0.875rem;
-  transition: background 0.2s;
-}
-.logout-btn:hover {
-  background: var(--code-bg);
-}
-.user-badge {
-  font-size: 0.875rem;
-  color: var(--text);
-  opacity: 0.7;
-}
-.client-main {
-  flex: 1;
-  padding: 2rem;
-}
+/* Styles from style.css are inherited globally */
 </style>

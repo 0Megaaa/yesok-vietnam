@@ -18,55 +18,59 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div class="dashboard">
-    <h1>仪表盘</h1>
-    <div v-if="loading" class="loading">加载中...</div>
-    <div v-else-if="error" class="error">{{ error }}</div>
-    <div v-else class="stats-grid">
-      <div class="stat-card">
-        <div class="stat-value">{{ stats?.total_users ?? 0 }}</div>
-        <div class="stat-label">用户总数</div>
+  <div class="adm-main">
+    <!-- 数据看板 -->
+    <div class="adm-pt">数据看板</div>
+    <div class="adm-ps">实时业务概览</div>
+
+    <!-- Stats Cards -->
+    <div class="adm-stats">
+      <div class="adm-stat s1">
+        <div class="adm-sv">{{ stats?.total_users ?? '—' }}</div>
+        <div class="adm-sl">用户总数</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ stats?.total_orders ?? 0 }}</div>
-        <div class="stat-label">订单总数</div>
+      <div class="adm-stat s2">
+        <div class="adm-sv">{{ stats?.total_orders ?? '—' }}</div>
+        <div class="adm-sl">订单总数</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-value">{{ stats?.total_revenue?.toLocaleString() ?? 0 }}</div>
-        <div class="stat-label">总收入 (VND)</div>
+      <div class="adm-stat s3">
+        <div class="adm-sv">{{ stats?.active_orders ?? '—' }}</div>
+        <div class="adm-sl">进行中</div>
+      </div>
+      <div class="adm-stat s4">
+        <div class="adm-sv">{{ stats?.total_revenue ? stats.total_revenue.toLocaleString() : '—' }}</div>
+        <div class="adm-sl">总收入 (VND)</div>
+      </div>
+    </div>
+
+    <!-- Two-column cards -->
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+      <div class="adm-card">
+        <div class="adm-card-t">基本信息</div>
+        <div class="adm-fr">
+          <label class="adm-fl">平台名称</label>
+          <input class="adm-in" value="Yesok · 越南一站式管家服务">
+        </div>
+        <div class="adm-fr">
+          <label class="adm-fl">客服微信</label>
+          <input class="adm-in" value="Yesok_VN2024">
+        </div>
+        <div class="adm-fr">
+          <label class="adm-fl">联系电话</label>
+          <input class="adm-in" value="+84-xx-xxxx-xxxx">
+        </div>
+        <button class="adm-btn ab-gd" style="margin-top:4px;width:100%;justify-content:center;">保存设置</button>
+      </div>
+      <div class="adm-card">
+        <div class="adm-card-t">最新订单</div>
+        <div v-if="loading" style="font-size:12px;color:var(--tx3);">加载中…</div>
+        <div v-else-if="error" style="font-size:12px;color:var(--rd);">{{ error }}</div>
+        <div v-else style="font-size:12px;color:var(--tx2);">暂无最新订单数据</div>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-.dashboard h1 {
-  margin-bottom: 1.5rem;
-}
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 1.25rem;
-}
-.stat-card {
-  background: var(--accent-bg);
-  border: 1px solid var(--accent-border);
-  border-radius: 10px;
-  padding: 1.5rem;
-}
-.stat-value {
-  font-size: 2rem;
-  font-weight: 600;
-  color: var(--accent);
-  font-family: var(--mono);
-}
-.stat-label {
-  font-size: 0.875rem;
-  color: var(--text);
-  margin-top: 0.375rem;
-}
-.loading, .error {
-  color: var(--text);
-  opacity: 0.6;
-}
+/* Styles from style.css are inherited globally — adm-* classes are defined there */
 </style>
