@@ -1,3 +1,7 @@
+<template>
+  <RouterView />
+</template>
+
 <script setup>
 import { onMounted } from 'vue'
 import { useClientStore } from '@/store/client'
@@ -6,11 +10,8 @@ import { loginWithTG, getMe } from '@/api/client/auth'
 const client = useClientStore()
 
 onMounted(async () => {
-  // Only attempt Telegram auth when running inside the Telegram WebApp environment.
   const tg = window.Telegram?.WebApp
   if (!tg) {
-    // Not in TG — this is a normal browser session.
-    // If we have a stored client token, refresh user info silently.
     if (client.isLoggedIn) {
       try {
         const userInfo = await getMe()
@@ -33,7 +34,6 @@ onMounted(async () => {
   }
 
   if (client.isLoggedIn) {
-    // Re-hydrate user info on revisit.
     try {
       const userInfo = await getMe()
       client.setUserInfo(userInfo)
@@ -43,7 +43,6 @@ onMounted(async () => {
     return
   }
 
-  // First visit — exchange Telegram initData for a JWT.
   try {
     const data = await loginWithTG(initData)
     client.setToken(data.token)
@@ -54,6 +53,6 @@ onMounted(async () => {
 })
 </script>
 
-<template>
-  <RouterView />
-</template>
+<style>
+/* 严禁在这里写任何样式，确保所有样式来自全局 style.css */
+</style>
