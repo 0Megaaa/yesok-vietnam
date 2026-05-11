@@ -25,7 +25,7 @@ const route = useRoute()
       </div>
     </div>
 
-    <!-- Main content -->
+    <!-- Scrollable content area -->
     <div id="scroll">
       <RouterView />
     </div>
