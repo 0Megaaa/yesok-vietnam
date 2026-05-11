@@ -1,8 +1,8 @@
 import { defineStore } from 'pinia'
 
-export const useUserStore = defineStore('user', {
+export const useClientStore = defineStore('client', {
   state: () => ({
-    token: localStorage.getItem('token') || '',
+    token: localStorage.getItem('client_token') || '',
     userInfo: null,
   }),
 
@@ -15,9 +15,9 @@ export const useUserStore = defineStore('user', {
     setToken(token) {
       this.token = token
       if (token) {
-        localStorage.setItem('token', token)
+        localStorage.setItem('client_token', token)
       } else {
-        localStorage.removeItem('token')
+        localStorage.removeItem('client_token')
       }
     },
 
@@ -28,7 +28,7 @@ export const useUserStore = defineStore('user', {
     logout() {
       this.token = ''
       this.userInfo = null
-      localStorage.removeItem('token')
+      localStorage.removeItem('client_token')
     },
   },
 })

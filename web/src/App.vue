@@ -1,14 +1,24 @@
 <script setup>
 import { onMounted } from 'vue'
-import { useUserStore } from './store'
-import { loginWithTG, getUserInfo } from './api'
+import { useClientStore } from '@/store/client'
+import { loginWithTG, getMe } from '@/api/client/auth'
 
-const userStore = useUserStore()
+const client = useClientStore()
 
 onMounted(async () => {
+  // Only attempt Telegram auth when running inside the Telegram WebApp environment.
   const tg = window.Telegram?.WebApp
   if (!tg) {
-    console.warn('[App] Telegram WebApp not available')
+    // Not in TG — this is a normal browser session.
+    // If we have a stored client token, refresh user info silently.
+    if (client.isLoggedIn) {
+      try {
+        const userInfo = await getMe()
+        client.setUserInfo(userInfo)
+      } catch {
+        client.logout()
+      }
+    }
     return
   }
 
@@ -17,24 +27,26 @@ onMounted(async () => {
 
   const initData = tg.initData
   if (!initData) {
-    console.warn('[App] No initData from Telegram')
+    console.warn('[App] No initData from Telegram WebApp')
     return
   }
 
-  if (userStore.isLoggedIn) {
+  if (client.isLoggedIn) {
+    // Re-hydrate user info on revisit.
     try {
-      const userInfo = await getUserInfo()
-      userStore.setUserInfo(userInfo)
+      const userInfo = await getMe()
+      client.setUserInfo(userInfo)
     } catch {
-      userStore.logout()
+      client.logout()
     }
     return
   }
 
+  // First visit — exchange Telegram initData for a JWT.
   try {
     const data = await loginWithTG(initData)
-    userStore.setToken(data.token)
-    userStore.setUserInfo(data.user)
+    client.setToken(data.token)
+    client.setUserInfo(data.user)
   } catch (e) {
     console.error('[App] Telegram login failed', e)
   }
@@ -42,7 +54,5 @@ onMounted(async () => {
 </script>
 
 <template>
-  <div id="app">
-    <router-view />
-  </div>
+  <RouterView />
 </template>

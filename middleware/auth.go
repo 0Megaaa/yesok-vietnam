@@ -5,19 +5,20 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
-	"yesok-vietnam/models"
+	"yesok-vietnam/pkg/jwt"
 )
 
-type AuthMiddleware struct {
-	db *gorm.DB
+// AuthMiddleware is stateless — it only reads the JWT and injects claims into
+// the Gin context.  Handlers that need the full User model load it from the
+// DB using the UID from context.
+type AuthMiddleware struct{}
+
+func NewAuthMiddleware() *AuthMiddleware {
+	return &AuthMiddleware{}
 }
 
-func NewAuthMiddleware(db *gorm.DB) *AuthMiddleware {
-	return &AuthMiddleware{db: db}
-}
-
-// RequireAuth validates the session token and loads the user into the context.
+// RequireAuth validates the JWT Bearer token and injects claims into the context.
+// Used by both /api/v1/client and /api/v1/admin route groups.
 func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
@@ -32,38 +33,65 @@ func (m *AuthMiddleware) RequireAuth() gin.HandlerFunc {
 			return
 		}
 
-		var user models.User
-		result := m.db.Where("session_token = ?", token).First(&user)
-		if result.Error == gorm.ErrRecordNotFound {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid or expired token"})
-			return
-		}
-		if result.Error != nil {
-			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+		claims, err := jwt.Validate(token)
+		if err != nil {
+			if err == jwt.ErrTokenExpired {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "token has expired"})
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "invalid token"})
 			return
 		}
 
-		c.Set("user", &user)
+		// Inject claims into context.
+		c.Set("uid", claims.UID)
+		c.Set("role", claims.Role)
+		c.Set("isAdmin", claims.IsAdmin)
+
 		c.Next()
 	}
 }
 
 // RequireRole returns a middleware that restricts access to users with one of the given roles.
+// Must be applied AFTER RequireAuth in the middleware chain.
 func (m *AuthMiddleware) RequireRole(roles ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		user, exists := c.Get("user")
+		roleVal, exists := c.Get("role")
 		if !exists {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
-
-		u := user.(*models.User)
+		role := roleVal.(string)
 		for _, r := range roles {
-			if u.Role == r {
+			if role == r {
 				c.Next()
 				return
 			}
 		}
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "insufficient permissions"})
 	}
+}
+
+// GetUID reads the authenticated user ID from the context.
+func GetUID(c *gin.Context) uint {
+	if v, ok := c.Get("uid"); ok {
+		return v.(uint)
+	}
+	return 0
+}
+
+// GetRole reads the authenticated user's role from the context.
+func GetRole(c *gin.Context) string {
+	if v, ok := c.Get("role"); ok {
+		return v.(string)
+	}
+	return ""
+}
+
+// IsAdmin returns true if the current request is from an admin.
+func IsAdmin(c *gin.Context) bool {
+	if v, ok := c.Get("isAdmin"); ok {
+		return v.(bool)
+	}
+	return false
 }

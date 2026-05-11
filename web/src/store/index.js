@@ -1,1 +1,2 @@
-export { useUserStore } from './user'
+export { useClientStore } from './client'
+export { useAdminStore } from './admin'

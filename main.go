@@ -21,12 +21,11 @@ import (
 var frontendStatic embed.FS
 
 func main() {
-	// Extract embedded frontend into an http.FileSystem
+	// Extract embedded frontend into an fs.FS sub-tree for SPA serving.
 	frontendFS, err := fs.Sub(frontendStatic, "web/dist")
 	if err != nil {
 		log.Fatalf("failed to extract embedded frontend: %v", err)
 	}
-	staticServer := http.FileServer(http.FS(frontendFS))
 
 	// Database connection
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
@@ -48,46 +47,75 @@ func main() {
 		log.Fatalf("failed to auto-migrate: %v", err)
 	}
 
-	// Dependency injection
-	authMw := middleware.NewAuthMiddleware(db)
+	// Middleware instances
+	authMw := middleware.NewAuthMiddleware()
 
 	// Router
 	gin.SetMode(gin.ReleaseMode)
-	r := gin.Default()
-	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With")
-		if c.Request.Method == "OPTIONS" {
-			c.AbortWithStatus(204)
-			return
-		}
-		c.Next()
-	})
+	r := gin.New()
+	r.Use(gin.Logger(), gin.Recovery())
+	r.Use(middleware.CORS())
 
 	// Health check
 	r.GET("/health", func(c *gin.Context) {
 		c.JSON(200, gin.H{"status": "ok"})
 	})
 
-	// API routes
-	api := r.Group("/api")
+	// ─── API v1 ──────────────────────────────────────────────────────────────
+	v1 := r.Group("/api/v1")
 	{
-		api.POST("/auth/tg", handlers.AuthTG(db))
-
-		protected := api.Group("")
-		protected.Use(authMw.RequireAuth())
+		// ── Client routes (TG / future WeChat / APP) ─────────────────────────
+		client := v1.Group("/client")
 		{
-			protected.GET("/user/me", handlers.GetMe(db))
-			protected.GET("/state", handlers.GetState(db))
-			protected.PUT("/state", handlers.UpdateState(db))
+			// Public — no auth required
+			client.POST("/auth/tg", handlers.AuthTG(db))
+			// client.POST("/auth/wechat", ...) ← placeholder, uncomment when WeChat is ready
+
+			// Protected — requires valid JWT
+			clientProtected := client.Group("")
+			clientProtected.Use(authMw.RequireAuth())
+			{
+				clientProtected.GET("/user/me", handlers.GetMe(db))
+				clientProtected.GET("/state", handlers.GetState(db))
+				clientProtected.PUT("/state", handlers.UpdateState(db))
+			}
+		}
+
+		// ── Admin routes (PC browser, username + password) ──────────────────
+		admin := v1.Group("/admin")
+		{
+			// Public — no auth required
+			admin.POST("/auth/login", handlers.AuthAdmin(db))
+
+			// Protected — requires valid JWT + admin role
+			adminProtected := admin.Group("")
+			adminProtected.Use(authMw.RequireAuth(), authMw.RequireRole(models.RoleAdmin))
+			{
+				adminProtected.POST("/auth/logout", handlers.AuthLogout())
+				adminProtected.GET("/auth/me", handlers.AdminMe(db))
+
+				// User management
+				adminProtected.GET("/users", handlers.ListUsers(db))
+				adminProtected.PUT("/users/:id/role", handlers.UpdateUserRole(db))
+				adminProtected.DELETE("/users/:id", handlers.DeleteUser(db))
+
+				// Dashboard
+				adminProtected.GET("/dashboard/stats", handlers.DashboardStats(db))
+
+				// Order management
+				adminProtected.GET("/orders", handlers.AdminListOrders(db))
+				adminProtected.PUT("/orders/:id", handlers.AdminUpdateOrder(db))
+			}
 		}
 	}
 
-	// SPA fallback — any non-API route returns index.html
+	// ─── SPA fallback ───────────────────────────────────────────────────────
+	// Any non-API route returns index.html from the embedded dist.
+	// The Vue Router history mode handles client-side routing.
+	staticFS := http.FS(frontendFS)
 	r.NoRoute(func(c *gin.Context) {
 		c.Header("Cache-Control", "no-cache")
-		c.FileFromFS(c.Request.URL.Path, staticServer)
+		c.FileFromFS(c.Request.URL.Path, staticFS)
 	})
 
 	addr := ":" + config.Global.Server.Port

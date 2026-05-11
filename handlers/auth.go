@@ -1,83 +1,41 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
-	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	"yesok-vietnam/models"
+	"yesok-vietnam/pkg/jwt"
 	"yesok-vietnam/pkg/telegram"
 )
 
-const (
-	MaxAuthAge = 24 * time.Hour
-	TokenTTL   = 7 * 24 * time.Hour
-)
+const MaxAuthAge = 24 * time.Hour
+
+// adminPasswords maps admin usernames to bcrypt-hashed passwords.
+// Default: username "admin", password "admin123" (hash for "admin123").
+// To change the password: generate a new hash with bcrypt.GenerateFromPassword.
+// To add more admins: duplicate the entry with a different username:hash pair.
+var adminPasswords = map[string]string{
+	"admin": "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy",
+}
+
+// ─── Shared request types ─────────────────────────────────────────────────────
 
 type AuthTGRequest struct {
 	InitData string `json:"initData" binding:"required"`
 }
 
-// AuthTGResponse is the JSON returned to the frontend.
-// Only client-facing fields are included (no DB internals like session_token, deleted_at, etc.).
-type AuthTGResponse struct {
-	Token  string           `json:"token"`
-	User   *AuthUserPayload `json:"user"`
-	IsNew  bool             `json:"is_new"`
-	Expire int64            `json:"expire"`
+type AuthAdminRequest struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
 }
 
-// AuthUserPayload mirrors the fields the JS frontend reads (updateUserInfo, etc.).
-// All JSON keys are lowercase snake_case so JS can read them directly.
-type AuthUserPayload struct {
-	ID        uint    `json:"id"`
-	Username  string  `json:"username"`
-	FirstName string  `json:"first_name"`
-	LastName  string  `json:"last_name"`
-	Role      string  `json:"role"`
-	Balance   float64 `json:"balance"`
-	Language  string  `json:"language"`
-	Phone     string  `json:"phone"`
-	AvatarURL string  `json:"avatar_url"`
-}
-
-// validateInitData tries to validate the raw initData string.
-// If the first attempt fails, it retries once after url.QueryUnescape to handle
-// the double-encoded case that can occur when the frontend sends a string that
-// has already been encoded by the browser's fetch layer.
-func validateInitData(validator *telegram.Validator, raw string) (initData *telegram.InitData, detail string, err error) {
-	// Attempt 1: use the string as-is.
-	initData, err = validator.Validate(raw, MaxAuthAge)
-	if err == nil {
-		return initData, "ok", nil
-	}
-	detail = err.Error()
-	log.Printf("[Auth] Validate(raw) failed: %v", err)
-
-	// Attempt 2: one level of URL unescape.
-	unescaped, uerr := url.QueryUnescape(raw)
-	if uerr != nil {
-		log.Printf("[Auth] url.QueryUnescape also failed: %v", uerr)
-		return nil, detail, err
-	}
-	log.Printf("[Auth] Validate(raw) failed, retrying with QueryUnescape: %v", uerr)
-
-	initData, err = validator.Validate(unescaped, MaxAuthAge)
-	if err == nil {
-		log.Printf("[Auth] Validate(QueryUnescape) succeeded")
-		return initData, "ok (after url.QueryUnescape)", nil
-	}
-	log.Printf("[Auth] Validate(QueryUnescape) also failed: %v", err)
-
-	// Return the first error as the primary reason.
-	return nil, detail, err
-}
+// ─── Client auth: POST /api/v1/client/auth/tg ─────────────────────────────────
 
 func AuthTG(db *gorm.DB) gin.HandlerFunc {
 	validator := telegram.NewValidator()
@@ -85,27 +43,20 @@ func AuthTG(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req AuthTGRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			log.Printf("[Auth] ShouldBindJSON failed: %v | raw body: %.200q",
-				err, c.Request.Body)
+			log.Printf("[AuthTG] ShouldBindJSON failed: %v", err)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "detail": err.Error()})
 			return
 		}
 
-		// Log what we received (truncated to avoid noise).
-		log.Printf("[Auth] POST /api/auth/tg — initData len=%d", len(req.InitData))
+		log.Printf("[AuthTG] POST /api/v1/client/auth/tg — initData len=%d", len(req.InitData))
 
-		// Validate with fallback for double-encoded input.
-		initData, valDetail, valErr := validateInitData(validator, req.InitData)
+		initData, detail, valErr := validateInitData(validator, req.InitData)
 		if valErr != nil {
-			log.Printf("[Auth] Validation failed: primary_error=%v | detail=%s", valErr, valDetail)
-			c.JSON(http.StatusUnauthorized, gin.H{
-				"error":  "invalid initData",
-				"detail": valErr.Error(),
-			})
+			log.Printf("[AuthTG] validation failed: %v | detail=%s", valErr, detail)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid initData", "detail": valErr.Error()})
 			return
 		}
-		log.Printf("[Auth] Validation ok | user_id=%d username=%s | %s",
-			initData.UserID, initData.Username, valDetail)
+		log.Printf("[AuthTG] ok | user_id=%d username=%s | %s", initData.UserID, initData.Username, detail)
 
 		var user models.User
 		var isNew bool
@@ -113,41 +64,36 @@ func AuthTG(db *gorm.DB) gin.HandlerFunc {
 		result := db.Where("tg_id = ?", initData.UserID).First(&user)
 		if result.Error == gorm.ErrRecordNotFound {
 			isNew = true
-
-			// Core permission logic: first registered user becomes admin, all others become user.
 			var count int64
 			db.Model(&models.User{}).Count(&count)
 
 			role := models.RoleUser
 			if count == 0 {
-				role = models.RoleAdmin
+				role = models.RoleAdmin // first registered user becomes admin
 			}
 
 			user = models.User{
-				TGID:         initData.UserID,
-				Username:     initData.Username,
-				FirstName:    initData.FirstName,
-				LastName:     initData.LastName,
-				Language:     initData.Language,
-				Role:         role,
-				Balance:      0,
-				SessionToken: generateToken(),
+				TGID:      initData.UserID,
+				Username:  initData.Username,
+				FirstName: initData.FirstName,
+				LastName:  initData.LastName,
+				Language:  initData.Language,
+				Role:      role,
+				Balance:   0,
 			}
 			if err := db.Create(&user).Error; err != nil {
-				log.Printf("[Auth] db.Create user failed: %v", err)
+				log.Printf("[AuthTG] db.Create failed: %v", err)
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
 				return
 			}
-			log.Printf("[Auth] New user created | id=%d username=%s role=%s",
-				user.ID, user.Username, user.Role)
+			log.Printf("[AuthTG] new user created | id=%d username=%s role=%s", user.ID, user.Username, user.Role)
 		} else if result.Error != nil {
-			log.Printf("[Auth] db.First failed: %v", result.Error)
+			log.Printf("[AuthTG] db.First failed: %v", result.Error)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
 			return
 		} else {
-			// Existing user — sync profile fields from Telegram.
-			log.Printf("[Auth] Existing user | id=%d username=%s — syncing from TG",
-				user.ID, user.Username)
+			// Sync profile from Telegram on every login.
+			log.Printf("[AuthTG] existing user | id=%d username=%s — syncing from TG", user.ID, user.Username)
 			db.Model(&user).Updates(map[string]interface{}{
 				"username":   initData.Username,
 				"first_name": initData.FirstName,
@@ -156,63 +102,132 @@ func AuthTG(db *gorm.DB) gin.HandlerFunc {
 			})
 		}
 
-		newToken := generateToken()
-		expireAt := time.Now().Add(TokenTTL)
-		if err := db.Model(&user).Update("session_token", newToken).Error; err != nil {
-			log.Printf("[Auth] Update session_token failed: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update token"})
+		// Issue JWT.
+		jwtToken, expireUnix, err := jwt.Sign(user.ID, user.Role)
+		if err != nil {
+			log.Printf("[AuthTG] jwt.Sign failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue token"})
 			return
 		}
 
-		log.Printf("[Auth] Success | user_id=%d token_prefix=%.10s... expire=%s",
-			user.ID, newToken, expireAt.Format(time.RFC3339))
-
-		response := AuthTGResponse{
-			Token: newToken,
-			User: &AuthUserPayload{
-				ID:        user.ID,
-				Username:  user.Username,
-				FirstName: user.FirstName,
-				LastName:  user.LastName,
-				Role:      user.Role,
-				Balance:   user.Balance,
-				Language:  user.Language,
-				Phone:     "",
-				AvatarURL: user.AvatarURL,
-			},
-			IsNew:  isNew,
-			Expire: expireAt.Unix(),
+		// Store JWT in DB session_token column (for multi-login tracking / force-logout).
+		if err := db.Model(&user).Update("session_token", jwtToken).Error; err != nil {
+			log.Printf("[AuthTG] update session_token warning: %v (non-fatal)", err)
 		}
-		fmt.Printf("[Debug] Returning to frontend: %v\n", response)
-		fmt.Printf("[Final JSON] Sending token: %s\n", newToken)
-		c.JSON(http.StatusOK, response)
-	}
-}
 
-func GetMe(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		userVal, exists := c.Get("user")
-		if !exists {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-			return
-		}
-		u := userVal.(*models.User)
-		c.JSON(http.StatusOK, AuthUserPayload{
-			ID:        u.ID,
-			Username:  u.Username,
-			FirstName: u.FirstName,
-			LastName:  u.LastName,
-			Role:      u.Role,
-			Balance:   u.Balance,
-			Language:  u.Language,
-			Phone:     "",
-			AvatarURL: u.AvatarURL,
+		log.Printf("[AuthTG] success | user_id=%d role=%s token_prefix=%.10s... expire=%d",
+			user.ID, user.Role, jwtToken, expireUnix)
+
+		c.JSON(http.StatusOK, gin.H{
+			"token":  jwtToken,
+			"user":   userPayload(&user),
+			"is_new": isNew,
+			"expire": expireUnix,
 		})
 	}
 }
 
-func generateToken() string {
-	b := make([]byte, 32)
-	_, _ = rand.Read(b)
-	return hex.EncodeToString(b)
+// validateInitData tries to validate the raw initData string.
+// If the first attempt fails, it retries once after url.QueryUnescape to handle
+// the double-encoded case that can occur when the frontend sends a string that
+// has already been encoded by the browser's fetch layer.
+func validateInitData(validator *telegram.Validator, raw string) (*telegram.InitData, string, error) {
+	initData, err := validator.Validate(raw, MaxAuthAge)
+	if err == nil {
+		return initData, "ok", nil
+	}
+	detail := err.Error()
+	log.Printf("[AuthTG] Validate(raw) failed: %v", err)
+
+	unescaped, uerr := url.QueryUnescape(raw)
+	if uerr != nil {
+		log.Printf("[AuthTG] url.QueryUnescape also failed: %v", uerr)
+		return nil, detail, err
+	}
+	log.Printf("[AuthTG] Validate(raw) failed, retrying with QueryUnescape")
+
+	initData, err = validator.Validate(unescaped, MaxAuthAge)
+	if err == nil {
+		log.Printf("[AuthTG] Validate(QueryUnescape) succeeded")
+		return initData, "ok (after url.QueryUnescape)", nil
+	}
+	log.Printf("[AuthTG] Validate(QueryUnescape) also failed: %v", err)
+	return nil, detail, err
+}
+
+// ─── Admin auth: POST /api/v1/admin/auth/login ───────────────────────────────
+
+func AuthAdmin(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req AuthAdminRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			log.Printf("[AuthAdmin] ShouldBindJSON failed: %v", err)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body", "detail": err.Error()})
+			return
+		}
+
+		log.Printf("[AuthAdmin] POST /api/v1/admin/auth/login — username=%s", req.Username)
+
+		// Look up bcrypt hash.
+		storedHash, ok := adminPasswords[req.Username]
+		if !ok {
+			log.Printf("[AuthAdmin] unknown username: %s", req.Username)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+			return
+		}
+		if err := bcrypt.CompareHashAndPassword([]byte(storedHash), []byte(req.Password)); err != nil {
+			log.Printf("[AuthAdmin] wrong password for user: %s", req.Username)
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+			return
+		}
+
+		// Admins have UID=0; the JWT carries isAdmin=true via Role=admin.
+		jwtToken, expireUnix, err := jwt.Sign(0, models.RoleAdmin)
+		if err != nil {
+			log.Printf("[AuthAdmin] jwt.Sign failed: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue token"})
+			return
+		}
+
+		log.Printf("[AuthAdmin] success | username=%s token_prefix=%.10s...", req.Username, jwtToken)
+
+		c.JSON(http.StatusOK, gin.H{
+			"token": jwtToken,
+			"user": gin.H{
+				"id":       0,
+				"username": req.Username,
+				"role":     models.RoleAdmin,
+				"is_admin": true,
+			},
+			"expire": expireUnix,
+		})
+	}
+}
+
+// ─── Admin auth: POST /api/v1/admin/auth/logout ──────────────────────────────
+
+func AuthLogout() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uid, _ := c.Get("uid")
+		role, _ := c.Get("role")
+		log.Printf("[AuthLogout] uid=%v role=%v", uid, role)
+		c.JSON(http.StatusOK, gin.H{"message": "logged out"})
+	}
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+// userPayload converts a DB User model to a JSON-safe map.
+func userPayload(u *models.User) gin.H {
+	return gin.H{
+		"id":         u.ID,
+		"username":   u.Username,
+		"first_name": u.FirstName,
+		"last_name":  u.LastName,
+		"role":       u.Role,
+		"balance":    u.Balance,
+		"language":   u.Language,
+		"phone":      "",
+		"avatar_url": u.AvatarURL,
+	}
 }

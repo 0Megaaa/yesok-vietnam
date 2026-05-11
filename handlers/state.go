@@ -11,6 +11,34 @@ import (
 	"yesok-vietnam/models"
 )
 
+// loadUserFromContext extracts the user from context (set by middleware) or
+// loads it from DB using the UID embedded in the JWT.
+func loadUserFromContext(c *gin.Context, db *gorm.DB) (*models.User, error) {
+	// Fast path: already set by middleware DB lookup.
+	if u, exists := c.Get("user"); exists {
+		if user, ok := u.(*models.User); ok {
+			return user, nil
+		}
+	}
+
+	// Load from DB using UID from JWT claims.
+	uid, exists := c.Get("uid")
+	if !exists {
+		return nil, fmt.Errorf("uid not in context")
+	}
+	uidVal, ok := uid.(uint)
+	if !ok || uidVal == 0 {
+		return nil, fmt.Errorf("invalid uid")
+	}
+
+	var user models.User
+	if err := db.First(&user, uidVal).Error; err != nil {
+		return nil, err
+	}
+	c.Set("user", &user)
+	return &user, nil
+}
+
 // ─── GET /api/state ───────────────────────────────────────────────────────────
 
 // GetState returns the full application state for the authenticated user.
@@ -18,12 +46,11 @@ import (
 //   - user   → only their own orders + basic profile
 func GetState(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		u, exists := c.Get("user")
-		if !exists {
+		currentUser, err := loadUserFromContext(c, db)
+		if err != nil || currentUser == nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
-		currentUser := u.(*models.User)
 
 		var resp GetStateResponse
 
@@ -70,12 +97,11 @@ func GetState(db *gorm.DB) gin.HandlerFunc {
 //   - Update: { "action": "update", "id": 123, "fields": { ...patch } }
 func UpdateState(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		u, exists := c.Get("user")
-		if !exists {
+		currentUser, err := loadUserFromContext(c, db)
+		if err != nil || currentUser == nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
-		currentUser := u.(*models.User)
 
 		var batch []StateMutation
 		if err := c.ShouldBindJSON(&batch); err != nil {
