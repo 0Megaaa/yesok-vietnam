@@ -1,7 +1,9 @@
 <script setup>
 import { computed } from 'vue'
+import { useRouter } from 'vue-router'
 import { useClientStore } from '../../store/client'
 
+const router = useRouter()
 const client = useClientStore()
 const orders = computed(() => client.orders || [])
 
@@ -62,14 +64,109 @@ const getOrderClass = (sk) => {
     </div>
   </div>
 
-  <div style="padding:14px 16px 10px;">
-    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
-      <div style="display:flex;align-items:center;gap:6px;">
-        <span style="font-size:15px;">📋</span>
-        <span style="font-size:15px;font-weight:700;color:var(--tx);">订单动态</span>
+  <div style="padding-top:14px;">
+    <div class="cat-row">
+      <div class="cat-item" @click="router.push('/service')">
+        <div class="cat-ic">✈️</div>
+        <div class="cat-lb">签证旅游</div>
       </div>
-      <span style="font-size:12px;color:var(--bl);cursor:pointer;">查看全部 ›</span>
+      <div class="cat-item" @click="router.push('/service')">
+        <div class="cat-ic">🏢</div>
+        <div class="cat-lb">房产投资</div>
+      </div>
+      <div class="cat-item" @click="router.push('/service')">
+        <div class="cat-ic">📋</div>
+        <div class="cat-lb">公司注册</div>
+      </div>
+      <div class="cat-item" @click="router.push('/service')">
+        <div class="cat-ic">🚗</div>
+        <div class="cat-lb">接机包车</div>
+      </div>
+      <div class="cat-item" @click="router.push('/service')">
+        <div class="cat-ic">🗣️</div>
+        <div class="cat-lb">专业翻译</div>
+      </div>
+      <div class="cat-item" @click="router.push('/service')">
+        <div class="cat-ic">⊞</div>
+        <div class="cat-lb">全部服务</div>
+      </div>
     </div>
+  </div>
+
+  <div class="sec-hd" style="padding-top:4px;">
+    <div class="sec-t"><span style="font-size:16px;">🔥</span> 热门服务</div>
+    <div class="sec-more" @click="router.push('/service')">查看更多 ›</div>
+  </div>
+  <div class="hot-scroll">
+    <div class="hot-card" @click="router.push('/service')">
+      <div class="hot-thumb">📋</div>
+      <div class="hot-body">
+        <div class="hot-nm">公司注册</div>
+        <div class="hot-pr">¥3000起</div>
+        <div class="hot-tg">全程代办</div>
+      </div>
+    </div>
+    <div class="hot-card" @click="router.push('/service')">
+      <div class="hot-thumb">✈️</div>
+      <div class="hot-body">
+        <div class="hot-nm">商务签证</div>
+        <div class="hot-pr">¥1200起</div>
+        <div class="hot-tg">极速出签</div>
+      </div>
+    </div>
+    <div class="hot-card" @click="router.push('/service')">
+      <div class="hot-thumb">🚗</div>
+      <div class="hot-body">
+        <div class="hot-nm">机场接送</div>
+        <div class="hot-pr">¥200起</div>
+        <div class="hot-tg">中文司机</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="vip-hd" @click="router.push('/service')">
+    <div class="vip-badge">👑</div>
+    <div style="flex:1;">
+      <div class="vip-ti">高端通道服务 <span class="vi-bg gold" style="margin-left:6px; padding:1px 6px; border-radius:10px; font-size:9px;">私密·专属</span></div>
+      <div class="vip-sb">解决复杂问题，一对一资源对接</div>
+    </div>
+    <div style="color:var(--gd);font-size:18px;">›</div>
+  </div>
+
+  <div class="sec-hd">
+    <div class="sec-t"><span style="font-size:16px;">📰</span> 越南早知道</div>
+    <div class="sec-more">查看更多 ›</div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:0 12px 14px;">
+    <div class="hnc">
+      <div class="hnc-em">🇻🇳</div>
+      <div class="hnc-ov"></div>
+      <div class="hnc-badge" style="background:var(--rd);">热门</div>
+      <div class="hnc-body">
+        <div class="hnc-title">2026越南最新签证政策解读</div>
+        <div class="hnc-meta">
+          <span>👁 1.2k</span>
+          <span style="margin-left:4px;">⭐ 4.9</span>
+        </div>
+      </div>
+    </div>
+    <div class="hnc">
+      <div class="hnc-em">🏢</div>
+      <div class="hnc-ov"></div>
+      <div class="hnc-badge" style="background:#2E7D32;">最新</div>
+      <div class="hnc-body">
+        <div class="hnc-title">外资注册公司避坑指南</div>
+        <div class="hnc-meta">
+          <span>👁 856</span>
+          <span style="margin-left:4px;">⭐ 4.8</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="sec-hd" style="border-top: 1px solid var(--br); padding-top: 18px;">
+    <div class="sec-t"><span style="font-size:16px;">📋</span> 订单动态</div>
+    <span class="sec-more" @click="router.push('/orders')">查看全部 ›</span>
   </div>
 
   <div class="ord-list">
@@ -120,5 +217,5 @@ const getOrderClass = (sk) => {
 </template>
 
 <style scoped>
-/* All styles are inherited from style.css which contains the exact yesok-final.html CSS */
+/* 严禁在这里写任何样式，确保所有样式来自全局 style.css 保持甲方原汁原味 */
 </style>
