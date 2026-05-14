@@ -1,8 +1,5 @@
 <script setup>
 import { ref, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-
-const router = useRouter()
 
 const SVCS_DATA = ref([
   { id: 'company', icon: '🏢', color: '#1565C0', bg: '#E3F0FF', name: '公司注册', sub: '外资/内资 · 一站式办理', price: '¥3000', unit: '起', tags: ['合规', '全程代办'] },
@@ -25,11 +22,11 @@ onMounted(() => {
 })
 
 const goToDetail = (id) => {
-  router.push({ name: 'service-detail', params: { id } })
+  uni.navigateTo({ url: `/pages/service-detail/index?id=${id}` })
 }
 
 const placeOrder = (id) => {
-  router.push({ name: 'service-detail', params: { id } })
+  uni.navigateTo({ url: `/pages/service-detail/index?id=${id}` })
 }
 </script>
 

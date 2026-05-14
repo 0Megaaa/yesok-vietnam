@@ -1,6 +1,5 @@
 <script setup>
 import { useClientStore } from '../../store/client'
-import { RouterLink } from 'vue-router'
 
 const client = useClientStore()
 </script>

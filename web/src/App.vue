@@ -1,15 +1,17 @@
 <template>
-  <RouterView />
+  <view id="app"></view>
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onLaunch, onShow, onHide } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
 import { loginWithTG, getMe } from '@/api/client/auth'
 
 const client = useClientStore()
 
-onMounted(async () => {
+onLaunch(async () => {
+  console.log('[App] onLaunch')
+
   const tg = window.Telegram?.WebApp
   if (!tg) {
     if (client.isLoggedIn) {
@@ -51,8 +53,16 @@ onMounted(async () => {
     console.error('[App] Telegram login failed', e)
   }
 })
+
+onShow(() => {
+  console.log('[App] onShow')
+})
+
+onHide(() => {
+  console.log('[App] onHide')
+})
 </script>
 
 <style>
-/* 严禁在这里写任何样式，确保所有样式来自全局 style.css */
+/* All global styles are sourced from style.css */
 </style>

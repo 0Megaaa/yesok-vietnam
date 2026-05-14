@@ -1,9 +1,7 @@
 <script setup>
 import { computed } from 'vue'
-import { useRouter } from 'vue-router'
-import { useClientStore } from '../../store/client'
+import { useClientStore } from '../../../store/client'
 
-const router = useRouter()
 const client = useClientStore()
 const orders = computed(() => client.orders || [])
 
@@ -28,7 +26,7 @@ const getOrderClass = (sk) => {
     <!-- Empty top area — image carries the branding text -->
     <!-- Bottom overlay: search bar -->
     <div style="padding:0 16px 16px;">
-      <div style="background:#fff;border-radius:22px;padding:9px 12px;display:flex;align-items:center;gap:8px;box-shadow:0 2px 12px rgba(0,0,0,.15);cursor:pointer;" @click="router.push('/service')">
+      <div style="background:#fff;border-radius:22px;padding:9px 12px;display:flex;align-items:center;gap:8px;box-shadow:0 2px 12px rgba(0,0,0,.15);cursor:pointer;" @click="uni.switchTab({ url: '/pages/services/index' })">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9AA3B5" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         <span style="flex:1;font-size:12px;color:#9AA3B5;">搜索签证、接机、公司注册…</span>
         <button style="padding:6px 12px;border-radius:18px;background:var(--bl);color:#fff;font-size:11px;font-weight:700;border:none;cursor:pointer;">搜索</button>
@@ -39,27 +37,27 @@ const getOrderClass = (sk) => {
   <!-- Quick Categories -->
   <div style="background:#fff;padding:14px 16px 4px;">
     <div style="display:flex;justify-content:space-between;gap:4px;">
-      <div @click="router.push('/service')" style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;width:54px;">
+      <div @click="uni.switchTab({ url: '/pages/services/index' })" style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;width:54px;">
         <div style="width:48px;height:48px;border-radius:50%;background:#F0F6FF;display:flex;align-items:center;justify-content:center;font-size:22px;">✈️</div>
         <div style="font-size:11px;color:#1A2340;font-weight:500;text-align:center;">签证旅游</div>
       </div>
-      <div @click="router.push('/service')" style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;width:54px;">
+      <div @click="uni.switchTab({ url: '/pages/services/index' })" style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;width:54px;">
         <div style="width:48px;height:48px;border-radius:50%;background:#F0F6FF;display:flex;align-items:center;justify-content:center;font-size:22px;">🏢</div>
         <div style="font-size:11px;color:#1A2340;font-weight:500;text-align:center;">房产投资</div>
       </div>
-      <div @click="router.push('/service')" style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;width:54px;">
+      <div @click="uni.switchTab({ url: '/pages/services/index' })" style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;width:54px;">
         <div style="width:48px;height:48px;border-radius:50%;background:#F0F6FF;display:flex;align-items:center;justify-content:center;font-size:22px;">📋</div>
         <div style="font-size:11px;color:#1A2340;font-weight:500;text-align:center;">公司注册</div>
       </div>
-      <div @click="router.push('/service')" style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;width:54px;">
+      <div @click="uni.switchTab({ url: '/pages/services/index' })" style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;width:54px;">
         <div style="width:48px;height:48px;border-radius:50%;background:#F0F6FF;display:flex;align-items:center;justify-content:center;font-size:22px;">🚗</div>
         <div style="font-size:11px;color:#1A2340;font-weight:500;text-align:center;">接送出行</div>
       </div>
-      <div @click="router.push('/service')" style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;width:54px;">
+      <div @click="uni.switchTab({ url: '/pages/services/index' })" style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;width:54px;">
         <div style="width:48px;height:48px;border-radius:50%;background:#F0F6FF;display:flex;align-items:center;justify-content:center;font-size:22px;">🗣️</div>
         <div style="font-size:11px;color:#1A2340;font-weight:500;text-align:center;">翻译服务</div>
       </div>
-      <div @click="router.push('/service')" style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;width:54px;">
+      <div @click="uni.switchTab({ url: '/pages/services/index' })" style="display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;width:54px;">
         <div style="width:48px;height:48px;border-radius:50%;background:#F0F6FF;display:flex;align-items:center;justify-content:center;font-size:20px;color:#9AA3B5;font-weight:700;">···</div>
         <div style="font-size:11px;color:#1A2340;font-weight:500;text-align:center;">更多服务</div>
       </div>
@@ -70,10 +68,10 @@ const getOrderClass = (sk) => {
   <div style="background:#fff;margin-bottom:14px;padding:14px 16px;box-shadow:0 1px 8px rgba(0,0,0,.04);">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
       <div style="font-size:16px;font-weight:700;color:#1A2340;">热门服务</div>
-      <div @click="router.push('/service')" style="font-size:12px;color:#9AA3B5;cursor:pointer;display:flex;align-items:center;gap:2px;">全部服务 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9AA3B5" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
+      <div @click="uni.switchTab({ url: '/pages/services/index' })" style="font-size:12px;color:#9AA3B5;cursor:pointer;display:flex;align-items:center;gap:2px;">全部服务 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9AA3B5" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
-      <div @click="router.push('/service')" style="border-radius:12px;overflow:hidden;border:1px solid #E2E8F4;cursor:pointer;box-shadow:0 2px 8px rgba(13,71,161,.08);">
+        <div @click="uni.switchTab({ url: '/pages/services/index' })" style="border-radius:12px;overflow:hidden;border:1px solid #E2E8F4;cursor:pointer;box-shadow:0 2px 8px rgba(13,71,161,.08);">
         <div style="height:72px;background:linear-gradient(135deg,#E3F0FF,#C5D9F5);position:relative;overflow:hidden;display:flex;align-items:flex-end;justify-content:flex-start;padding:8px 8px 6px;">
           <div style="position:absolute;right:-8px;top:-8px;font-size:52px;opacity:.4;">🏙️</div>
           <div style="font-size:13px;font-weight:700;color:#1A2340;line-height:1.3;position:relative;z-index:1;">签证代办<br><span style="font-size:10px;font-weight:500;color:#4A5568;">快速出签</span></div>
@@ -82,7 +80,7 @@ const getOrderClass = (sk) => {
           <button style="width:100%;padding:5px;border-radius:16px;background:var(--bl);color:#fff;font-size:11px;font-weight:600;border:none;cursor:pointer;">去咨询</button>
         </div>
       </div>
-      <div @click="router.push('/service')" style="border-radius:12px;overflow:hidden;border:1px solid #E2E8F4;cursor:pointer;box-shadow:0 2px 8px rgba(13,71,161,.08);">
+        <div @click="uni.switchTab({ url: '/pages/services/index' })" style="border-radius:12px;overflow:hidden;border:1px solid #E2E8F4;cursor:pointer;box-shadow:0 2px 8px rgba(13,71,161,.08);">
         <div style="height:72px;background:linear-gradient(135deg,#E8F5E9,#C8E6C9);position:relative;overflow:hidden;display:flex;align-items:flex-end;padding:8px 8px 6px;">
           <div style="position:absolute;right:-8px;top:-4px;font-size:52px;opacity:.4;">🚗</div>
           <div style="font-size:13px;font-weight:700;color:#1A2340;line-height:1.3;position:relative;z-index:1;">机场接机<br><span style="font-size:10px;font-weight:500;color:#4A5568;">安全 · 准时</span></div>
@@ -91,7 +89,7 @@ const getOrderClass = (sk) => {
           <button style="width:100%;padding:5px;border-radius:16px;background:var(--bl);color:#fff;font-size:11px;font-weight:600;border:none;cursor:pointer;">去咨询</button>
         </div>
       </div>
-      <div @click="router.push('/service')" style="border-radius:12px;overflow:hidden;border:1px solid #E2E8F4;cursor:pointer;box-shadow:0 2px 8px rgba(13,71,161,.08);">
+        <div @click="uni.switchTab({ url: '/pages/services/index' })" style="border-radius:12px;overflow:hidden;border:1px solid #E2E8F4;cursor:pointer;box-shadow:0 2px 8px rgba(13,71,161,.08);">
         <div style="height:72px;background:linear-gradient(135deg,#FFF8E1,#FFE082);position:relative;overflow:hidden;display:flex;align-items:flex-end;padding:8px 8px 6px;">
           <div style="position:absolute;right:-8px;top:-4px;font-size:52px;opacity:.35;">🏛️</div>
           <div style="font-size:13px;font-weight:700;color:#1A2340;line-height:1.3;position:relative;z-index:1;">公司注册<br><span style="font-size:10px;font-weight:500;color:#4A5568;">快速办理</span></div>
@@ -107,7 +105,7 @@ const getOrderClass = (sk) => {
   <div style="background:#fff;margin-bottom:14px;padding:14px 16px;box-shadow:0 1px 8px rgba(0,0,0,.04);">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
       <div style="font-size:16px;font-weight:700;color:#1A2340;">攻略精选</div>
-      <div @click="router.push('/news')" style="font-size:12px;color:#9AA3B5;cursor:pointer;display:flex;align-items:center;gap:2px;">更多 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9AA3B5" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
+      <div @click="uni.switchTab({ url: '/pages/discover/index' })" style="font-size:12px;color:#9AA3B5;cursor:pointer;display:flex;align-items:center;gap:2px;">更多 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#9AA3B5" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg></div>
     </div>
     <div style="display:flex;gap:6px;margin-bottom:12px;overflow-x:auto;scrollbar-width:none;">
       <div style="flex-shrink:0;padding:5px 16px;border-radius:20px;background:var(--bl);color:#fff;font-size:12px;font-weight:600;cursor:pointer;">全部</div>
@@ -115,24 +113,24 @@ const getOrderClass = (sk) => {
       <div style="flex-shrink:0;padding:5px 16px;border-radius:20px;background:#F0F6FF;color:#4A5568;font-size:12px;cursor:pointer;">生活</div>
       <div style="flex-shrink:0;padding:5px 16px;border-radius:20px;background:#F0F6FF;color:#4A5568;font-size:12px;cursor:pointer;">商务</div>
       <div style="flex-shrink:0;padding:5px 16px;border-radius:20px;background:#F0F6FF;color:#4A5568;font-size:12px;cursor:pointer;">公司</div>
-      <div @click="router.push('/news')" style="flex-shrink:0;padding:5px 16px;border-radius:20px;background:#F0F6FF;color:#9AA3B5;font-size:12px;cursor:pointer;">更多 ›</div>
+      <div @click="uni.switchTab({ url: '/pages/discover/index' })" style="flex-shrink:0;padding:5px 16px;border-radius:20px;background:#F0F6FF;color:#9AA3B5;font-size:12px;cursor:pointer;">更多 ›</div>
     </div>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
-      <div @click="router.push('/news')" style="border-radius:10px;overflow:hidden;border:1px solid #E2E8F4;cursor:pointer;box-shadow:0 1px 6px rgba(0,0,0,.06);">
+      <div @click="uni.switchTab({ url: '/pages/discover/index' })" style="border-radius:10px;overflow:hidden;border:1px solid #E2E8F4;cursor:pointer;box-shadow:0 1px 6px rgba(0,0,0,.06);">
         <div style="height:90px;background:linear-gradient(135deg,#E3F0FF,#C5D9F5);display:flex;align-items:center;justify-content:center;font-size:44px;">🇻🇳</div>
         <div style="padding:7px 8px;background:#fff;">
           <div style="font-size:11px;font-weight:600;color:#1A2340;line-height:1.4;margin-bottom:4px;">2026越南签证最新政策</div>
           <div style="font-size:9px;color:#9AA3B5;">👁 1.2k · ⭐ 4.9</div>
         </div>
       </div>
-      <div @click="router.push('/news')" style="border-radius:10px;overflow:hidden;border:1px solid #E2E8F4;cursor:pointer;box-shadow:0 1px 6px rgba(0,0,0,.06);">
+      <div @click="uni.switchTab({ url: '/pages/discover/index' })" style="border-radius:10px;overflow:hidden;border:1px solid #E2E8F4;cursor:pointer;box-shadow:0 1px 6px rgba(0,0,0,.06);">
         <div style="height:90px;background:linear-gradient(135deg,#FFF8E1,#FFE082);display:flex;align-items:center;justify-content:center;font-size:44px;">🏢</div>
         <div style="padding:7px 8px;background:#fff;">
           <div style="font-size:11px;font-weight:600;color:#1A2340;line-height:1.4;margin-bottom:4px;">外资公司注册避坑指南</div>
           <div style="font-size:9px;color:#9AA3B5;">👁 856 · ⭐ 4.8</div>
         </div>
       </div>
-      <div @click="router.push('/news')" style="border-radius:10px;overflow:hidden;border:1px solid #E2E8F4;cursor:pointer;box-shadow:0 1px 6px rgba(0,0,0,.06);">
+      <div @click="uni.switchTab({ url: '/pages/discover/index' })" style="border-radius:10px;overflow:hidden;border:1px solid #E2E8F4;cursor:pointer;box-shadow:0 1px 6px rgba(0,0,0,.06);">
         <div style="height:90px;background:linear-gradient(135deg,#E8F5E9,#C8E6C9);display:flex;align-items:center;justify-content:center;font-size:44px;">🏙️</div>
         <div style="padding:7px 8px;background:#fff;">
           <div style="font-size:11px;font-weight:600;color:#1A2340;line-height:1.4;margin-bottom:4px;">越南生活成本全解析</div>
