@@ -24,15 +24,14 @@
       --sh2: 0 4px 20px rgba(13, 71, 161, .14);
     }
 
-    * {
+    page, view, scroll-view, text, image, navigator, button, input {
       margin: 0;
       padding: 0;
       box-sizing: border-box;
       -webkit-tap-highlight-color: transparent;
     }
 
-    html,
-    body {
+    page {
       height: 100%;
       background: var(--gy);
       color: var(--tx);
@@ -3043,4 +3042,11 @@
       background: #0B4FE8;
       color: #fff;
       border-color: #0B4FE8;
+    }
+    .hero-bg {
+        /* 只有在 <style> 块里使用 @/static 路径，uni-app 编译器才会自动将其处理为小程序兼容的格式 */
+        background-image: url('@/static/img.png');
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
     }

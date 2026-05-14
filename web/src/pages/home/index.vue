@@ -1,6 +1,6 @@
 <script setup>
 import { computed } from 'vue'
-import { useClientStore } from '../../../store/client'
+import { useClientStore } from '@/store/client'
 
 const client = useClientStore()
 const orders = computed(() => client.orders || [])
@@ -22,7 +22,9 @@ const getOrderClass = (sk) => {
 
 <template>
   <!-- HERO BANNER: 427:357 aspect ratio, flex layout -->
-  <div class="hero" style="background-image: url('/img.png'); background-size: cover; background-position: center; aspect-ratio: 427/357; min-height: 350px; display: flex; flex-direction: column; justify-content: space-between; border: none;">
+  <div class="hero">
+    <view class="hero" style="background-image: url('/static/img.png'); background-size: cover; background-position: center; aspect-ratio: 427/357; min-height: 350px; display: flex; flex-direction: column; justify-content: space-between; border: none;">
+    </view>
     <!-- Empty top area — image carries the branding text -->
     <!-- Bottom overlay: search bar -->
     <div style="padding:0 16px 16px;">

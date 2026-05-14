@@ -1,5 +1,5 @@
 <script setup>
-import { useClientStore } from '../../store/client'
+import { useClientStore } from '@/store/client'
 
 const client = useClientStore()
 </script>

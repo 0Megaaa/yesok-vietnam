@@ -1,57 +1,47 @@
-<template>
-  <view id="app"></view>
-</template>
-
 <script setup>
 import { onLaunch, onShow, onHide } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
+
+// --- 只有在 H5 (Telegram) 环境下才引入这些 API ---
+// #ifdef H5
 import { loginWithTG, getMe } from '@/api/client/auth'
+// #endif
 
 const client = useClientStore()
 
 onLaunch(async () => {
   console.log('[App] onLaunch')
 
-  const tg = window.Telegram?.WebApp
-  if (!tg) {
-    if (client.isLoggedIn) {
+  // ── H5 / Telegram 环境 ────────────────────────────────────────
+  // #ifdef H5
+  if (typeof window !== 'undefined' && window.Telegram?.WebApp) {
+    const tg = window.Telegram.WebApp
+    tg.ready()
+    tg.expand()
+    tg.setHeaderColor('#0D47A1')
+
+    const initData = tg.initData
+    if (initData && !client.isLoggedIn) {
       try {
-        const userInfo = await getMe()
-        client.setUserInfo(userInfo)
-      } catch {
-        client.logout()
+        const data = await loginWithTG(initData)
+        client.setToken(data.token)
+        client.setUserInfo(data.user)
+      } catch (e) {
+        console.error('[App] Telegram login failed', e)
       }
     }
-    return
+  } else {
+    console.log('[App] 当前为 H5 环境但未检测到 Telegram WebApp，跳过 TG 登录')
   }
+  // #endif
 
-  tg.ready()
-  tg.expand()
-  tg.setHeaderColor('#0D47A1')
-
-  const initData = tg.initData
-  if (!initData) {
-    console.warn('[App] No initData from Telegram WebApp')
-    return
-  }
-
+  // ── 非 H5 环境（微信小程序 / iOS 原生等）───────────────────────
+  // #ifndef H5
+  console.log('当前为原生/小程序环境，准备执行原生登录逻辑')
   if (client.isLoggedIn) {
-    try {
-      const userInfo = await getMe()
-      client.setUserInfo(userInfo)
-    } catch {
-      client.logout()
-    }
-    return
+    console.log('[App] 非H5环境已登录，尝试刷新用户信息')
   }
-
-  try {
-    const data = await loginWithTG(initData)
-    client.setToken(data.token)
-    client.setUserInfo(data.user)
-  } catch (e) {
-    console.error('[App] Telegram login failed', e)
-  }
+  // #endif
 })
 
 onShow(() => {
@@ -64,5 +54,6 @@ onHide(() => {
 </script>
 
 <style>
-/* All global styles are sourced from style.css */
+/* 引入全局皮肤 */
+@import "./style.css";
 </style>

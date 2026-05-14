@@ -3,7 +3,7 @@ import { adminLogin, adminLogout } from '@/api/admin/auth'
 
 export const useAdminStore = defineStore('admin', {
   state: () => ({
-    token: localStorage.getItem('admin_token') || '',
+    token: uni.getStorageSync('admin_token') || '',
     userInfo: null,
   }),
 
@@ -15,9 +15,9 @@ export const useAdminStore = defineStore('admin', {
     setToken(token) {
       this.token = token
       if (token) {
-        localStorage.setItem('admin_token', token)
+        uni.setStorageSync('admin_token', token)
       } else {
-        localStorage.removeItem('admin_token')
+        uni.removeStorageSync('admin_token')
       }
     },
 
@@ -40,7 +40,7 @@ export const useAdminStore = defineStore('admin', {
       }
       this.token = ''
       this.userInfo = null
-      localStorage.removeItem('admin_token')
+      uni.removeStorageSync('admin_token')
     },
   },
 })
