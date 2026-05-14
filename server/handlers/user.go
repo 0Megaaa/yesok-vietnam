@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
-	"yesok-vietnam/models"
+	"yesok-vietnam/server/models"
 )
 
 // ─── GET /api/v1/client/user/me ───────────────────────────────────────────────

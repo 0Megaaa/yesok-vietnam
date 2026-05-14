@@ -20,6 +20,16 @@ const router = createRouter({
           name: 'profile',
           component: () => import('../views/client/Profile.vue'),
         },
+        {
+          path: 'services',
+          name: 'services',
+          component: () => import('../views/client/Services.vue'),
+        },
+        {
+          path: 'news',
+          name: 'news',
+          component: () => import('../views/client/Discover.vue'),
+        },
       ],
     },
 

@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
-	"yesok-vietnam/models"
+	"yesok-vietnam/server/models"
 )
 
 var (

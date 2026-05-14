@@ -13,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"yesok-vietnam/config"
+	"yesok-vietnam/server/config"
 )
 
 // InitData 代表 Telegram Web App 传来的用户信息

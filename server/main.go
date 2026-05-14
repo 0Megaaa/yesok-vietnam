@@ -11,18 +11,18 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
-	"yesok-vietnam/config"
-	"yesok-vietnam/handlers"
-	"yesok-vietnam/middleware"
-	"yesok-vietnam/models"
+	"yesok-vietnam/server/config"
+	"yesok-vietnam/server/handlers"
+	"yesok-vietnam/server/middleware"
+	"yesok-vietnam/server/models"
 )
 
-//go:embed web/dist/*
+//go:embed ../web/dist/*
 var frontendStatic embed.FS
 
 func main() {
 	// Extract embedded frontend into an fs.FS sub-tree for SPA serving.
-	frontendFS, err := fs.Sub(frontendStatic, "web/dist")
+	frontendFS, err := fs.Sub(frontendStatic, "../web/dist")
 	if err != nil {
 		log.Fatalf("failed to extract embedded frontend: %v", err)
 	}

@@ -10,6 +10,9 @@ RUN apk add --no-cache git ca-certificates
 COPY go.mod go.sum ./
 RUN go mod download
 
+# Copy web source (needed for embed directive).
+COPY ../web ./web
+
 # Copy source and build.
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
@@ -32,8 +35,6 @@ WORKDIR /home/appuser
 
 # Copy binary and assets from builder.
 COPY --from=builder /yesok-vietnam .
-COPY --from=builder /src/static   ./static
-COPY --from=builder /src/templates ./templates
-COPY --from=builder /src/html      ./html
+COPY --from=builder /src/web/dist ./web/dist
 
 ENTRYPOINT ["./yesok-vietnam"]

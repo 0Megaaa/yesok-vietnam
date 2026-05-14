@@ -5,7 +5,7 @@
     </div>
 
     <nav id="botnav">
-      <RouterLink to="/home" class="bni" active-class="on">
+      <RouterLink to="/" class="bni" active-class="on" exact>
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>
         <div class="bni-lb">首页</div>
         <div class="bni-dot"></div>
@@ -15,7 +15,7 @@
         <div class="bni-lb">资讯</div>
         <div class="bni-dot"></div>
       </RouterLink>
-      <RouterLink to="/service" class="bni" active-class="on">
+      <RouterLink to="/services" class="bni" active-class="on">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14"/></svg>
         <div class="bni-lb">服务</div>
         <div class="bni-dot"></div>

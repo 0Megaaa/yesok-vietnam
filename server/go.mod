@@ -1,4 +1,4 @@
-module yesok-vietnam
+module yesok-vietnam/server
 
 go 1.26.1
 

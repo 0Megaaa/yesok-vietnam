@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-	"yesok-vietnam/models"
+	"yesok-vietnam/server/models"
 )
 
 // loadUserFromContext extracts the user from context (set by middleware) or
