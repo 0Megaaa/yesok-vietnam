@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "vite build",
+    "dev": "uni -p h5",
+    "build": "uni build -p h5",
+    "preview": "vite preview --host 0.0.0.0",
     "dev:mp-weixin": "uni -p mp-weixin",
     "build:mp-weixin": "uni build -p mp-weixin"
   },
@@ -12,16 +13,16 @@
     "@dcloudio/uni-app": "3.0.0-4080720251210001",
     "@dcloudio/uni-components": "3.0.0-4080720251210001",
     "@dcloudio/uni-mp-weixin": "3.0.0-4080720251210001",
-    "@vue/compiler-dom": "3.5.34",
-    "@vue/compiler-sfc": "3.5.34",
-    "@vue/reactivity": "3.5.34",
-    "@vue/runtime-core": "3.5.34",
-    "@vue/runtime-dom": "3.5.34",
-    "@vue/server-renderer": "3.5.34",
-    "@vue/shared": "3.5.34",
+    "@vue/compiler-dom": "3.4.21",
+    "@vue/compiler-sfc": "3.4.21",
+    "@vue/reactivity": "3.4.21",
+    "@vue/runtime-core": "3.4.21",
+    "@vue/runtime-dom": "3.4.21",
+    "@vue/server-renderer": "3.4.21",
+    "@vue/shared": "3.4.21",
     "axios": "1.6.0",
     "pinia": "2.1.7",
-    "vue": "3.5.34"
+    "vue": "3.4.21"
   },
   "devDependencies": {
     "@dcloudio/vite-plugin-uni": "3.0.0-4080720251210001",

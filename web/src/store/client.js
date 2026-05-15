@@ -1,10 +1,93 @@
 import { defineStore } from 'pinia'
 import { getState, loginWithDemoAccount } from '@/api/client/auth'
 
+// getUniApi 安全获取 UniApp 运行时对象。
+// 实现步骤：
+// 1. 判断全局 uni 是否存在，兼容微信小程序、H5 与 App 端。
+// 2. 普通浏览器预览环境下返回 null，避免 setup 阶段直接引用 uni 抛错。
+// 3. 由下方缓存与提示封装统一降级到 localStorage 或 console 输出。
+const getUniApi = () => (typeof uni !== 'undefined' ? uni : null)
+
+// readStorage 安全读取本地缓存。
+// 实现步骤：
+// 1. 优先使用 UniApp 官方 storage API。
+// 2. 浏览器预览环境降级使用 localStorage。
+// 3. 读取失败时返回兜底值，避免影响页面渲染。
+const readStorage = (key, fallback = null) => {
+  try {
+    const uniApi = getUniApi()
+    if (uniApi?.getStorageSync) return uniApi.getStorageSync(key) || fallback
+    if (typeof localStorage !== 'undefined') {
+      const rawValue = localStorage.getItem(key)
+      if (!rawValue) return fallback
+      try {
+        return JSON.parse(rawValue)
+      } catch (error) {
+        return rawValue
+      }
+    }
+  } catch (error) {
+    console.warn('[YesOK Storage Read Failed]', key, error)
+  }
+  return fallback
+}
+
+// writeStorage 安全写入本地缓存。
+// 实现步骤：
+// 1. 优先写入 UniApp 官方 storage。
+// 2. 浏览器预览环境写入 localStorage。
+// 3. 捕获写入异常，避免隐私模式或低版本浏览器导致页面崩溃。
+const writeStorage = (key, value) => {
+  try {
+    const uniApi = getUniApi()
+    if (uniApi?.setStorageSync) {
+      uniApi.setStorageSync(key, value)
+      return
+    }
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value))
+    }
+  } catch (error) {
+    console.warn('[YesOK Storage Write Failed]', key, error)
+  }
+}
+
+// removeStorage 安全移除本地缓存。
+// 实现步骤：
+// 1. 优先调用 UniApp 官方 removeStorageSync。
+// 2. 浏览器预览环境降级移除 localStorage。
+// 3. 捕获异常保证退出登录等动作不会中断页面。
+const removeStorage = (key) => {
+  try {
+    const uniApi = getUniApi()
+    if (uniApi?.removeStorageSync) {
+      uniApi.removeStorageSync(key)
+      return
+    }
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(key)
+  } catch (error) {
+    console.warn('[YesOK Storage Remove Failed]', key, error)
+  }
+}
+
+// showSafeToast 安全展示轻提示。
+// 实现步骤：
+// 1. UniApp 环境使用 showToast。
+// 2. 普通浏览器预览环境仅输出日志。
+// 3. 避免登录成功反馈调用导致 H5 预览崩溃。
+const showSafeToast = (options) => {
+  const uniApi = getUniApi()
+  if (uniApi?.showToast) {
+    uniApi.showToast(options)
+    return
+  }
+  console.info('[YesOK Toast]', options?.title || '')
+}
+
 export const useClientStore = defineStore('client', {
   state: () => ({
-    token: uni.getStorageSync('client_token') || '',
-    userInfo: uni.getStorageSync('client_user') || null,
+    token: readStorage('client_token', ''),
+    userInfo: readStorage('client_user', null),
     orders: [],
     services: [],
     news: [],
@@ -29,9 +112,9 @@ export const useClientStore = defineStore('client', {
     setToken(token) {
       this.token = token
       if (token) {
-        uni.setStorageSync('client_token', token)
+        writeStorage('client_token', token)
       } else {
-        uni.removeStorageSync('client_token')
+        removeStorage('client_token')
       }
     },
 
@@ -43,9 +126,9 @@ export const useClientStore = defineStore('client', {
     setUserInfo(userInfo) {
       this.userInfo = userInfo
       if (userInfo) {
-        uni.setStorageSync('client_user', userInfo)
+        writeStorage('client_user', userInfo)
       } else {
-        uni.removeStorageSync('client_user')
+        removeStorage('client_user')
       }
     },
 
@@ -123,7 +206,7 @@ export const useClientStore = defineStore('client', {
       this.setToken(data.token)
       this.setUserInfo(data.user)
       this.closeLoginSheet()
-      uni.showToast({ title: '登录成功', icon: 'success' })
+      showSafeToast({ title: '登录成功', icon: 'success' })
       return data
     },
 
@@ -131,8 +214,8 @@ export const useClientStore = defineStore('client', {
       this.token = ''
       this.userInfo = null
       this.orders = []
-      uni.removeStorageSync('client_token')
-      uni.removeStorageSync('client_user')
+      removeStorage('client_token')
+      removeStorage('client_user')
     },
   },
 })

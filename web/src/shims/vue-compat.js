@@ -4,7 +4,6 @@
 // 3. 这里使用本地适配层转发官方 Vue 全部能力，并补齐只读占位字段。
 // 4. 该文件不承载业务逻辑，仅用于保证微信小程序、H5 与后续 App 构建链路稳定。
 export * from '../../node_modules/vue/dist/vue.runtime.esm-bundler.js'
-export { default } from '../../node_modules/vue/dist/vue.runtime.esm-bundler.js'
 
 // 兼容步骤：
 // 1. 保持默认 SSR 组件 setup 标识为 false。
