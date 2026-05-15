@@ -12,14 +12,21 @@
     "@dcloudio/uni-app": "3.0.0-4080720251210001",
     "@dcloudio/uni-components": "3.0.0-4080720251210001",
     "@dcloudio/uni-mp-weixin": "3.0.0-4080720251210001",
-    "axios": "^1.6.0",
-    "pinia": "^2.1.7",
-    "vue": "^3.4.21"
+    "@vue/compiler-dom": "3.5.34",
+    "@vue/compiler-sfc": "3.5.34",
+    "@vue/reactivity": "3.5.34",
+    "@vue/runtime-core": "3.5.34",
+    "@vue/runtime-dom": "3.5.34",
+    "@vue/server-renderer": "3.5.34",
+    "@vue/shared": "3.5.34",
+    "axios": "1.6.0",
+    "pinia": "2.1.7",
+    "vue": "3.5.34"
   },
   "devDependencies": {
     "@dcloudio/vite-plugin-uni": "3.0.0-4080720251210001",
-    "@vitejs/plugin-vue": "^5.0.4",
-    "vite": "^5.2.8"
+    "@vitejs/plugin-vue": "5.0.4",
+    "vite": "5.2.8"
   },
   "packageManager": "pnpm@10.33.0+sha512.10568bb4a6afb58c9eb3630da90cc9516417abebd3fabbe6739f0ae795728da1491e9db5a544c76ad8eb7570f5c4bb3d6c637b2cb41bfdcdb47fa823c8649319"
 }

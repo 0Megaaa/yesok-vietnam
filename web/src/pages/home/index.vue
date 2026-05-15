@@ -1,726 +1,632 @@
 <script setup>
-import { ref, computed } from "vue";
-import { useClientStore } from "@/store/client";
+import { computed, ref } from 'vue'
+import { useClientStore } from '@/store/client'
+import { PLATFORM_GUARANTEES } from '@/api/mockData'
+import AuthLoginSheet from '@/components/AuthLoginSheet.vue'
+import { useGlobalShare } from '@/composables/useGlobalShare'
 
-const client = useClientStore();
-const orders = computed(() => client.orders || []);
+const client = useClientStore()
+const activeNewsTab = ref('全部')
 
-// 热门服务数据
-const SVCS_DATA = ref([
-  {
-    id: "company",
-    icon: "🏢",
-    color: "#1565C0",
-    bg: "#E3F0FF",
-    name: "公司注册",
-    sub: "外资/内资 · 一站式办理",
-    price: "¥3000",
-    unit: "起",
-    tags: ["合规", "全程代办"],
-  },
-  {
-    id: "visa",
-    icon: "🛂",
-    color: "#00897B",
-    bg: "#E0F2F1",
-    name: "签证办理",
-    sub: "旅游/商务/工作签证",
-    price: "¥600",
-    unit: "起",
-    tags: ["加急可办", "拒签退费"],
-  },
-  {
-    id: "bank",
-    icon: "🏦",
-    color: "#F57C00",
-    bg: "#FFF3E0",
-    name: "银行开户",
-    sub: "企业账户 · 快速开通",
-    price: "¥800",
-    unit: "起",
-    tags: ["本地银行", "高效安全"],
-  },
-  {
-    id: "airport",
-    icon: "✈️",
-    color: "#1565C0",
-    bg: "#E3F0FF",
-    name: "机场接机",
-    sub: "落地无忧 · 中文司机",
-    price: "¥280",
-    unit: "起",
-    tags: ["24h服务", "中文"],
-  },
-  {
-    id: "rent",
-    icon: "🏠",
-    color: "#7B1FA2",
-    bg: "#F3E5F5",
-    name: "租房找房",
-    sub: "真实房源 · 精准匹配",
-    price: "¥500",
-    unit: "起",
-    tags: ["真实房源", "1对1带看"],
-  },
-  {
-    id: "translate",
-    icon: "🗣️",
-    color: "#00695C",
-    bg: "#E0F2F1",
-    name: "翻译陪同",
-    sub: "商务/生活翻译服务",
-    price: "¥200",
-    unit: "/时",
-    tags: ["越南语", "商务"],
-  },
-  {
-    id: "car",
-    icon: "🚗",
-    color: "#E53935",
-    bg: "#FFEBEE",
-    name: "商务用车",
-    sub: "专车服务 · 安全舒适",
-    price: "¥350",
-    unit: "起",
-    tags: ["7座", "专人服务"],
-  },
-  {
-    id: "medical",
-    icon: "🏥",
-    color: "#00897B",
-    bg: "#E0F2F1",
-    name: "医疗陪诊",
-    sub: "就医陪同 · 专业协助",
-    price: "¥500",
-    unit: "/天",
-    tags: ["正规机构", "翻译"],
-  },
-  {
-    id: "vip",
-    icon: "👑",
-    color: "#B8860B",
-    bg: "#FFF8E1",
-    name: "高端通道",
-    sub: "私密·专属·高效",
-    price: "面议",
-    unit: "",
-    tags: ["VIP专属", "保密"],
-  },
-]);
+useGlobalShare({
+  title: 'YesOK越南管家｜越南一站式中文服务平台',
+  path: '/pages/home/index',
+})
 
-// 攻略精选数据
-const activeNewsTab = ref("全部");
-const NEWS_CATS = ["全部", "签证政策", "房产投资", "生活指南", "商务资讯"];
-const DAILY_NEWS = ref([
-  {
-    id: "n1",
-    title: "越南签证最新政策解读：商务签与旅游签的本质区别",
-    tag: "签证政策",
-    source: "官方发布",
-    date: "05-02",
-    top: true,
-  },
-  {
-    id: "n2",
-    title: "胡志明市高端公寓租房避坑指南，这5个小区最受华人欢迎",
-    tag: "房产投资",
-    source: "管家精选",
-    date: "05-01",
-    top: true,
-  },
-  {
-    id: "n3",
-    title: "在越南开办外资公司的全流程解析及税务注意事项",
-    tag: "商务资讯",
-    source: "政策解读",
-    date: "04-28",
-  },
-  {
-    id: "n4",
-    title: "初到胡志明市：交通出行与防坑全攻略",
-    tag: "生活指南",
-    source: "用户分享",
-    date: "04-25",
-  },
-]);
+const services = computed(() => client.services || [])
+const orders = computed(() => client.orders || [])
+const newsCategories = computed(() => client.newsCategories?.length ? client.newsCategories : ['全部'])
 const filteredNews = computed(() => {
-  if (activeNewsTab.value === "全部") return DAILY_NEWS.value;
-  return DAILY_NEWS.value.filter((n) => n.tag === activeNewsTab.value);
-});
+  if (activeNewsTab.value === '全部') return client.news || []
+  return (client.news || []).filter((item) => item.tag === activeNewsTab.value)
+})
 
 const STATUS_CONFIG = {
-  pending: { i: "📋", l: "等待审核", b: "stb-bl", p: 10 },
-  requirement_submitted: { i: "📝", l: "需求已提交", b: "stb-bl", p: 20 },
-  processing: { i: "⚙️", l: "服务进行中", b: "stb-gd", p: 45 },
-  supplementing: { i: "⚠️", l: "需要补充材料", b: "stb-rd", p: 65 },
-  completed: { i: "✅", l: "服务已完成", b: "stb-gr", p: 100 },
-};
-const getStatus = (sk) => STATUS_CONFIG[sk] || STATUS_CONFIG.pending;
-const getOrderClass = (sk) => {
-  if (sk === "supplementing") return "oc-w";
-  if (sk === "completed") return "oc-d";
-  return "oc-a";
-};
+  pending: { icon: '📋', label: '等待审核', badge: 'stb-bl', progress: 10 },
+  requirement_submitted: { icon: '📝', label: '需求已提交', badge: 'stb-bl', progress: 20 },
+  processing: { icon: '⚙️', label: '服务进行中', badge: 'stb-gd', progress: 45 },
+  supplementing: { icon: '⚠️', label: '需要补充材料', badge: 'stb-rd', progress: 65 },
+  completed: { icon: '✅', label: '服务已完成', badge: 'stb-gr', progress: 100 },
+}
 
-// Navigation helpers
+// getStatus 获取订单状态展示配置。
+// 实现步骤：
+// 1. 根据订单状态码查找状态字典。
+// 2. 未命中时使用 pending 配置兜底。
+// 3. 页面统一消费 label、badge 和 progress，避免魔术数字散落在模板中。
+const getStatus = (statusKey) => STATUS_CONFIG[statusKey] || STATUS_CONFIG.pending
+
+// getOrderClass 获取订单卡片样式类。
+// 实现步骤：
+// 1. 需要补充材料时返回警示样式。
+// 2. 已完成时返回完成态样式。
+// 3. 其他状态统一使用进行中样式。
+const getOrderClass = (statusKey) => {
+  if (statusKey === 'supplementing') return 'oc-w'
+  if (statusKey === 'completed') return 'oc-d'
+  return 'oc-a'
+}
+
+// goPage 切换底部 Tab 页面。
+// 实现步骤：
+// 1. 接收页面短名称。
+// 2. 拼接 UniApp tabBar 页面路径。
+// 3. 调用 switchTab 保持小程序与 H5 行为一致。
 const goPage = (page) => {
-  uni.switchTab({ url: `/pages/${page}/index` });
-};
-const openChat = (svc) => {
-  uni.navigateTo({ url: `/pages/chat/index?svc=${encodeURIComponent(svc)}` });
-};
-const openSearch = () => {
-  uni.navigateTo({ url: "/pages/search/index" });
-};
-const openLocationPicker = () => {
-  uni.showToast({ title: "位置选择", icon: "none" });
-};
-const homeNewsFilter = (cat) => {
-  uni.showToast({ title: cat, icon: "none" });
-};
-const toast = (msg) => {
-  uni.showToast({ title: msg, icon: "none" });
-};
+  uni.switchTab({ url: `/pages/${page}/index` })
+}
+
+// openChat 打开咨询入口。
+// 实现步骤：
+// 1. 先通过 store 执行统一登录校验。
+// 2. 未登录时弹出底部登录弹窗并停止跳转。
+// 3. 已登录时进入聊天页或后续真实客服页。
+const openChat = (serviceName) => {
+  if (!client.ensureLogin(`咨询「${serviceName}」`)) return
+  uni.navigateTo({ url: `/pages/chat/index?svc=${encodeURIComponent(serviceName)}` })
+}
+
+// openServiceDetail 打开服务详情页。
+// 实现步骤：
+// 1. 使用服务 ID 作为详情页参数。
+// 2. 详情页继续使用 Mock API 读取服务信息。
+const openServiceDetail = (serviceId) => {
+  uni.navigateTo({ url: `/pages/service-detail/index?id=${encodeURIComponent(serviceId)}` })
+}
+
+// selectNewsTab 切换攻略精选分类。
+// 实现步骤：
+// 1. 更新当前分类。
+// 2. filteredNews 自动重新计算。
+const selectNewsTab = (category) => {
+  activeNewsTab.value = category
+}
 </script>
 
 <template>
-  <!-- ============================================================ -->
-  <!--  HOME PAGE (yesok-final.html pg-home, 1:1 移植)          -->
-  <!-- ============================================================ -->
-
-  <!-- ── HERO BANNER ── -->
-  <view class="container" style="padding-top: 0; margin-top: 0; overflow-x: hidden;">
-
-    <view class="hero" style="background-image: url('/static/img.png'); background-size: cover; background-position: center top; width: 100vw; height: 320px; padding-top: 60px; margin-top: -20px; border-radius: 0 0 24px 24px;">
-      <view class="tb-main" style="padding: 0 20px; display: flex; justify-content: space-between; align-items: center;">
-        <view class="logo" style="font-size: 22px; font-weight: 800; color: #fff;">Yesok <text style="color:#F6B000;">Vietnam</text></view>
-        <view class="t-ico" style="background:#fff; border-radius:50%; width:32px; height:32px; display:flex; align-items:center; justify-content:center; box-shadow:var(--sh);">🇻🇳</view>
-      </view>
-    </view>
-
-    <view style="padding: 0 20px; margin-top: -30px; position: relative; z-index: 10;">
-      <view class="search-bar" style="background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; gap: 10px; box-shadow: 0 4px 20px rgba(13, 71, 161, 0.14);">
-        <text>🔍</text>
-        <input type="text" placeholder="搜索越南管家服务..." style="flex: 1; font-size: 14px; border: none; outline: none; background: transparent;" />
-      </view>
-    </view>
-
-  </view>
-
-  <!-- ── SERVICE CATEGORIES ── -->
-  <view
-    style="
-      background: #fff;
-      padding: 4px 0 10px;
-      margin-bottom: 14px;
-      box-shadow: 0 1px 8px rgba(0, 0, 0, 0.04);
-    "
-  >
+  <view class="home-page">
     <view
-      style="display: flex; justify-content: space-around; padding: 8px 8px 0"
+      class="hero"
+      style="background-image: url('/static/img.png'); background-size: cover; background-position: center top; width: 100vw; height: 320px; padding-top: 60px; margin-left: calc((100% - 100vw) / 2); margin-top: -24px; border-radius: 0 0 28px 28px;"
     >
-      <view
-        @click="goPage('services')"
-        style="
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 6px;
-          cursor: pointer;
-          width: 54px;
-        "
-      >
-        <view
-          style="
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: #f0f6ff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-          "
-          >✈️</view
-        >
-        <view
-          style="
-            font-size: 11px;
-            color: #1a2340;
-            font-weight: 500;
-            text-align: center;
-          "
-          >签证旅游</view
-        >
+      <view class="hero-topbar">
+        <view class="logo">Yesok <text class="logo-accent">Vietnam</text></view>
+        <view class="country-badge">🇻🇳</view>
       </view>
-
-      <view
-        @click="goPage('services')"
-        style="
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 6px;
-          cursor: pointer;
-          width: 54px;
-        "
-      >
-        <view
-          style="
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: #f0f6ff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-          "
-          >🏢</view
-        >
-        <view
-          style="
-            font-size: 11px;
-            color: #1a2340;
-            font-weight: 500;
-            text-align: center;
-          "
-          >房产投资</view
-        >
-      </view>
-
-      <view
-        @click="goPage('services')"
-        style="
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 6px;
-          cursor: pointer;
-          width: 54px;
-        "
-      >
-        <view
-          style="
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: #f0f6ff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-          "
-          >📋</view
-        >
-        <view
-          style="
-            font-size: 11px;
-            color: #1a2340;
-            font-weight: 500;
-            text-align: center;
-          "
-          >公司注册</view
-        >
-      </view>
-
-      <view
-        @click="goPage('services')"
-        style="
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 6px;
-          cursor: pointer;
-          width: 54px;
-        "
-      >
-        <view
-          style="
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: #f0f6ff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-          "
-          >🚗</view
-        >
-        <view
-          style="
-            font-size: 11px;
-            color: #1a2340;
-            font-weight: 500;
-            text-align: center;
-          "
-          >接送出行</view
-        >
-      </view>
-
-      <view
-        @click="goPage('services')"
-        style="
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 6px;
-          cursor: pointer;
-          width: 54px;
-        "
-      >
-        <view
-          style="
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: #f0f6ff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 22px;
-          "
-          >🗣️</view
-        >
-        <view
-          style="
-            font-size: 11px;
-            color: #1a2340;
-            font-weight: 500;
-            text-align: center;
-          "
-          >翻译服务</view
-        >
-      </view>
-
-      <view
-        @click="goPage('services')"
-        style="
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          gap: 6px;
-          cursor: pointer;
-          width: 54px;
-        "
-      >
-        <view
-          style="
-            width: 48px;
-            height: 48px;
-            border-radius: 50%;
-            background: #f0f6ff;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            color: #9aa3b5;
-            font-weight: 700;
-          "
-          >···</view
-        >
-        <view
-          style="
-            font-size: 11px;
-            color: #1a2340;
-            font-weight: 500;
-            text-align: center;
-          "
-          >更多服务</view
-        >
-      </view>
-    </view>
-  </view>
-
-  <!-- ── HOT SERVICES ── -->
-  <!-- 横向滚动服务卡片，完整数据绑定 + hc-btn 去咨询按钮 -->
-  <view
-    style="
-      background: #fff;
-      margin-bottom: 14px;
-      padding: 14px 16px 4px;
-      box-shadow: 0 1px 8px rgba(0, 0, 0, 0.04);
-    "
-  >
-    <view
-      style="
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 12px;
-      "
-    >
-      <view style="font-size: 16px; font-weight: 700; color: #1a2340"
-        >热门服务</view
-      >
-      <view
-        @click="goPage('services')"
-        style="
-          font-size: 12px;
-          color: #9aa3b5;
-          cursor: pointer;
-          display: flex;
-          align-items: center;
-          gap: 2px;
-        "
-      >
-        全部服务
-        <svg
-          width="12"
-          height="12"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#9AA3B5"
-          stroke-width="2"
-        >
-          <polyline points="9 18 15 12 9 6" />
-        </svg>
+      <view class="hero-copy">
+        <text class="hero-title">越南一站式管家服务</text>
+        <text class="hero-subtitle">签证、公司、租房、接机、翻译，全程中文响应。</text>
       </view>
     </view>
 
-    <!-- 横向滚动卡片列表 -->
-    <scroll-view
-      class="hot-scroll"
-      scroll-x
-      style="white-space: nowrap; padding: 10px 16px"
-    >
-      <view
-        v-for="svc in SVCS_DATA"
-        :key="svc.id"
-        class="hc-card"
-        style="
-          display: inline-block;
-          width: 280px;
-          margin-right: 12px;
-          background: #fff;
-          border-radius: 16px;
-          padding: 16px;
-          box-shadow: var(--sh);
-          vertical-align: top;
-        "
-      >
-        <view style="display: flex; gap: 12px">
-          <!-- 左侧图标 -->
-          <view
-            class="hc-icon"
-            :style="{ background: svc.bg }"
-            style="
-              width: 48px;
-              height: 48px;
-              border-radius: 12px;
-              display: flex;
-              align-items: center;
-              justify-content: center;
-              font-size: 24px;
-              flex-shrink: 0;
-            "
-          >
-            {{ svc.icon }}
-          </view>
+    <view class="search-wrap">
+      <view class="search-bar">
+        <text class="search-icon">🔍</text>
+        <input class="search-input" placeholder="搜索越南管家服务..." />
+      </view>
+    </view>
 
-          <!-- 右侧信息 -->
-          <view class="hc-info" style="flex: 1; min-width: 0">
-            <view
-              class="hc-name"
-              :style="{ color: svc.color }"
-              style="font-size: 15px; font-weight: 700; margin-bottom: 4px"
-            >
-              {{ svc.name }}
-            </view>
-            <view
-              class="hc-sub"
-              style="font-size: 12px; color: var(--tx2); margin-bottom: 8px"
-            >
-              {{ svc.sub }}
-            </view>
+    <view class="category-card">
+      <view class="category-item" @click="goPage('services')">
+        <view class="category-icon">✈️</view>
+        <text class="category-name">签证旅游</text>
+      </view>
+      <view class="category-item" @click="goPage('services')">
+        <view class="category-icon">🏢</view>
+        <text class="category-name">房产投资</text>
+      </view>
+      <view class="category-item" @click="goPage('services')">
+        <view class="category-icon">📋</view>
+        <text class="category-name">公司注册</text>
+      </view>
+      <view class="category-item" @click="goPage('services')">
+        <view class="category-icon">🚗</view>
+        <text class="category-name">接送出行</text>
+      </view>
+      <view class="category-item" @click="goPage('services')">
+        <view class="category-icon">🗣️</view>
+        <text class="category-name">翻译服务</text>
+      </view>
+    </view>
 
-            <!-- 标签 -->
-            <view
-              class="hc-tags"
-              style="display: flex; gap: 6px; margin-bottom: 12px"
-            >
-              <text
-                v-for="tag in svc.tags"
-                :key="tag"
-                class="hc-tag"
-                style="
-                  padding: 2px 6px;
-                  background: var(--gy);
-                  border-radius: 4px;
-                  font-size: 10px;
-                  color: var(--tx3);
-                "
-              >
-                {{ tag }}
-              </text>
-            </view>
-
-            <!-- 底部：价格 + 去咨询按钮 -->
-            <view
-              class="hc-bot"
-              style="
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-                border-top: 1px dashed #eee;
-                padding-top: 10px;
-              "
-            >
-              <view
-                class="hc-price"
-                style="font-size: 16px; font-weight: 800; color: var(--tx)"
-              >
-                {{ svc.price
-                }}<text
-                  style="font-size: 10px; font-weight: 400; color: var(--tx3)"
-                  >/{{ svc.unit }}</text
-                >
+    <view class="section-card">
+      <view class="section-head">
+        <text class="section-title">热门服务</text>
+        <text class="section-more" @click="goPage('services')">全部服务 ></text>
+      </view>
+      <scroll-view class="hot-scroll" scroll-x>
+        <view v-for="service in services" :key="service.id" class="service-card" @click="openServiceDetail(service.id)">
+          <view class="service-main">
+            <view class="service-icon" :style="{ background: service.bg }">{{ service.icon }}</view>
+            <view class="service-info">
+              <text class="service-name" :style="{ color: service.color }">{{ service.name }}</text>
+              <text class="service-sub">{{ service.sub }}</text>
+              <view class="tag-row">
+                <text v-for="tag in service.tags" :key="tag" class="service-tag">{{ tag }}</text>
               </view>
-              <button
-                class="hc-btn"
-                :style="{ background: svc.color }"
-                style="
-                  margin: 0;
-                  padding: 0 16px;
-                  height: 28px;
-                  line-height: 28px;
-                  border-radius: 14px;
-                  color: #fff;
-                  font-size: 12px;
-                  font-weight: 600;
-                  border: none;
-                "
-                @click="openChat(svc.name)"
-              >
-                去咨询
-              </button>
+              <view class="service-bottom">
+                <text class="service-price">{{ service.price }}<text class="service-unit">/{{ service.unit }}</text></text>
+                <button class="consult-btn" :style="{ background: service.color }" @click.stop="openChat(service.name)">去咨询</button>
+              </view>
             </view>
           </view>
         </view>
-      </view>
-    </scroll-view>
-  </view>
-
-    <view style="padding: 24px 16px 12px; display: flex; justify-content: space-between; align-items: center;">
-      <view style="font-size: 18px; font-weight: 800; color: var(--tx);">攻略精选</view>
-      <view style="font-size: 12px; color: var(--tx3);">了解真实越南 ></view>
+      </scroll-view>
     </view>
-    <scroll-view scroll-x class="nc-scroll" style="white-space: nowrap; padding: 0 16px 12px;">
-      <view style="display: inline-flex; gap: 8px;">
-        <text v-for="cat in NEWS_CATS" :key="cat"
-              :class="['nc-btn', activeNewsTab === cat ? 'active' : '']"
-              @click="activeNewsTab = cat"
-              style="padding: 6px 14px; border-radius: 16px; font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.3s; background: var(--gy); color: var(--tx2);">
-          {{ cat }}
+
+    <view class="section-head guide-head">
+      <text class="section-title">攻略精选</text>
+      <text class="section-more">了解真实越南 ></text>
+    </view>
+    <scroll-view scroll-x class="news-tab-scroll">
+      <view class="news-tab-inner">
+        <text
+          v-for="category in newsCategories"
+          :key="category"
+          :class="['news-tab', activeNewsTab === category ? 'active' : '']"
+          @click="selectNewsTab(category)"
+        >
+          {{ category }}
         </text>
       </view>
     </scroll-view>
-    <view style="padding: 0 16px; margin-bottom: 24px;">
-      <view style="background: #fff; border-radius: 16px; box-shadow: var(--sh); overflow: hidden;">
-        <view v-for="n in filteredNews" :key="n.id" class="sr-item" style="display: flex; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--gy);">
-          <view class="sr-type news" style="background: var(--gdl); width: 36px; height: 36px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 18px;">📰</view>
-          <view style="flex: 1; min-width: 0;">
-            <view class="sr-name" style="font-size: 13px; font-weight: 600; color: var(--tx); line-height: 1.4; margin-bottom: 4px;">
-              <text v-if="n.top" style="color: var(--rd);">📌 </text>{{ n.title }}
-            </view>
-            <view class="sr-sub" style="font-size: 11px; color: var(--tx3);">{{ n.tag }} · {{ n.source }}</view>
-          </view>
-          <view class="sr-badge" style="background: var(--gy2); color: var(--tx3); margin-left: auto; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 600; height: fit-content;">{{ n.date }}</view>
+    <view class="news-list">
+      <view v-for="item in filteredNews" :key="item.id" class="news-item">
+        <view class="news-icon">📰</view>
+        <view class="news-content">
+          <text class="news-title"><text v-if="item.top" class="pin-text">📌 </text>{{ item.title }}</text>
+          <text class="news-meta">{{ item.tag }} · {{ item.source }}</text>
+        </view>
+        <text class="news-date">{{ item.date }}</text>
+      </view>
+    </view>
+
+    <view class="guarantee-card">
+      <text class="guarantee-title">平台保障</text>
+      <view class="guarantee-grid">
+        <view v-for="item in PLATFORM_GUARANTEES" :key="item.title" class="guarantee-item">
+          <view class="guarantee-icon">{{ item.icon }}</view>
+          <text class="guarantee-name">{{ item.title }}</text>
+          <text class="guarantee-desc">{{ item.desc }}</text>
         </view>
       </view>
     </view>
 
-    <view style="margin: 0 16px 20px; padding: 20px; background: #fff; border-radius: 16px; box-shadow: var(--sh);">
-      <view style="font-size: 15px; font-weight: 700; margin-bottom: 16px; text-align: center; color: var(--tx);">为什么选择 Yesok？</view>
-      <view style="display: flex; justify-content: space-around;">
-        <view style="text-align: center;">
-          <view style="font-size: 24px; margin-bottom: 8px;">🥇</view>
-          <view style="font-size: 12px; font-weight: 600; color: var(--tx);">官方直营</view>
-        </view>
-        <view style="text-align: center;">
-          <view style="font-size: 24px; margin-bottom: 8px;">⚡</view>
-          <view style="font-size: 12px; font-weight: 600; color: var(--tx);">极速响应</view>
-        </view>
-        <view style="text-align: center;">
-          <view style="font-size: 24px; margin-bottom: 8px;">🛡️</view>
-          <view style="font-size: 12px; font-weight: 600; color: var(--tx);">资金担保</view>
-        </view>
-        <view style="text-align: center;">
-          <view style="font-size: 24px; margin-bottom: 8px;">🇨🇳</view>
-          <view style="font-size: 12px; font-weight: 600; color: var(--tx);">全中文服务</view>
-        </view>
+    <view class="order-section">
+      <view class="section-head">
+        <text class="section-title">📋 订单动态</text>
       </view>
-    </view>
-
-  <!-- ── 订单动态 ── -->
-  <view style="border-top: 1px solid var(--br); padding-top: 4px">
-    <view style="padding: 14px 16px 10px">
-      <view style="font-size: 16px; font-weight: 700; color: #1a2340"
-        >📋 订单动态</view
-      >
-    </view>
-
-    <view class="ord-list">
-      <template v-if="orders.length === 0">
-        <view class="empty">
+      <view class="ord-list">
+        <view v-if="orders.length === 0" class="empty">
           <view class="empty-ic">📭</view>
-          <view class="empty-ti">暂无订单</view>
+          <text class="empty-ti">暂无订单</text>
         </view>
-      </template>
-      <template v-else>
-        <view
-          v-for="order in orders"
-          :key="order.id"
-          :class="['ord-card', getOrderClass(order.sk)]"
-        >
+        <view v-for="order in orders" v-else :key="order.id" :class="['ord-card', getOrderClass(order.status || order.sk)]">
           <view class="oc-top">
             <view>
-              <view class="oc-svc"
-                >{{ order.icon || "📋" }}
-                {{ order.serviceName || order.svc }}</view
-              >
-              <view class="oc-no">订单号 {{ order.id }}</view>
+              <text class="oc-svc">{{ order.icon || '📋' }} {{ order.serviceName || order.svc }}</text>
+              <text class="oc-no">订单号 {{ order.orderNo || order.id }}</text>
             </view>
-            <text :class="['stb', getStatus(order.status || order.sk).b]">
-              {{ getStatus(order.status || order.sk).l }}
+            <text :class="['stb', getStatus(order.status || order.sk).badge]">
+              {{ getStatus(order.status || order.sk).label }}
             </text>
           </view>
-          <view style="margin: 9px 0">
+          <view class="order-progress-wrap">
             <view class="oc-pbar">
-              <view
-                class="oc-pfill"
-                :style="{ width: getStatus(order.status || order.sk).p + '%' }"
-              ></view>
+              <view class="oc-pfill" :style="{ width: getStatus(order.status || order.sk).progress + '%' }"></view>
             </view>
             <view class="oc-plbl">
-              <text>{{ getStatus(order.status || order.sk).l }}</text>
-              <text>{{ getStatus(order.status || order.sk).p }}% 完成</text>
+              <text>{{ getStatus(order.status || order.sk).label }}</text>
+              <text>{{ getStatus(order.status || order.sk).progress }}% 完成</text>
             </view>
-          </view>
-          <view v-if="order.status === 'supplementing'" class="oc-warn">
-            <view class="oc-wdot"></view>
-            需要操作：请补充材料
           </view>
           <view class="oc-bot">
             <view class="oc-mgr">
-              <view class="oc-mav">{{
-                (order.managerName || order.mg || "管")[0]
-              }}</view>
-              {{ order.managerName || order.mg || "专属管家" }}
+              <view class="oc-mav">{{ (order.managerName || order.mg || '管')[0] }}</view>
+              <text>{{ order.managerName || order.mg || '专属管家' }}</text>
             </view>
-            <view style="font-size: 11px; color: var(--tx3)">{{
-              order.price || order.pr || "—"
-            }}</view>
+            <text class="order-price">{{ order.price || order.pr || '—' }}</text>
           </view>
         </view>
-      </template>
+      </view>
     </view>
-  </view>
 
-  <view style="height: 12px"></view>
+    <AuthLoginSheet />
+    <view class="safe-bottom"></view>
+  </view>
 </template>
 
 <style scoped>
-/* 全局样式已由 style.css 接管，此处不留任何样式 */
+.home-page {
+  min-height: 100vh;
+  overflow-x: hidden;
+  background: #f6f8fb;
+}
+
+.hero-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+}
+
+.logo {
+  color: #fff;
+  font-size: 22px;
+  font-weight: 800;
+}
+
+.logo-accent {
+  color: #f6b000;
+}
+
+.country-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: var(--sh);
+}
+
+.hero-copy {
+  display: flex;
+  flex-direction: column;
+  padding: 52px 22px 0;
+}
+
+.hero-title {
+  color: #fff;
+  font-size: 26px;
+  font-weight: 900;
+  line-height: 1.25;
+}
+
+.hero-subtitle {
+  max-width: 280px;
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.86);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.search-wrap {
+  position: relative;
+  z-index: 5;
+  padding: 0 20px;
+  margin-top: -30px;
+}
+
+.search-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 4px 20px rgba(13, 71, 161, 0.14);
+}
+
+.search-input {
+  flex: 1;
+  color: #1a2340;
+  font-size: 14px;
+}
+
+.category-card,
+.section-card,
+.news-list,
+.guarantee-card,
+.order-section {
+  margin: 14px 12px 0;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 1px 8px rgba(0, 0, 0, 0.04);
+}
+
+.category-card {
+  display: flex;
+  justify-content: space-around;
+  padding: 14px 4px;
+}
+
+.category-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: 62px;
+}
+
+.category-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: #f0f6ff;
+  font-size: 22px;
+}
+
+.category-name {
+  color: #1a2340;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.section-card {
+  padding: 14px 0 4px;
+}
+
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px 12px;
+}
+
+.section-title {
+  color: #1a2340;
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.section-more {
+  color: #9aa3b5;
+  font-size: 12px;
+}
+
+.hot-scroll {
+  width: 100%;
+  white-space: nowrap;
+}
+
+.service-card {
+  display: inline-block;
+  width: 280px;
+  margin: 8px 0 14px 14px;
+  padding: 16px;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: var(--sh);
+  vertical-align: top;
+}
+
+.service-main {
+  display: flex;
+  gap: 12px;
+}
+
+.service-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  font-size: 24px;
+}
+
+.service-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.service-name,
+.service-sub,
+.service-price,
+.news-title,
+.news-meta,
+.guarantee-title,
+.guarantee-name,
+.guarantee-desc,
+.oc-svc,
+.oc-no {
+  display: block;
+}
+
+.service-name {
+  margin-bottom: 4px;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.service-sub {
+  margin-bottom: 8px;
+  color: var(--tx2);
+  font-size: 12px;
+}
+
+.tag-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.service-tag {
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--gy);
+  color: var(--tx3);
+  font-size: 10px;
+}
+
+.service-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 10px;
+  border-top: 1px dashed #eee;
+}
+
+.service-price {
+  color: var(--tx);
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.service-unit {
+  color: var(--tx3);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.consult-btn {
+  height: 28px;
+  margin: 0;
+  padding: 0 16px;
+  border: none;
+  border-radius: 14px;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 28px;
+}
+
+.guide-head {
+  padding-top: 24px;
+}
+
+.news-tab-scroll {
+  width: 100%;
+  white-space: nowrap;
+}
+
+.news-tab-inner {
+  display: inline-flex;
+  gap: 8px;
+  padding: 0 16px 12px;
+}
+
+.news-tab {
+  padding: 6px 14px;
+  border-radius: 16px;
+  background: var(--gy);
+  color: var(--tx2);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.news-tab.active {
+  color: #fff;
+  background: var(--bl);
+}
+
+.news-list {
+  overflow: hidden;
+}
+
+.news-item {
+  display: flex;
+  gap: 12px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--gy);
+}
+
+.news-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: var(--gdl);
+  font-size: 18px;
+}
+
+.news-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.news-title {
+  color: var(--tx);
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.45;
+}
+
+.pin-text {
+  color: var(--rd);
+}
+
+.news-meta {
+  margin-top: 4px;
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.news-date {
+  align-self: flex-start;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: var(--gy2);
+  color: var(--tx3);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.guarantee-card {
+  padding: 20px 12px;
+}
+
+.guarantee-title {
+  margin-bottom: 16px;
+  color: var(--tx);
+  font-size: 16px;
+  font-weight: 800;
+  text-align: center;
+}
+
+.guarantee-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.guarantee-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.guarantee-icon {
+  margin-bottom: 8px;
+  font-size: 24px;
+}
+
+.guarantee-name {
+  color: var(--tx);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.guarantee-desc {
+  margin-top: 4px;
+  color: var(--tx3);
+  font-size: 10px;
+  line-height: 1.35;
+}
+
+.order-section {
+  padding-top: 14px;
+}
+
+.order-progress-wrap {
+  margin: 9px 0;
+}
+
+.order-price {
+  color: var(--tx3);
+  font-size: 11px;
+}
+
+.safe-bottom {
+  height: 20px;
+}
 </style>

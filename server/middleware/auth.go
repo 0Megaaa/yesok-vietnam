@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"yesok-vietnam/pkg/jwt"
+	"yesok-vietnam/server/pkg/jwt"
 )
 
 // AuthMiddleware is stateless — it only reads the JWT and injects claims into

@@ -9,9 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
-	"yesok-vietnam/pkg/jwt"
-	"yesok-vietnam/pkg/telegram"
 	"yesok-vietnam/server/models"
+	"yesok-vietnam/server/pkg/jwt"
+	"yesok-vietnam/server/pkg/telegram"
 )
 
 const MaxAuthAge = 24 * time.Hour
