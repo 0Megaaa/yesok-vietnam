@@ -1,6 +1,42 @@
 import { fileURLToPath, URL } from 'node:url'
+import path from 'node:path'
 import { defineConfig } from 'vite'
 import uni from '@dcloudio/vite-plugin-uni'
+
+// yesokUniH5MountFix 提供 Uni H5 入口兜底转换。
+// 1.意图 -> 解决当前脚手架 src 目录结构下官方 main.js 转换器未命中导致的 H5 静默白屏。
+// 2.步骤 -> 在 H5 开发与构建时为 src/main.js 注入 pages.json 路由、uni-h5 插件与标准挂载语句。
+// 3.返回 -> Vite 插件对象，保持源码 main.js 只导出 createApp，不手写 app.mount。
+function yesokUniH5MountFix() {
+  let mainEntry = ''
+
+  return {
+    name: 'yesok:uni-h5-mount-fix',
+    enforce: 'post',
+    configResolved() {
+      const inputDir = process.env.UNI_INPUT_DIR || path.resolve(process.cwd(), 'src')
+      mainEntry = path.resolve(inputDir, 'main.js').split(path.sep).join('/')
+    },
+    transform(code, id) {
+      const normalizedId = id.split('?')[0].split(path.sep).join('/')
+      if (normalizedId !== mainEntry || code.includes('createApp().app.use(__plugin).mount("#app")')) {
+        return null
+      }
+
+      const patchedCode = [
+        "import './pages-json-js'",
+        "import { plugin as __plugin } from '@dcloudio/uni-h5'",
+        code.replace('createSSRApp', 'createVueApp as createSSRApp'),
+        'createApp().app.use(__plugin).mount("#app")'
+      ].join('\n')
+
+      return {
+        code: patchedCode,
+        map: null
+      }
+    }
+  }
+}
 
 export default defineConfig({
   resolve: {
@@ -28,7 +64,8 @@ export default defineConfig({
     // 1. 读取 pages.json 生成 H5/小程序路由。
     // 2. 转译 <view>/<text> 等跨端组件。
     // 3. 保持微信小程序、H5 与后续 App 端共用同一套页面源码。
-    uni()
+    uni(),
+    yesokUniH5MountFix()
   ],
   server: {
     host: '0.0.0.0',
@@ -39,7 +76,7 @@ export default defineConfig({
       // 2.步骤 -> 将 /api 请求转发到 Go 后端实际监听端口。
       // 3.返回 -> Vite 代理配置对象。
       '/api': {
-        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:7625',
+        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:8080',
         changeOrigin: true
       }
     }

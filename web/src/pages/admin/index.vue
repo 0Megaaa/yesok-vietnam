@@ -79,6 +79,21 @@ const normalizeOrder = (order) => ({
   })),
 })
 
+// normalizePayment 规范化后端财务流水字段。
+// 1.意图 -> 让 B 端财务页准确展示 payment_records 的真实字段，避免 pay_amount 被旧 amount 字段映射成 NaN。
+// 2.步骤 -> 兼容 snake_case 与 camelCase，补齐流水号、金额、状态、币种和展示文本。
+// 3.返回 -> 财务流水表格可直接渲染的标准对象。
+const normalizePayment = (payment) => {
+  const payAmount = Number(payment.pay_amount ?? payment.payAmount ?? payment.amount ?? 0)
+  return {
+    ...payment,
+    payment_no: payment.third_trade_no || payment.payment_no || payment.paymentNo || `PAY-${payment.id}`,
+    amount: payAmount,
+    amountText: `${Math.round(payAmount / 100)} ${payment.currency || 'VND'}`,
+    pay_status: payment.status || payment.pay_status || payment.payStatus || 'pending',
+  }
+}
+
 // saveAdminToken 保存后台令牌。
 // 1.意图 -> 复用既有 admin_token 鉴权存储，避免破坏 AuthPopup 等底层逻辑。
 // 2.步骤 -> 同步写入 uni storage 与浏览器 localStorage。
@@ -125,7 +140,7 @@ const loadAll = async () => {
     stats.value = statsRes.data
     orders.value = (ordersRes.data.list || ordersRes.data.orders || []).map(normalizeOrder)
     services.value = servicesRes.data.list || []
-    payments.value = paymentsRes.data.list || []
+    payments.value = (paymentsRes.data.list || []).map(normalizePayment)
     appUsers.value = appUsersRes.data.list || []
     sysUsers.value = sysUsersRes.data.list || []
   } catch (error) {
@@ -253,7 +268,7 @@ onMounted(async () => {
 
         <section v-if="activePanel === 'finance'" class="content-card">
           <view class="section-head"><text class="panel-title">财务流水</text><span>订单状态推进到收款节点后自动生成 payment_records</span></view>
-          <view class="table-list"><view v-for="payment in payments" :key="payment.id" class="table-row"><span>{{ payment.payment_no }} · 订单 #{{ payment.order_id }}</span><span>{{ Math.round(payment.amount / 100) }} {{ payment.currency }}</span><span>{{ payment.pay_status }}</span></view><view v-if="!payments.length" class="empty">暂无财务流水，推进订单“确认收款”后自动生成。</view></view>
+          <view class="table-list"><view v-for="payment in payments" :key="payment.id" class="table-row"><span>{{ payment.payment_no }} · 订单 #{{ payment.order_id }}</span><span>{{ payment.amountText }}</span><span>{{ payment.pay_status }}</span></view><view v-if="!payments.length" class="empty">暂无财务流水，推进订单“确认收款”后自动生成。</view></view>
         </section>
 
         <section v-if="activePanel === 'users'" class="panel-grid">

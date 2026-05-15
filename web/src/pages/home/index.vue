@@ -18,7 +18,7 @@ const hotServices = computed(() => services.value.filter((item) => item.is_hot).
 const categories = computed(() => services.value.slice(0, 5).map((item) => ({ id: item.id, icon: item.icon || '🌴', name: item.display_name || item.service_name })))
 const heroTitle = computed(() => configs.value.hero_title || '越南高端生活服务管家')
 const heroSubtitle = computed(() => configs.value.hero_subtitle || '接机、签证、包车、翻译、企业落地一站式托管')
-const bannerImage = computed(() => configs.value.banner_image || '/static/img.png')
+const bannerImage = computed(() => '/static/img.png')
 
 // showSafeToast 展示跨端提示。
 // 1.意图 -> 下单、咨询、加载失败时在 H5 与小程序都能反馈。
@@ -156,13 +156,13 @@ onMounted(loadHomeData)
 
 <style scoped>
 .home-page { min-height: 100vh; padding-bottom: 92px; background: #f2f6f5; color: #12312c; }
-.hero-bleed { position: relative; height: 430px; margin: 0; overflow: hidden; border-bottom-left-radius: 0; border-bottom-right-radius: 0; background: #f2f6f5; }
+.hero-bleed { position: relative; height: 340px; margin: 0; overflow: hidden; border-bottom-left-radius: 0; border-bottom-right-radius: 0; background: #f2f6f5; }
 .hero-image { position: absolute; inset: 0; width: 100%; height: 100%; transform: scale(1.02); }
-.hero-mask { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,77,64,.18) 0%, rgba(0,77,64,.16) 45%, #f2f6f5 100%); }
+.hero-mask { position: absolute; inset: 0; background: linear-gradient(to bottom, transparent, #F2F6F5); }
 .hero-topbar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 62px 22px 0; color: #fff; }
 .brand { font-size: 20px; font-weight: 900; letter-spacing: .4px; text-shadow: 0 8px 26px rgba(0,0,0,.28); }
 .locale { padding: 7px 12px; border-radius: 999px; background: rgba(255,255,255,.22); backdrop-filter: blur(12px); font-size: 11px; font-weight: 900; }
-.hero-copy { position: absolute; left: 22px; right: 22px; bottom: 74px; z-index: 1; color: #fff; }
+.hero-copy { position: absolute; left: 22px; right: 22px; bottom: 54px; z-index: 1; color: #fff; }
 .hero-title, .hero-subtitle, .section-title, .section-more, .service-name, .service-desc, .panel-kicker, .panel-title, .panel-desc { display: block; }
 .hero-title { max-width: 320px; font-size: 34px; font-weight: 900; line-height: 1.18; text-shadow: 0 14px 38px rgba(0,0,0,.32); }
 .hero-subtitle { max-width: 310px; margin-top: 12px; color: rgba(255,255,255,.88); font-size: 14px; line-height: 1.7; }

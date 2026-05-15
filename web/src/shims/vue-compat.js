@@ -27,3 +27,24 @@ export const injectHook = (lifecycleName, lifecycleHandler, targetInstance) => {
 
   return wrappedLifecycleHandler
 }
+
+// logError 兼容导出：
+// 1.意图 -> 满足当前 UniApp H5 运行时从 vue 导入 logError 的内部依赖。
+// 2.步骤 -> 将错误透传到 console.error，避免吞掉真实异常。
+// 3.返回 -> 无返回值，仅作为运行时错误记录函数。
+export const logError = (err, type, context) => {
+  console.error('[Yesok Vue Runtime]', type || 'runtime', context || '', err)
+}
+
+// 激活生命周期兼容导出：
+// 1.意图 -> 满足 UniApp H5 对 Vue 内部 onBeforeActivate/onBeforeDeactivate 的命名导入。
+// 2.步骤 -> 使用 injectHook 将回调安全注册到当前组件实例队列。
+// 3.返回 -> 生命周期卸载函数或空函数。
+export const onBeforeActivate = (hook, target) => injectHook('ba', hook, target)
+export const onBeforeDeactivate = (hook, target) => injectHook('bda', hook, target)
+
+// createVueApp 兼容导出：
+// 1.意图 -> 对齐 UniApp H5 官方入口转换中 createVueApp as createSSRApp 的运行时约定。
+// 2.步骤 -> 从 Vue 官方运行时按需引入 createApp，并以 createVueApp 名称重新导出。
+// 3.返回 -> 浏览器端 Vue 应用创建函数。
+export { createApp as createVueApp } from '../../node_modules/vue/dist/vue.runtime.esm-bundler.js'
