@@ -29,5 +29,19 @@ export default defineConfig({
     // 2. 转译 <view>/<text> 等跨端组件。
     // 3. 保持微信小程序、H5 与后续 App 端共用同一套页面源码。
     uni()
-  ]
+  ],
+  server: {
+    host: '0.0.0.0',
+    port: 5173,
+    proxy: {
+      // 本地联调代理：
+      // 1.意图 -> H5 预览保持 /api 相对路径，避免跨域与硬编码公网地址。
+      // 2.步骤 -> 将 /api 请求转发到 Go 后端实际监听端口。
+      // 3.返回 -> Vite 代理配置对象。
+      '/api': {
+        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:7625',
+        changeOrigin: true
+      }
+    }
+  }
 })

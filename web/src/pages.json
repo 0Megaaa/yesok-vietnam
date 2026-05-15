@@ -1,52 +1,16 @@
 {
   "pages": [
-    {
-      "path": "pages/home/index",
-      "style": {
-        "navigationStyle": "custom"
-      }
-    },
-    {
-      "path": "pages/services/index",
-      "style": {
-        "navigationStyle": "custom"
-      }
-    },
-    {
-      "path": "pages/discover/index",
-      "style": {
-        "navigationStyle": "custom"
-      }
-    },
-    {
-      "path": "pages/profile/index",
-      "style": {
-        "navigationStyle": "custom"
-      }
-    },
-    {
-      "path": "pages/service-detail/index",
-      "style": {
-        "navigationBarTitleText": "服务详情"
-      }
-    },
-    {
-      "path": "pages/admin/index",
-      "style": {
-        "navigationStyle": "custom"
-      }
-    },
-    {
-      "path": "pages/admin/order-detail",
-      "style": {
-        "navigationStyle": "custom"
-      }
-    }
+    { "path": "pages/home/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/services/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/service-detail/index", "style": { "navigationBarTitleText": "服务详情" } },
+    { "path": "pages/admin/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/admin/order-detail", "style": { "navigationStyle": "custom" } }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "white",
     "navigationBarTitleText": "Yesok Vietnam",
-    "navigationBarBackgroundColor": "#004D40",
+    "navigationBarBackgroundColor": "#F2F6F5",
     "backgroundColor": "#F2F6F5"
   },
   "tabBar": {
@@ -55,30 +19,9 @@
     "borderStyle": "white",
     "backgroundColor": "#FFFFFF",
     "list": [
-      {
-        "pagePath": "pages/home/index",
-        "text": "首页",
-        "iconPath": "static/tabbar/home.png",
-        "selectedIconPath": "static/tabbar/home-active.png"
-      },
-      {
-        "pagePath": "pages/services/index",
-        "text": "服务",
-        "iconPath": "static/tabbar/services.png",
-        "selectedIconPath": "static/tabbar/services-active.png"
-      },
-      {
-        "pagePath": "pages/discover/index",
-        "text": "资讯",
-        "iconPath": "static/tabbar/news.png",
-        "selectedIconPath": "static/tabbar/news-active.png"
-      },
-      {
-        "pagePath": "pages/profile/index",
-        "text": "我的",
-        "iconPath": "static/tabbar/profile.png",
-        "selectedIconPath": "static/tabbar/profile-active.png"
-      }
+      { "pagePath": "pages/home/index", "text": "首页", "iconPath": "static/tabbar/home.png", "selectedIconPath": "static/tabbar/home-active.png" },
+      { "pagePath": "pages/services/index", "text": "服务", "iconPath": "static/tabbar/services.png", "selectedIconPath": "static/tabbar/services-active.png" },
+      { "pagePath": "pages/profile/index", "text": "我的", "iconPath": "static/tabbar/profile.png", "selectedIconPath": "static/tabbar/profile-active.png" }
     ]
   }
 }

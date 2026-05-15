@@ -10,23 +10,23 @@ var Global = struct {
 	Database DatabaseConfig
 	TG       TGConfig
 }{
-		Server: ServerConfig{
-			Port:         getEnv("SERVER_PORT", "7625"),
-			StaticDir:    getEnv("STATIC_DIR", "../web/dist"),
-			HTMLDir:      getEnv("HTML_DIR", "../web/dist"),
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-		},
-		Database: DatabaseConfig{
-			Host:     getEnv("DB_HOST", "127.0.0.1"),
-			Port:     getEnv("DB_PORT", "3306"),
-			User:     getEnv("DB_USER", "root"),
-			Password: getEnv("DB_PASSWORD", ""),
-			Name:     getEnv("DB_NAME", "yesok_vn"),
-		},
-		TG: TGConfig{
-			BotToken: getEnv("TG_BOT_TOKEN", ""),
-		},
+	Server: ServerConfig{
+		Port:         getEnv("SERVER_PORT", "7625"),
+		StaticDir:    getEnv("STATIC_DIR", "../web/dist"),
+		HTMLDir:      getEnv("HTML_DIR", "../web/dist"),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+	},
+	Database: DatabaseConfig{
+		Host:     getEnv("DB_HOST", "127.0.0.1"),
+		Port:     getEnv("DB_PORT", "3306"),
+		User:     getEnv("DB_USER", "root"),
+		Password: getEnv("DB_PASSWORD", ""),
+		Name:     getEnv("DB_NAME", "yesok_vn"),
+	},
+	TG: TGConfig{
+		BotToken: getEnv("TG_BOT_TOKEN", ""),
+	},
 }
 
 type ServerConfig struct {
