@@ -1,0 +1,29 @@
+    <nav id="botnav">
+      <div class="bni on" id="bn-home" onclick="goPage('home')"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2">
+          <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        </svg><span class="bni-lb">首页</span>
+        <div class="bni-dot"></div>
+      </div>
+      <div class="bni" id="bn-news" onclick="goPage('news')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2">
+          <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" />
+          <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+        </svg><span class="bni-lb">资讯</span>
+        <div class="bni-dot"></div>
+      </div>
+      <div class="bni" id="bn-svc" onclick="goPage('svc')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+          stroke-width="2">
+          <circle cx="12" cy="12" r="3" />
+          <path d="M19.07 4.93a10 10 0 0 1 0 14.14M4.93 4.93a10 10 0 0 0 0 14.14" />
+        </svg><span class="bni-lb">服务</span>
+        <div class="bni-dot"></div>
+      </div>
+      <div class="bni" id="bn-profile" onclick="goPage('profile')"><svg viewBox="0 0 24 24" fill="none"
+          stroke="currentColor" stroke-width="2">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+          <circle cx="12" cy="7" r="4" />
+        </svg><span class="bni-lb">我的</span>
+        <div class="bni-dot"></div>
+      </div>
+    </nav>

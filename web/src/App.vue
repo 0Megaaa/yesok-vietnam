@@ -37,10 +37,7 @@ onLaunch(async () => {
 
   // ── 非 H5 环境（微信小程序 / iOS 原生等）───────────────────────
   // #ifndef H5
-  console.log('当前为原生/小程序环境，准备执行原生登录逻辑')
-  if (client.isLoggedIn) {
-    console.log('[App] 非H5环境已登录，尝试刷新用户信息')
-  }
+  console.log('非 H5 环境，直接进入页面渲染')
   // #endif
 })
 
