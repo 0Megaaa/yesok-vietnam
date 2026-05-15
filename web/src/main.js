@@ -3,10 +3,24 @@ import { createPinia } from 'pinia'
 import './style.css'
 import App from './App.vue'
 import H5PreviewRoot from './H5PreviewRoot.vue'
+import { useClientStore } from './store/client'
+
+// installGlobalAuth 注册全局鉴权方法。
+// 意图：让咨询、下单、支付等业务动作可以在任意页面通过 $checkAuth 统一拦截。
+// 实现步骤：
+// 1. 接收 Vue 应用实例和 Pinia 实例。
+// 2. 从 Pinia 中取得客户端状态仓库。
+// 3. 将 store.checkAuth 暴露到 app.config.globalProperties。
+// 返回：无返回值，仅完成全局方法注册。
+function installGlobalAuth(app, pinia) {
+  app.config.globalProperties.$checkAuth = (actionText) => useClientStore(pinia).checkAuth(actionText)
+}
 
 export function createApp() {
   const app = createSSRApp(App)
-  app.use(createPinia())
+  const pinia = createPinia()
+  app.use(pinia)
+  installGlobalAuth(app, pinia)
   return { app }
 }
 
@@ -29,7 +43,9 @@ if (typeof document !== 'undefined') {
     previewApp.config.errorHandler = (error, instance, info) => {
       console.error('[YesOK H5 Preview Error]', info, error)
     }
-    previewApp.use(createPinia())
+    const previewPinia = createPinia()
+    previewApp.use(previewPinia)
+    installGlobalAuth(previewApp, previewPinia)
     previewApp.mount(appContainer)
   }
 }

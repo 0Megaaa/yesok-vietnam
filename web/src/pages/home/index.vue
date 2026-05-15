@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { useClientStore } from '@/store/client'
 import { PLATFORM_GUARANTEES } from '@/api/mockData'
-import AuthLoginSheet from '@/components/AuthLoginSheet.vue'
+import AuthPopup from '@/components/AuthPopup.vue'
 import { useGlobalShare } from '@/composables/useGlobalShare'
 
 const client = useClientStore()
@@ -62,7 +62,7 @@ const goPage = (page) => {
 // 2. 未登录时弹出底部登录弹窗并停止跳转。
 // 3. 已登录时进入聊天页或后续真实客服页。
 const openChat = (serviceName) => {
-  if (!client.ensureLogin(`咨询「${serviceName}」`)) return
+  if (!client.checkAuth(`咨询「${serviceName}」`)) return
   uni.navigateTo({ url: `/pages/chat/index?svc=${encodeURIComponent(serviceName)}` })
 }
 
@@ -85,10 +85,8 @@ const selectNewsTab = (category) => {
 
 <template>
   <view class="home-page">
-    <view
-      class="hero"
-      style="background-image: url('/static/img.png'); background-size: cover; background-position: center top; width: 100vw; height: 320px; padding-top: 60px; margin-left: calc((100% - 100vw) / 2); margin-top: -24px; border-radius: 0 0 28px 28px;"
-    >
+    <view class="hero">
+      <view class="hero-gradient"></view>
       <view class="hero-topbar">
         <view class="logo">Yesok <text class="logo-accent">Vietnam</text></view>
         <view class="country-badge">🇻🇳</view>
@@ -231,7 +229,7 @@ const selectNewsTab = (category) => {
       </view>
     </view>
 
-    <AuthLoginSheet />
+    <AuthPopup />
     <view class="safe-bottom"></view>
   </view>
 </template>
@@ -240,14 +238,48 @@ const selectNewsTab = (category) => {
 .home-page {
   min-height: 100vh;
   overflow-x: hidden;
-  background: #f6f8fb;
+  background: #f2f6f5;
+}
+
+/* 意图：打造 340px 沉浸式融边 Banner，彻底消除微信顶部白条并呈现热带奢华第一视觉。 */
+/* 步骤：使用 100vw 负边距铺满视口，以 /static/img.png 为背景，并在底部叠加灰青色渐变遮罩。 */
+/* 返回：一个顶部无白边、底部自然融入薄荷灰青背景的品牌英雄区。 */
+.hero {
+  position: relative;
+  width: 100vw;
+  height: 340px;
+  margin-top: -24px;
+  margin-left: calc((100% - 100vw) / 2);
+  padding-top: 64px;
+  overflow: hidden;
+  background-image: url('/static/img.png');
+  background-size: cover;
+  background-position: center top;
+}
+
+.hero::before {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background: linear-gradient(180deg, rgba(0, 77, 64, 0.08) 0%, rgba(0, 77, 64, 0.28) 58%, rgba(242, 246, 245, 0.96) 100%);
+}
+
+.hero-gradient {
+  position: absolute;
+  right: 0;
+  bottom: -1px;
+  left: 0;
+  height: 128px;
+  background: linear-gradient(180deg, rgba(242, 246, 245, 0) 0%, #f2f6f5 88%);
 }
 
 .hero-topbar {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 20px;
+  padding: 0 22px;
 }
 
 .logo {
@@ -257,24 +289,28 @@ const selectNewsTab = (category) => {
 }
 
 .logo-accent {
-  color: #f6b000;
+  color: #c5a059;
 }
 
 .country-badge {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(197, 160, 89, 0.45);
   border-radius: 50%;
-  background: #fff;
-  box-shadow: var(--sh);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 12px 30px rgba(0, 77, 64, 0.16);
+  backdrop-filter: blur(12px);
 }
 
 .hero-copy {
+  position: relative;
+  z-index: 2;
   display: flex;
   flex-direction: column;
-  padding: 52px 22px 0;
+  padding: 58px 24px 0;
 }
 
 .hero-title {
@@ -285,28 +321,34 @@ const selectNewsTab = (category) => {
 }
 
 .hero-subtitle {
-  max-width: 280px;
-  margin-top: 8px;
-  color: rgba(255, 255, 255, 0.86);
+  max-width: 286px;
+  margin-top: 10px;
+  color: rgba(255, 255, 255, 0.9);
   font-size: 13px;
-  line-height: 1.6;
+  line-height: 1.65;
+  text-shadow: 0 2px 12px rgba(0, 77, 64, 0.28);
 }
 
+/* 意图：实现悬浮于 Banner 底部的毛玻璃搜索胶囊。 */
+/* 步骤：通过负 margin 上浮，使用高透白底、15px 背景模糊和 30px 圆角形成玻璃质感。 */
+/* 返回：一个 H5 与小程序都能稳定展示的高端搜索入口。 */
 .search-wrap {
   position: relative;
   z-index: 5;
-  padding: 0 20px;
-  margin-top: -30px;
+  padding: 0 22px;
+  margin-top: -42px;
 }
 
 .search-bar {
   display: flex;
   gap: 10px;
   align-items: center;
-  padding: 12px 16px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.96);
-  box-shadow: 0 4px 20px rgba(13, 71, 161, 0.14);
+  padding: 14px 18px;
+  border: 1px solid rgba(255, 255, 255, 0.72);
+  border-radius: 30px;
+  background: rgba(255, 255, 255, 0.72);
+  box-shadow: 0 18px 45px rgba(0, 77, 64, 0.14);
+  backdrop-filter: blur(15px);
 }
 
 .search-input {
@@ -344,10 +386,11 @@ const selectNewsTab = (category) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 48px;
-  height: 48px;
+  width: 50px;
+  height: 50px;
   border-radius: 50%;
-  background: #f0f6ff;
+  background: rgba(0, 77, 64, 0.08);
+  color: #004d40;
   font-size: 22px;
 }
 
@@ -357,8 +400,17 @@ const selectNewsTab = (category) => {
   font-weight: 600;
 }
 
+/* 意图：为业务模块注入卡片呼吸感，同时不触碰攻略精选与平台保障保护模块。 */
+/* 步骤：仅覆盖分类卡和热门服务容器，使用 32px 圆角与极浅深绿色彩色投影。 */
+/* 返回：植物掩映光影感的核心业务卡片容器。 */
+.category-card,
 .section-card {
-  padding: 14px 0 4px;
+  border-radius: 32px;
+  box-shadow: 0 18px 48px rgba(0, 77, 64, 0.05);
+}
+
+.section-card {
+  padding: 16px 0 6px;
 }
 
 .section-head {
@@ -384,14 +436,19 @@ const selectNewsTab = (category) => {
   white-space: nowrap;
 }
 
+/* 意图：让热门服务卡片具备热带奢华管家的呼吸感与高价值感。 */
+/* 步骤：扩大圆角到 32px，叠加深绿色极浅投影，并设置固定最小高度稳定横滑排版。 */
+/* 返回：纯白、柔和、可横向滑动的高端业务服务卡片。 */
 .service-card {
   display: inline-block;
-  width: 280px;
-  margin: 8px 0 14px 14px;
-  padding: 16px;
-  border-radius: 16px;
+  width: 286px;
+  min-height: 168px;
+  margin: 8px 0 16px 14px;
+  padding: 18px;
+  border: 1px solid rgba(0, 77, 64, 0.04);
+  border-radius: 32px;
   background: #fff;
-  box-shadow: var(--sh);
+  box-shadow: 0 18px 48px rgba(0, 77, 64, 0.05);
   vertical-align: top;
 }
 
@@ -405,9 +462,9 @@ const selectNewsTab = (category) => {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 48px;
-  height: 48px;
-  border-radius: 12px;
+  width: 52px;
+  height: 52px;
+  border-radius: 18px;
   font-size: 24px;
 }
 
@@ -464,8 +521,8 @@ const selectNewsTab = (category) => {
 }
 
 .service-price {
-  color: var(--tx);
-  font-size: 16px;
+  color: #e97832;
+  font-size: 17px;
   font-weight: 900;
 }
 
@@ -476,15 +533,16 @@ const selectNewsTab = (category) => {
 }
 
 .consult-btn {
-  height: 28px;
+  height: 30px;
   margin: 0;
-  padding: 0 16px;
+  padding: 0 18px;
   border: none;
-  border-radius: 14px;
+  border-radius: 15px;
   color: #fff;
   font-size: 12px;
-  font-weight: 700;
-  line-height: 28px;
+  font-weight: 800;
+  line-height: 30px;
+  background: #004d40 !important;
 }
 
 .guide-head {

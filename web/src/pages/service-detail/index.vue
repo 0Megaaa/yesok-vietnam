@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
 import request from '@/api/request'
-import AuthLoginSheet from '@/components/AuthLoginSheet.vue'
+import AuthPopup from '@/components/AuthPopup.vue'
 import { useGlobalShare } from '@/composables/useGlobalShare'
 
 const client = useClientStore()
@@ -79,7 +79,7 @@ const goBack = () => {
 // 2. 已登录后进入聊天页并带上服务名称。
 const contactManager = () => {
   const serviceName = serviceData.value?.name || '服务详情'
-  if (!client.ensureLogin(`咨询「${serviceName}」`)) return
+  if (!client.checkAuth(`咨询「${serviceName}」`)) return
   uni.navigateTo({ url: `/pages/chat/index?svc=${encodeURIComponent(serviceName)}` })
 }
 
@@ -90,7 +90,7 @@ const contactManager = () => {
 // 3. 写入 store 并提示用户后续可在首页查看订单动态。
 const createConsultOrder = async () => {
   const serviceName = serviceData.value?.name || '服务详情'
-  if (!client.ensureLogin(`预约「${serviceName}」`)) return
+  if (!client.checkAuth(`预约「${serviceName}」`)) return
   const res = await request.post('/v1/client/orders', { serviceId: serviceData.value?.id || serviceId.value })
   client.addOrder(res.data)
   uni.showToast({ title: '已生成咨询订单', icon: 'success' })
@@ -145,15 +145,18 @@ const createConsultOrder = async () => {
       <button class="primary-btn" @click="createConsultOrder">立即预约</button>
     </view>
 
-    <AuthLoginSheet />
+    <AuthPopup />
   </view>
 </template>
 
 <style scoped>
+/* 意图：服务详情页同步 Yesok 2.0 薄荷灰青底色，保证从首页跳转后的品牌一致性。 */
+/* 步骤：保留原有结构，只替换背景色并预留底部安全区。 */
+/* 返回：视觉连续且不影响业务逻辑的详情页容器。 */
 .detail-page {
   min-height: 100vh;
   padding-bottom: 92px;
-  background: #f5f8fc;
+  background: #f2f6f5;
 }
 
 .hero {
@@ -252,7 +255,7 @@ const createConsultOrder = async () => {
 }
 
 .price {
-  color: #0d47a1;
+  color: #e97832;
   font-size: 23px;
   font-weight: 900;
 }
@@ -282,7 +285,7 @@ const createConsultOrder = async () => {
   width: 4px;
   height: 16px;
   border-radius: 4px;
-  background: #0d47a1;
+  background: #004d40;
 }
 
 .include-item {
@@ -315,7 +318,7 @@ const createConsultOrder = async () => {
   width: 28px;
   height: 28px;
   border-radius: 50%;
-  background: #0d47a1;
+  background: #004d40;
   color: #fff;
   font-size: 13px;
   font-weight: 800;
@@ -363,12 +366,12 @@ const createConsultOrder = async () => {
 }
 
 .ghost-btn {
-  color: #0d47a1;
-  background: #eef6ff;
+  color: #004d40;
+  background: rgba(0, 77, 64, 0.08);
 }
 
 .primary-btn {
   color: #fff;
-  background: linear-gradient(135deg, #0d47a1, #1976d2);
+  background: linear-gradient(135deg, #004d40, #00695c);
 }
 </style>

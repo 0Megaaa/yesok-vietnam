@@ -185,15 +185,28 @@ export const useClientStore = defineStore('client', {
       this.loginSheetVisible = false
     },
 
-    // ensureLogin 执行业务入口鉴权。
+    // checkAuth 执行业务入口全局鉴权。
+    // 意图：为咨询、下单、支付等关键动作提供统一登录拦截能力。
     // 实现步骤：
-    // 1. 已登录时直接返回 true，业务继续执行。
-    // 2. 未登录时打开底部授权弹窗。
+    // 1. 已登录时直接返回 true，业务动作继续执行。
+    // 2. 未登录时记录触发动作，并打开 AuthPopup 底部授权弹窗。
     // 3. 返回 false，让调用方停止跳转或下单动作。
-    ensureLogin(actionText = '继续使用该服务') {
+    // 返回：布尔值，表示当前动作是否允许继续。
+    checkAuth(actionText = '继续使用该服务') {
       if (this.isLoggedIn) return true
       this.openLoginSheet(actionText)
       return false
+    },
+
+    // ensureLogin 保留旧调用名并转发到 checkAuth。
+    // 意图：兼容第一轮页面代码，避免批量迁移时遗漏旧方法导致运行错误。
+    // 实现步骤：
+    // 1. 接收旧页面传入的业务动作文案。
+    // 2. 调用新的全局 checkAuth 方法。
+    // 3. 原样返回鉴权判断结果。
+    // 返回：布尔值，表示业务动作是否允许继续。
+    ensureLogin(actionText = '继续使用该服务') {
+      return this.checkAuth(actionText)
     },
 
     // loginByDemo 执行演示版一键登录。

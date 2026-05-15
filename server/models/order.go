@@ -28,15 +28,15 @@ const (
 
 // Order 是新版主订单表，围绕“客户 + 服务 + 当前工作流状态 + 动态表单”组织核心业务数据。
 type Order struct {
-	ID            uint           `json:"id" gorm:"primaryKey;comment:'主键ID'"`
-	OrderNo       string         `json:"order_no" gorm:"size:64;uniqueIndex;not null;comment:'订单号'"`
-	AppUserID     uint           `json:"app_user_id" gorm:"index;not null;comment:'C端客户ID'"`
-	ServiceID     uint           `json:"service_id" gorm:"index;not null;comment:'服务品类ID'"`
-	TotalAmount   int64          `json:"total_amount" gorm:"default:0;comment:'订单总金额，单位为分'"`
-	CurrentStatus string         `json:"current_status" gorm:"size:64;index;not null;comment:'当前状态码'"`
+	ID            uint      `json:"id" gorm:"primaryKey;comment:'主键ID'"`
+	OrderNo       string    `json:"order_no" gorm:"size:64;uniqueIndex;not null;comment:'订单号'"`
+	AppUserID     uint      `json:"app_user_id" gorm:"index;not null;comment:'C端客户ID'"`
+	ServiceID     uint      `json:"service_id" gorm:"index;not null;comment:'服务品类ID'"`
+	TotalAmount   int64     `json:"total_amount" gorm:"default:0;comment:'订单总金额，单位为分'"`
+	CurrentStatus string    `json:"current_status" gorm:"size:64;index;not null;comment:'当前状态码'"`
 	FormData      string    `json:"form_data" gorm:"type:json;comment:'动态表单数据，存储各类业务自定义详情'"`
-	CreatedAt     time.Time      `json:"created_at" gorm:"comment:'创建时间'"`
-	UpdatedAt     time.Time      `json:"updated_at" gorm:"comment:'更新时间'"`
+	CreatedAt     time.Time `json:"created_at" gorm:"comment:'创建时间'"`
+	UpdatedAt     time.Time `json:"updated_at" gorm:"comment:'更新时间'"`
 
 	// 以下字段仅用于旧版 handlers 编译过渡，不会写入新版 orders 表。
 	// 实现步骤：

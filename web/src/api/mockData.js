@@ -1,8 +1,19 @@
-// Mock 数据源用于隔离真实后端，保证演示版可在微信小程序与 H5 环境中独立运行。
+// Mock 数据源用于隔离真实后端，保证演示版可在微信小程序、H5 与 Telegram Mini App 环境中独立运行。
+// 意图：用前端本地数据完整模拟 Yesok 2.0 的 C 端服务、B 端订单、动态工作流与财务对账。
 // 实现步骤：
-// 1. 在一个文件内集中维护首页、登录、订单与服务详情数据。
+// 1. 在一个文件内集中维护用户、员工、服务、流程、订单、轨迹和支付记录。
 // 2. 所有 API 文件只读取这里的数据，避免页面直接硬编码后端结构。
 // 3. 后续联调真实接口时，只需要替换 api/request.js 或具体 API 方法。
+// 返回：导出稳定的 Mock 常量，为 C/B 双端页面提供一致的数据契约。
+
+export const BRAND_COLORS = {
+  primary: '#004D40',
+  champagne: '#C5A059',
+  mint: '#F2F6F5',
+  orange: '#E97832',
+  ink: '#12312C',
+  muted: '#6B7C78',
+}
 
 export const MOCK_USER = {
   id: 10001,
@@ -15,12 +26,21 @@ export const MOCK_USER = {
   managerName: 'Linh 专属管家',
 }
 
+export const MOCK_ADMIN_USER = {
+  id: 90001,
+  username: 'admin',
+  realName: 'Mia 运营总监',
+  role: 'admin',
+  status: 1,
+  avatarText: 'M',
+}
+
 export const MOCK_SERVICES = [
   {
     id: 'company',
     icon: '🏢',
-    color: '#1565C0',
-    bg: '#E3F0FF',
+    color: BRAND_COLORS.primary,
+    bg: 'linear-gradient(135deg, rgba(0,77,64,0.12), rgba(197,160,89,0.18))',
     name: '公司注册',
     sub: '外资/内资 · 一站式办理',
     price: '¥3000',
@@ -31,8 +51,8 @@ export const MOCK_SERVICES = [
   {
     id: 'visa',
     icon: '🛂',
-    color: '#00897B',
-    bg: '#E0F2F1',
+    color: '#00796B',
+    bg: 'linear-gradient(135deg, rgba(0,121,107,0.12), rgba(242,246,245,0.95))',
     name: '签证办理',
     sub: '旅游/商务/工作签证',
     price: '¥600',
@@ -43,8 +63,8 @@ export const MOCK_SERVICES = [
   {
     id: 'bank',
     icon: '🏦',
-    color: '#F57C00',
-    bg: '#FFF3E0',
+    color: BRAND_COLORS.champagne,
+    bg: 'linear-gradient(135deg, rgba(197,160,89,0.20), rgba(255,248,225,0.88))',
     name: '银行开户',
     sub: '企业账户 · 快速开通',
     price: '¥800',
@@ -55,8 +75,8 @@ export const MOCK_SERVICES = [
   {
     id: 'airport',
     icon: '✈️',
-    color: '#1565C0',
-    bg: '#E3F0FF',
+    color: '#00695C',
+    bg: 'linear-gradient(135deg, rgba(0,105,92,0.12), rgba(224,242,241,0.9))',
     name: '机场接机',
     sub: '落地无忧 · 中文司机',
     price: '¥280',
@@ -67,8 +87,8 @@ export const MOCK_SERVICES = [
   {
     id: 'rent',
     icon: '🏠',
-    color: '#7B1FA2',
-    bg: '#F3E5F5',
+    color: '#7A5A21',
+    bg: 'linear-gradient(135deg, rgba(197,160,89,0.18), rgba(242,246,245,0.96))',
     name: '租房找房',
     sub: '真实房源 · 精准匹配',
     price: '¥500',
@@ -79,8 +99,8 @@ export const MOCK_SERVICES = [
   {
     id: 'translate',
     icon: '🗣️',
-    color: '#00695C',
-    bg: '#E0F2F1',
+    color: BRAND_COLORS.primary,
+    bg: 'linear-gradient(135deg, rgba(0,77,64,0.10), rgba(242,246,245,1))',
     name: '翻译陪同',
     sub: '商务/生活翻译服务',
     price: '¥200',
@@ -91,8 +111,8 @@ export const MOCK_SERVICES = [
   {
     id: 'car',
     icon: '🚗',
-    color: '#E53935',
-    bg: '#FFEBEE',
+    color: '#D56B2D',
+    bg: 'linear-gradient(135deg, rgba(213,107,45,0.14), rgba(255,245,239,0.94))',
     name: '商务用车',
     sub: '专车服务 · 安全舒适',
     price: '¥350',
@@ -103,8 +123,8 @@ export const MOCK_SERVICES = [
   {
     id: 'medical',
     icon: '🏥',
-    color: '#00897B',
-    bg: '#E0F2F1',
+    color: '#00796B',
+    bg: 'linear-gradient(135deg, rgba(0,121,107,0.12), rgba(242,246,245,0.95))',
     name: '医疗陪诊',
     sub: '就医陪同 · 专业协助',
     price: '¥500',
@@ -115,8 +135,8 @@ export const MOCK_SERVICES = [
   {
     id: 'vip',
     icon: '👑',
-    color: '#B8860B',
-    bg: '#FFF8E1',
+    color: BRAND_COLORS.champagne,
+    bg: 'linear-gradient(135deg, rgba(0,77,64,0.10), rgba(197,160,89,0.24))',
     name: '高端通道',
     sub: '私密·专属·高效',
     price: '面议',
@@ -135,18 +155,211 @@ export const MOCK_NEWS = [
   { id: 'n4', title: '初到胡志明市：交通出行与防坑全攻略', tag: '生活指南', source: '用户分享', date: '04-25' },
 ]
 
-export const MOCK_ORDERS = [
+export const MOCK_WORKFLOW_NODES = [
+  {
+    id: 1,
+    serviceId: 'company',
+    currentStatus: 'pending',
+    buttonName: '受理订单',
+    targetStatus: 'processing',
+    requiredMaterial: false,
+    triggerPayment: false,
+    adminHint: '确认客户需求后进入管家办理阶段。',
+  },
+  {
+    id: 2,
+    serviceId: 'company',
+    currentStatus: 'processing',
+    buttonName: '要求补充材料',
+    targetStatus: 'supplementing',
+    requiredMaterial: true,
+    triggerPayment: false,
+    adminHint: '营业执照申请前可向客户索要护照或地址证明。',
+  },
+  {
+    id: 3,
+    serviceId: 'company',
+    currentStatus: 'processing',
+    buttonName: '提交尾款支付',
+    targetStatus: 'payment_pending',
+    requiredMaterial: false,
+    triggerPayment: true,
+    adminHint: '节点验收后触发尾款支付提醒。',
+  },
+  {
+    id: 4,
+    serviceId: 'company',
+    currentStatus: 'payment_pending',
+    buttonName: '确认收款并完成',
+    targetStatus: 'completed',
+    requiredMaterial: false,
+    triggerPayment: false,
+    adminHint: '财务确认到账后完成订单。',
+  },
+  {
+    id: 5,
+    serviceId: 'visa',
+    currentStatus: 'pending',
+    buttonName: '受理签证',
+    targetStatus: 'processing',
+    requiredMaterial: false,
+    triggerPayment: false,
+    adminHint: '确认签证类型、入境时间和护照信息。',
+  },
+  {
+    id: 6,
+    serviceId: 'visa',
+    currentStatus: 'processing',
+    buttonName: '材料已递交',
+    targetStatus: 'payment_pending',
+    requiredMaterial: false,
+    triggerPayment: true,
+    adminHint: '材料递交后向客户同步付款节点。',
+  },
+  {
+    id: 7,
+    serviceId: 'airport',
+    currentStatus: 'pending',
+    buttonName: '确认司机',
+    targetStatus: 'processing',
+    requiredMaterial: false,
+    triggerPayment: false,
+    adminHint: '分配司机并核对航班落地时间。',
+  },
+  {
+    id: 8,
+    serviceId: 'airport',
+    currentStatus: 'processing',
+    buttonName: '服务完成',
+    targetStatus: 'completed',
+    requiredMaterial: false,
+    triggerPayment: false,
+    adminHint: '客户抵达酒店后关闭订单。',
+  },
+]
+
+export const MOCK_ADMIN_ORDERS = [
   {
     id: 'YS20260515001',
     orderNo: 'YS20260515001',
+    appUserId: 10001,
+    appUserName: '陈先生',
+    appUserPhone: '+86 138****5200',
+    serviceId: 'company',
     serviceName: '公司注册',
     icon: '🏢',
     status: 'processing',
-    sk: 'processing',
+    currentStatus: 'processing',
+    statusText: '服务进行中',
     managerName: 'Linh 专属管家',
-    price: '¥3000 起',
+    totalAmount: 300000,
+    totalAmountText: '¥3000 起',
+    priority: 'VIP',
+    createdAt: '2026-05-15 09:30',
+    updatedAt: '2026-05-15 12:10',
+    formData: {
+      companyType: '外资贸易公司',
+      city: '胡志明市',
+      shareholderCount: '2 位股东',
+      registeredAddress: '需要 Yesok 推荐合规地址',
+      expectedFinishDate: '10 个工作日内',
+      specialNote: '客户希望同步安排企业银行开户预审。',
+    },
+  },
+  {
+    id: 'YS20260515002',
+    orderNo: 'YS20260515002',
+    appUserId: 10002,
+    appUserName: '李女士',
+    appUserPhone: '+86 186****8812',
+    serviceId: 'visa',
+    serviceName: '签证办理',
+    icon: '🛂',
+    status: 'pending',
+    currentStatus: 'pending',
+    statusText: '等待受理',
+    managerName: 'Minh 签证顾问',
+    totalAmount: 60000,
+    totalAmountText: '¥600 起',
+    priority: '普通',
+    createdAt: '2026-05-15 10:18',
+    updatedAt: '2026-05-15 10:18',
+    formData: {
+      visaType: '商务签证',
+      entryDate: '2026-06-01',
+      stayDays: '30 天',
+      passportStatus: '护照有效期 2 年',
+      urgency: '希望加急',
+    },
+  },
+  {
+    id: 'YS20260515003',
+    orderNo: 'YS20260515003',
+    appUserId: 10003,
+    appUserName: '王总',
+    appUserPhone: '+86 139****7788',
+    serviceId: 'airport',
+    serviceName: '机场接机',
+    icon: '✈️',
+    status: 'payment_pending',
+    currentStatus: 'payment_pending',
+    statusText: '待支付确认',
+    managerName: 'An 出行管家',
+    totalAmount: 28000,
+    totalAmountText: '¥280 起',
+    priority: '加急',
+    createdAt: '2026-05-14 21:05',
+    updatedAt: '2026-05-15 08:40',
+    formData: {
+      airport: '新山一国际机场 SGN',
+      flightNo: 'CZ3069',
+      landingTime: '2026-05-16 00:35',
+      carType: '7 座商务车',
+      destination: 'District 1 酒店',
+      signName: 'YESOK VIP',
+    },
   },
 ]
+
+export const MOCK_ORDER_TIMELINES = {
+  YS20260515001: [
+    { id: 1, beforeStatus: '', afterStatus: 'pending', label: '客户提交公司注册需求', operator: '系统', remark: '动态表单已入库，等待后台确认。', createdAt: '2026-05-15 09:30' },
+    { id: 2, beforeStatus: 'pending', afterStatus: 'processing', label: '管家已受理订单', operator: 'Mia 运营总监', remark: '已分配 Linh 跟进企业设立材料。', createdAt: '2026-05-15 12:10' },
+  ],
+  YS20260515002: [
+    { id: 3, beforeStatus: '', afterStatus: 'pending', label: '客户提交签证需求', operator: '系统', remark: '等待签证顾问确认材料。', createdAt: '2026-05-15 10:18' },
+  ],
+  YS20260515003: [
+    { id: 4, beforeStatus: '', afterStatus: 'pending', label: '客户提交接机需求', operator: '系统', remark: '夜间航班已标记加急。', createdAt: '2026-05-14 21:05' },
+    { id: 5, beforeStatus: 'pending', afterStatus: 'processing', label: '司机已确认', operator: 'An 出行管家', remark: '车辆与举牌信息已同步。', createdAt: '2026-05-15 08:05' },
+    { id: 6, beforeStatus: 'processing', afterStatus: 'payment_pending', label: '等待客户支付', operator: '财务系统', remark: '已生成接机费用确认单。', createdAt: '2026-05-15 08:40' },
+  ],
+}
+
+export const MOCK_PAYMENT_RECORDS = [
+  {
+    id: 'PAY20260515001',
+    orderId: 'YS20260515003',
+    appUserId: 10003,
+    payAmount: 28000,
+    payAmountText: '¥280.00',
+    payMethod: 'wechat',
+    status: 'pending',
+    thirdTradeNo: 'WX-MOCK-20260515003',
+    createdAt: '2026-05-15 08:40',
+  },
+]
+
+export const MOCK_ORDERS = MOCK_ADMIN_ORDERS.map((order) => ({
+  id: order.id,
+  orderNo: order.orderNo,
+  serviceName: order.serviceName,
+  icon: order.icon,
+  status: order.status,
+  sk: order.status,
+  managerName: order.managerName,
+  price: order.totalAmountText,
+}))
 
 export const PLATFORM_GUARANTEES = [
   { icon: '🥇', title: '官方直营', desc: '标准流程透明交付' },

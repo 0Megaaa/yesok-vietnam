@@ -29,18 +29,30 @@
       "style": {
         "navigationBarTitleText": "服务详情"
       }
+    },
+    {
+      "path": "pages/admin/index",
+      "style": {
+        "navigationStyle": "custom"
+      }
+    },
+    {
+      "path": "pages/admin/order-detail",
+      "style": {
+        "navigationStyle": "custom"
+      }
     }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "white",
     "navigationBarTitleText": "Yesok Vietnam",
-    "navigationBarBackgroundColor": "#0D47A1",
-    "backgroundColor": "#F5F7FA"
+    "navigationBarBackgroundColor": "#004D40",
+    "backgroundColor": "#F2F6F5"
   },
   "tabBar": {
     "color": "#9AA3B5",
-    "selectedColor": "#0D47A1",
-    "borderStyle": "black",
+    "selectedColor": "#004D40",
+    "borderStyle": "white",
     "backgroundColor": "#FFFFFF",
     "list": [
       {
