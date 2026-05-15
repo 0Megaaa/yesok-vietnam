@@ -32,12 +32,11 @@
     }
 
     page {
-      height: 100%;
+      min-height: 100vh;
       background: var(--gy);
       color: var(--tx);
       font-family: 'Noto Sans SC', sans-serif;
       font-size: 14px;
-      overflow: hidden;
     }
 
     ::-webkit-scrollbar {
