@@ -4,9 +4,7 @@
     { "path": "pages/news/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/services/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } },
-    { "path": "pages/service-detail/index", "style": { "navigationBarTitleText": "服务详情" } },
-    { "path": "pages/admin/index", "style": { "navigationStyle": "custom" } },
-    { "path": "pages/admin/order-detail", "style": { "navigationStyle": "custom" } }
+    { "path": "pages/service-detail/index", "style": { "navigationBarTitleText": "服务详情" } }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "white",

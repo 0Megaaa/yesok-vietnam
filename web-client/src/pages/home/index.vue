@@ -13,15 +13,13 @@ const configs = ref({})
 const selectedService = ref(null)
 const orderForm = ref({ contact_name: '', contact_phone: '', hotel_address: '', remark: '' })
 
-useGlobalShare({ title: 'Yesok Vietnam｜热带奢华生活管家', path: '/pages/home/index' })
+useGlobalShare({ title: 'Yesok Vietnam｜越南本地生活管家', path: '/pages/home/index' })
 
-// 1.意图 -> 从服务接口中提取首页热门服务、分类入口和 Banner 文案。
+// 1.意图 -> 从服务接口中提取首页热门服务、分类入口和 Banner 图片。
 // 2.步骤 -> 使用 computed 对响应式服务列表与配置对象进行派生，避免页面硬编码服务名称和价格。
 // 3.返回 -> 可被模板直接消费的热门服务、分类和首页文案。
 const hotServices = computed(() => services.value.filter((item) => item.is_hot).slice(0, 6))
 const categories = computed(() => services.value.slice(0, 5).map((item) => ({ id: item.id, icon: item.icon || '🌴', name: item.display_name || item.service_name })))
-const heroTitle = computed(() => configs.value.hero_title || '越南高端生活服务管家')
-const heroSubtitle = computed(() => configs.value.hero_subtitle || '接机、签证、包车、翻译、企业落地一站式托管')
 const bannerImage = computed(() => '/static/img.png')
 const featuredArticles = computed(() => articles.value.slice(0, 3))
 
@@ -131,7 +129,7 @@ const submitOrder = async () => {
       form_data: {
         hotel_address: orderForm.value.hotel_address,
         remark: orderForm.value.remark,
-        source: 'C端首页热带奢华下单胶囊',
+        source: 'C端首页服务咨询入口',
       },
     }
     const res = await request.post('/v1/orders', payload)
@@ -149,18 +147,7 @@ onMounted(loadHomeData)
 
 <template>
   <view class="home-page">
-    <view class="hero-bleed">
-      <image class="hero-image" :src="bannerImage" mode="aspectFill" />
-      <view class="hero-mask"></view>
-      <view class="hero-topbar">
-        <text class="brand">Yesok Vietnam</text>
-        <text class="locale">CN / VN</text>
-      </view>
-      <view class="hero-copy">
-        <text class="hero-title">{{ heroTitle }}</text>
-        <text class="hero-subtitle">{{ heroSubtitle }}</text>
-      </view>
-    </view>
+    <view class="hero-bleed"></view>
 
     <view class="search-capsule">
       <text class="search-icon">⌕</text>
@@ -214,10 +201,14 @@ onMounted(loadHomeData)
       </view>
     </view>
 
-    <view class="luxury-panel">
-      <text class="panel-kicker">YESOK PROMISE</text>
-      <text class="panel-title">热带奢华，但每一步都有数据留痕</text>
-      <text class="panel-desc">B 端配置服务、流程节点、价格与资讯后，C 端实时读取；客户提交订单后，后台可推进状态并自动沉淀财务流水。</text>
+    <view class="why-choose-us" style="padding: 20px; background: #fff; border-radius: 16px; margin: 15px; box-shadow: 0 4px 24px rgba(0,77,64,0.04);">
+      <view style="font-size: 18px; font-weight: bold; color: #004D40; margin-bottom: 20px; text-align: center; letter-spacing: 1px;">为什么选择 YesOk</view>
+      <view style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+         <view style="text-align: center; padding: 10px;"><view style="font-size: 28px; margin-bottom: 8px;">🤝</view><view style="font-size: 14px; font-weight: bold; color: #333; margin-bottom: 4px;">华人团队</view><view style="font-size: 11px; color: #888; line-height: 1.4;">无缝沟通 懂你所需</view></view>
+         <view style="text-align: center; padding: 10px;"><view style="font-size: 28px; margin-bottom: 8px;">🛡️</view><view style="font-size: 14px; font-weight: bold; color: #333; margin-bottom: 4px;">资金合规</view><view style="font-size: 11px; color: #888; line-height: 1.4;">平台担保 安全无忧</view></view>
+         <view style="text-align: center; padding: 10px;"><view style="font-size: 28px; margin-bottom: 8px;">💰</view><view style="font-size: 14px; font-weight: bold; color: #333; margin-bottom: 4px;">透明报价</view><view style="font-size: 11px; color: #888; line-height: 1.4;">明码标价 拒绝隐形</view></view>
+         <view style="text-align: center; padding: 10px;"><view style="font-size: 28px; margin-bottom: 8px;">⚡</view><view style="font-size: 14px; font-weight: bold; color: #333; margin-bottom: 4px;">极速响应</view><view style="font-size: 11px; color: #888; line-height: 1.4;">专属管家 1对1服务</view></view>
+      </view>
     </view>
 
     <view v-if="selectedService" class="order-modal">
@@ -240,7 +231,7 @@ onMounted(loadHomeData)
 
 <style scoped>
 .home-page { min-height: 100vh; padding-bottom: 92px; background: #f2f6f5; color: #12312c; }
-.hero-bleed { position: relative; height: 340px; margin: 0; overflow: hidden; border-bottom-left-radius: 0; border-bottom-right-radius: 0; background: #f2f6f5; }
+.hero-bleed { position: relative; height: 340px; margin: 0; overflow: hidden; border-bottom-left-radius: 0; border-bottom-right-radius: 0; background: linear-gradient(to bottom, transparent, #F2F6F5), url('/static/img.png') no-repeat center/cover; }
 .hero-image { position: absolute; inset: 0; width: 100%; height: 100%; transform: scale(1.02); }
 .hero-mask { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(15,61,62,.04) 0%, rgba(15,61,62,.08) 44%, #f2f6f5 100%); }
 .hero-topbar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 62px 22px 0; color: #fff; }
