@@ -529,7 +529,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-.admin-shell { min-height: 100vh; background: #f2f6f5; color: #12312c; }
+.admin-shell { display: flex; width: 100%; height: 100vh; overflow: hidden; background: #f2f6f5; color: #12312c; }
 .login-card { width: min(440px, calc(100% - 32px)); margin: 10vh auto; padding: 34px; border-radius: 36px; background: rgba(255,255,255,.82); box-shadow: 0 26px 80px rgba(0,77,64,.12); backdrop-filter: blur(18px); }
 .eyebrow, .login-title, .login-desc, .hero-title, .hero-desc, .panel-title, .order-title, .muted, .sub-title { display: block; }
 .eyebrow { color: #c5a059; font-size: 11px; font-weight: 900; letter-spacing: 1.8px; }
@@ -546,7 +546,7 @@ onUnmounted(() => {
 .nav-item { display: block; width: 100%; height: 44px; margin-bottom: 10px; color: rgba(255,255,255,.72); background: transparent; text-align: left; padding-left: 18px; }
 .nav-item.active { color: #12312c; background: #f5d98f; }
 .collapse-toggle { position: fixed; top: 18px; left: 18px; z-index: 12; height: 38px; padding: 0 16px; color: #12312c; background: #f5d98f; box-shadow: 0 12px 32px rgba(0,77,64,.16); }
-.workspace { box-sizing: border-box; min-width: 0; margin-left: 254px; padding: 24px; transition: margin-left .24s ease; }
+.workspace { box-sizing: border-box; flex: 1; width: 100%; height: 100vh; min-width: 0; margin-left: 254px; overflow-x: auto; overflow-y: auto; padding: 24px; transition: margin-left .24s ease; }
 .admin-shell.collapsed .workspace { margin-left: 0; }
 .hero-card { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 30px; border-radius: 36px; color: #fff; background: radial-gradient(circle at 85% 15%, rgba(245,217,143,.46), transparent 26%), linear-gradient(135deg,#004d40,#0f3d3e); box-shadow: 0 28px 80px rgba(0,77,64,.18); }
 .refresh-btn { height: 42px; padding: 0 20px; color: #12312c; background: #f5d98f; }
@@ -561,13 +561,13 @@ onUnmounted(() => {
 .panel-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .wide { grid-column: span 1; }
 .radar-line, .user-line, .table-row, .order-top, .order-meta, .section-head, .article-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.radar-line, .user-line, .table-row { min-width: 760px; padding: 12px 0; border-bottom: 1px solid rgba(0,77,64,.08); }
+.radar-line, .user-line, .table-row { min-width: 1200px !important; padding: 12px 0; border-bottom: 1px solid rgba(0,77,64,.08); }
 .strong { font-weight: 900; }
 .chip-row, .actions, .category-hint { display: flex; flex-wrap: wrap; gap: 10px; }
 .chip { height: 34px; padding: 0 14px; color: #6b7c78; background: #eef5f2; }
 .chip.active, .action-btn { color: #fff; background: #004d40; }
 .order-list { display: grid; gap: 14px; margin-top: 16px; }
-.order-card { min-width: 760px; padding: 18px; border-radius: 24px; background: #fff; }
+.order-card { min-width: 1200px !important; padding: 18px; border-radius: 24px; background: #fff; }
 .order-title { font-size: 17px; font-weight: 900; }
 .status { padding: 7px 12px; border-radius: 999px; color: #004d40; background: rgba(0,77,64,.08); font-size: 12px; font-weight: 900; }
 .order-meta { margin: 12px 0; color: #6b7c78; font-size: 12px; }
@@ -578,7 +578,7 @@ onUnmounted(() => {
 .two-col { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .span-2 { grid-column: span 2; }
 .table-scroll { width: 100%; min-width: 100%; overflow-x: auto; }
-.table-list, .article-list { min-width: 100%; margin-top: 16px; }
+.table-list, .article-list, .order-list { min-width: 1200px !important; margin-top: 16px; }
 .ghost-btn, .danger-btn { height: 32px; padding: 0 14px; color: #004d40; background: rgba(0,77,64,.08); }
 .danger-btn { color: #b42318; background: rgba(180,35,24,.09); }
 .form-btn { height: 46px; margin-top: 16px; }
@@ -589,7 +589,7 @@ onUnmounted(() => {
 .cover-preview { width: 100%; height: 180px; border-radius: 24px; background: #dfeae6; }
 .file-input { width: 100%; margin-top: 12px; }
 .category-hint { margin-top: 12px; color: #6b7c78; font-size: 12px; }
-.article-row { min-width: 760px; padding: 12px 0; border-bottom: 1px solid rgba(0,77,64,.08); }
+.article-row { min-width: 1200px !important; padding: 12px 0; border-bottom: 1px solid rgba(0,77,64,.08); }
 .article-thumb { flex: 0 0 88px; width: 88px; height: 66px; border-radius: 16px; background: #dfeae6; }
 .article-info { flex: 1; min-width: 260px; }
 .empty { padding: 20px; color: #6b7c78; text-align: center; }
