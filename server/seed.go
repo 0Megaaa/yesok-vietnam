@@ -18,6 +18,8 @@ func seedCoreData(db *gorm.DB) {
 	services := seedServices(db)
 	seedWorkflowNodes(db, services)
 	seedConfigs(db)
+	seedDictTypes(db)
+	seedArticles(db)
 	seedAppUser(db)
 }
 
@@ -107,6 +109,68 @@ func seedConfigs(db *gorm.DB) {
 	for _, seed := range seeds {
 		var item models.SysConfig
 		if db.Where("config_key = ?", seed.ConfigKey).First(&item).Error != nil {
+			db.Create(&seed)
+		} else {
+			db.Model(&item).Updates(seed)
+		}
+	}
+}
+
+// seedDictTypes 注入基础字典类型与字典数据。
+// 1.意图 -> 让服务分类、资讯分类和订单状态等枚举具备后台可配置基础数据。
+// 2.步骤 -> 幂等写入 sys_dict_types 与 sys_dict_data，按 dict_code 和 dict_value 去重。
+// 3.返回 -> 无返回。
+func seedDictTypes(db *gorm.DB) {
+	types := []models.SysDictType{
+		{DictName: "服务分类", DictCode: "service_category", Remark: "C 端服务入口分类", Status: 1},
+		{DictName: "资讯分类", DictCode: "article_category", Remark: "C 端资讯频道分类", Status: 1},
+		{DictName: "订单状态", DictCode: "order_status", Remark: "订单履约流程状态", Status: 1},
+	}
+	for _, seed := range types {
+		var item models.SysDictType
+		if db.Where("dict_code = ?", seed.DictCode).First(&item).Error != nil {
+			db.Create(&seed)
+		} else {
+			db.Model(&item).Updates(seed)
+		}
+	}
+	data := []models.SysDictData{
+		{DictCode: "service_category", DictLabel: "出行交通", DictValue: "travel", SortOrder: 1, Status: 1, Remark: "接机、包车等移动服务"},
+		{DictCode: "service_category", DictLabel: "商务合规", DictValue: "business", SortOrder: 2, Status: 1, Remark: "签证、注册、财税等商务服务"},
+		{DictCode: "service_category", DictLabel: "语言协作", DictValue: "language", SortOrder: 3, Status: 1, Remark: "翻译、陪同、会议支持"},
+		{DictCode: "article_category", DictLabel: "落地指南", DictValue: "guide", SortOrder: 1, Status: 1, Remark: "越南商务与生活落地知识"},
+		{DictCode: "article_category", DictLabel: "城市灵感", DictValue: "city", SortOrder: 2, Status: 1, Remark: "胡志明、河内、岘港等城市内容"},
+		{DictCode: "article_category", DictLabel: "服务公告", DictValue: "notice", SortOrder: 3, Status: 1, Remark: "平台服务与活动公告"},
+		{DictCode: "order_status", DictLabel: "待受理", DictValue: "pending", SortOrder: 1, Status: 1, Remark: "客户刚提交订单"},
+		{DictCode: "order_status", DictLabel: "已报价", DictValue: "quoted", SortOrder: 2, Status: 1, Remark: "管家已完成报价"},
+		{DictCode: "order_status", DictLabel: "已收款", DictValue: "paid", SortOrder: 3, Status: 1, Remark: "客户付款完成"},
+		{DictCode: "order_status", DictLabel: "履约中", DictValue: "in_progress", SortOrder: 4, Status: 1, Remark: "服务正在履约"},
+		{DictCode: "order_status", DictLabel: "已完成", DictValue: "completed", SortOrder: 5, Status: 1, Remark: "订单履约结束"},
+	}
+	for _, seed := range data {
+		var item models.SysDictData
+		if db.Where("dict_code = ? AND dict_value = ?", seed.DictCode, seed.DictValue).First(&item).Error != nil {
+			db.Create(&seed)
+		} else {
+			db.Model(&item).Updates(seed)
+		}
+	}
+}
+
+// seedArticles 注入 C 端首页和资讯 Tab 演示内容。
+// 1.意图 -> 让资讯模块在首次启动后即可从数据库动态渲染。
+// 2.步骤 -> 按 title 幂等写入多条热带奢华风越南商务服务资讯。
+// 3.返回 -> 无返回。
+func seedArticles(db *gorm.DB) {
+	articles := []models.SysArticle{
+		{Title: "抵达胡志明后的 6 小时黄金动线", CoverImg: "/static/img.png", Summary: "从机场接送、酒店入住到商务晚宴，Yesok 管家为高净值客户拆解首日抵达节奏。", Content: "抵达越南后的第一天决定了整趟行程的效率。建议提前锁定航班信息、车辆规格、酒店入住窗口与晚宴动线，由双语管家统一协调司机、酒店和餐厅。", Category: "guide", Author: "Yesok Vietnam", Status: 1, SortOrder: 1, ViewCount: 168},
+		{Title: "越南商务包车如何选择车型与路线", CoverImg: "/static/img.png", Summary: "商务拜访、工厂考察与城市转场的车型、司机语言和路线规划建议。", Content: "胡志明与周边工业园路况差异明显。商务包车应优先明确乘坐人数、行李件数、工厂地址、等待时长与返程节点，并预留跨区通勤缓冲。", Category: "guide", Author: "Yesok Vietnam", Status: 1, SortOrder: 2, ViewCount: 132},
+		{Title: "岘港海岸线上的高端生活灵感", CoverImg: "/static/img.png", Summary: "把商务行程和热带度假融合，让越南目的地服务更从容。", Content: "岘港适合在紧凑商务行程中安排短暂停留。高端客户可组合机场接送、半日包车、会客翻译和海岸线餐厅预订，形成更有记忆点的目的地体验。", Category: "city", Author: "Yesok Vietnam", Status: 1, SortOrder: 3, ViewCount: 98},
+		{Title: "签证加急资料准备清单", CoverImg: "/static/img.png", Summary: "护照、入境日期、酒店地址与联系人信息，提前准备可显著缩短办理时间。", Content: "签证加急的关键在于资料准确性。客户应提前确认护照有效期、入境日期、停留天数、越南联系人和酒店地址，管家会在提交前完成二次校验。", Category: "notice", Author: "Yesok Vietnam", Status: 1, SortOrder: 4, ViewCount: 76},
+	}
+	for _, seed := range articles {
+		var item models.SysArticle
+		if db.Where("title = ?", seed.Title).First(&item).Error != nil {
 			db.Create(&seed)
 		} else {
 			db.Model(&item).Updates(seed)

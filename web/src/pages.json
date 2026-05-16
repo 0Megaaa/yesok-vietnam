@@ -1,6 +1,7 @@
 {
   "pages": [
     { "path": "pages/home/index", "style": { "navigationStyle": "custom" } },
+    { "path": "pages/news/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/services/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/service-detail/index", "style": { "navigationBarTitleText": "服务详情" } },
@@ -20,6 +21,7 @@
     "backgroundColor": "#FFFFFF",
     "list": [
       { "pagePath": "pages/home/index", "text": "首页", "iconPath": "static/tabbar/home.png", "selectedIconPath": "static/tabbar/home-active.png" },
+      { "pagePath": "pages/news/index", "text": "资讯", "iconPath": "static/tabbar/news.png", "selectedIconPath": "static/tabbar/news-active.png" },
       { "pagePath": "pages/services/index", "text": "服务", "iconPath": "static/tabbar/services.png", "selectedIconPath": "static/tabbar/services-active.png" },
       { "pagePath": "pages/profile/index", "text": "我的", "iconPath": "static/tabbar/profile.png", "selectedIconPath": "static/tabbar/profile-active.png" }
     ]

@@ -18,9 +18,9 @@ import (
 	"yesok-vietnam/server/models"
 )
 
-// main 是服务端启动入口，负责数据库连接、8 表迁移、种子数据、路由注册和 H5 静态资源托管。
+// main 是服务端启动入口，负责数据库连接、核心表迁移、种子数据、路由注册和 H5 静态资源托管。
 // 1.意图 -> 启动 Yesok 2.0 全栈真实数据链路。
-// 2.步骤 -> 连接数据库、迁移 8 张核心表、注入种子数据、挂载 C/B 端 API 与静态资源。
+// 2.步骤 -> 连接数据库、迁移核心表、注入种子数据、挂载 C/B 端 API、上传资源与静态资源。
 // 3.返回 -> 无返回；服务启动失败时记录 fatal 日志。
 func main() {
 	db := connectDatabase()
@@ -68,12 +68,12 @@ func connectDatabase() *gorm.DB {
 	return db
 }
 
-// migrateCoreTables 迁移 8 张核心业务表。
-// 1.意图 -> 建立 app_users、sys_users、sys_services、sys_workflow_nodes、orders、order_timelines、payment_records、sys_configs。
+// migrateCoreTables 迁移核心业务表。
+// 1.意图 -> 建立用户、服务、流程、订单、财务、配置、字典与资讯等核心表。
 // 2.步骤 -> 使用 GORM AutoMigrate 幂等建表，字段 comment 与模型保持一致。
 // 3.返回 -> 无返回；失败时终止服务。
 func migrateCoreTables(db *gorm.DB) {
-	if err := db.AutoMigrate(&models.AppUser{}, &models.SysUser{}, &models.SysService{}, &models.SysWorkflowNode{}, &models.Order{}, &models.OrderTimeline{}, &models.PaymentRecord{}, &models.SysConfig{}); err != nil {
+	if err := db.AutoMigrate(&models.AppUser{}, &models.SysUser{}, &models.SysService{}, &models.SysWorkflowNode{}, &models.Order{}, &models.OrderTimeline{}, &models.PaymentRecord{}, &models.SysConfig{}, &models.SysDictType{}, &models.SysDictData{}, &models.SysArticle{}); err != nil {
 		log.Fatalf("failed to auto-migrate core tables: %v", err)
 	}
 }
@@ -96,6 +96,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		v1.GET("/services", handlers.ClientListServices(db))
 		v1.POST("/orders", handlers.ClientCreateOrder(db))
 		v1.GET("/configs", handlers.ClientGetConfigs(db))
+		v1.GET("/articles", handlers.ClientListArticles(db))
 
 		client := v1.Group("/client")
 		{
@@ -124,6 +125,19 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 				adminProtected.GET("/services", handlers.AdminListServices(db))
 				adminProtected.POST("/services", handlers.AdminSaveService(db))
 				adminProtected.PUT("/services/:id", handlers.AdminUpdateService(db))
+				adminProtected.POST("/upload", handlers.UploadFile(db))
+				adminProtected.GET("/dict-types", handlers.AdminListDictTypes(db))
+				adminProtected.POST("/dict-types", handlers.AdminSaveDictType(db))
+				adminProtected.PUT("/dict-types/:id", handlers.AdminUpdateDictType(db))
+				adminProtected.DELETE("/dict-types/:id", handlers.AdminDeleteDictType(db))
+				adminProtected.GET("/dict-data", handlers.AdminListDictData(db))
+				adminProtected.POST("/dict-data", handlers.AdminSaveDictData(db))
+				adminProtected.PUT("/dict-data/:id", handlers.AdminUpdateDictData(db))
+				adminProtected.DELETE("/dict-data/:id", handlers.AdminDeleteDictData(db))
+				adminProtected.GET("/articles", handlers.AdminListArticles(db))
+				adminProtected.POST("/articles", handlers.AdminSaveArticle(db))
+				adminProtected.PUT("/articles/:id", handlers.AdminUpdateArticle(db))
+				adminProtected.DELETE("/articles/:id", handlers.AdminDeleteArticle(db))
 				adminProtected.GET("/payments", handlers.AdminListPayments(db))
 				adminProtected.GET("/app-users", handlers.AdminListAppUsers(db))
 				adminProtected.GET("/sys-users", handlers.AdminListSysUsers(db))
@@ -138,12 +152,13 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 	}
 }
 
-// registerStaticRoutes 注册 H5 静态资源托管。
-// 1.意图 -> 让 Go 服务可直接托管前端 dist。
-// 2.步骤 -> 托管 assets 与 static 目录，非 API 路由回退 index.html。
+// registerStaticRoutes 注册 H5 静态资源和上传资源托管。
+// 1.意图 -> 让 Go 服务可直接托管前端 dist 与后台本地上传图片。
+// 2.步骤 -> 托管 uploads、assets 与 static 目录，非 API 路由回退 index.html。
 // 3.返回 -> 无返回。
 func registerStaticRoutes(r *gin.Engine) {
 	staticDir := config.Global.Server.StaticDir
+	r.Static("/uploads", "./uploads")
 	r.StaticFS("/assets", http.Dir(filepath.Join(staticDir, "assets")))
 	r.StaticFS("/static", http.Dir(filepath.Join(staticDir, "static")))
 	r.NoRoute(func(c *gin.Context) { c.File(filepath.Join(staticDir, "index.html")) })

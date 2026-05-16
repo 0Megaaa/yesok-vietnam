@@ -53,7 +53,7 @@ onMounted(loadServices)
 </script>
 
 <template>
-  <view class="services-page"><view class="top"><text class="title">服务</text><text class="sub">所有服务、价格与配置均来自后台 sys_services</text><view class="search"><input v-model="keyword" placeholder="搜索服务" /></view></view><view v-if="loading" class="empty">正在读取后台服务配置...</view><view v-else class="list"><view v-for="service in filteredServices" :key="service.id" class="card"><view class="icon">{{ service.icon || '🌴' }}</view><view class="main"><text class="name">{{ service.display_name }}</text><text class="desc">{{ service.description }}</text><view class="bottom"><text class="price">{{ service.price_text }}/{{ service.unit || '次' }}</text><button @click="consultService(service)">去咨询</button></view></view></view></view><AuthPopup /></view>
+  <view class="services-page"><view class="top"><text class="title">服务</text><text class="sub">所有服务、价格与配置均来自后台 sys_services</text><view class="search"><input v-model="keyword" placeholder="搜索服务" /></view></view><view v-if="loading" class="empty">正在读取后台服务配置...</view><view v-else class="list"><view v-for="service in filteredServices" :key="service.id" class="card"><view class="icon">{{ service.icon || '🌴' }}</view><view class="main"><text class="name">{{ service.display_name }}</text><text class="desc">{{ service.description }}</text><view class="bottom"><text class="price">{{ service.price_text }}/{{ service.unit || '次' }}</text><view class="consult-button" @click="consultService(service)">去咨询</view></view></view></view></view><AuthPopup /></view>
 </template>
 
 <style scoped>
@@ -71,6 +71,6 @@ onMounted(loadServices)
 .desc { margin-top: 6px; color: #6b7c78; font-size: 12px; line-height: 1.6; }
 .bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
 .price { color: #e97832; font-size: 16px; font-weight: 900; }
-button { height: 34px; margin: 0; padding: 0 14px; border: 0; border-radius: 17px; color: #fff; background: #004d40; font-size: 12px; font-weight: 900; line-height: 34px; }
+.consult-button { height: 34px; margin: 0; padding: 0 14px; border: 0; border-radius: 17px; color: #fff; background: #004d40; font-size: 12px; font-weight: 900; line-height: 34px; text-align: center; }
 .empty { padding: 30px; color: #6b7c78; text-align: center; }
 </style>
