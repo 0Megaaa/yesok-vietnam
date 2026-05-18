@@ -33,10 +33,17 @@ const removeStorage = (key) => {
 // 2.步骤 -> 拼接 BASE_URL、业务路径和 GET 查询参数。
 // 3.返回 -> 可直接传给 uni.request 或 fetch 的完整 URL。
 const buildUrl = (url, data, method) => {
-  const query = method === 'GET' && data && Object.keys(data).length
-    ? `?${new URLSearchParams(data.params || data).toString()}`
-    : ''
-  return `${BASE_URL}${url}${query}`
+  if (method === 'GET' && data && Object.keys(data).length) {
+    const params = data.params || data;
+    const queryParts = [];
+    for (const key in params) {
+      if (Object.prototype.hasOwnProperty.call(params, key) && params[key] !== undefined) {
+        queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`);
+      }
+    }
+    return queryParts.length > 0 ? `${BASE_URL}${url}?${queryParts.join('&')}` : `${BASE_URL}${url}`;
+  }
+  return `${BASE_URL}${url}`;
 }
 
 // normalizeErrorMessage 统一错误文案。

@@ -51,6 +51,7 @@ const normalizeService = (item) => ({
   price_text: item.price || `${Math.round((item.base_price || 0) / 100)} ${item.currency || 'VND'}`,
   cover_image: item.cover_image || bannerImage.value,
   service_code: item.service_code || item.code,
+  icon: item.icon || '✨', // 显式映射图标标签
 })
 
 const normalizeArticle = (item) => ({
@@ -150,15 +151,14 @@ onMounted(() => {
         <text class="section-title">热门服务</text>
         <text class="section-more" @click="goPage('services')">全部服务 &gt;</text>
       </view>
-
       <view v-if="loading" class="empty">正在从后台读取服务价格...</view>
       <view v-else-if="hotServices.length === 0" class="empty">暂无热门服务</view>
-      <scroll-view v-else scroll-x enable-flex="true" class="hot-scroll">
+      <scroll-view v-else scroll-x class="hot-scroll">
         <view v-for="service in hotServices" :key="service.id" class="service-card" @click="openServiceDetail(service)">
           <image class="service-cover" :src="service.cover_image" mode="aspectFill" />
           <view class="service-body">
             <view class="service-title-row">
-              <text class="service-icon">{{ service.icon || '🌴' }}</text>
+              <text class="service-icon">{{ service.icon || '✨' }}</text>
               <text class="service-name">{{ service.display_name }}</text>
             </view>
             <text class="service-desc">{{ service.description }}</text>
@@ -231,18 +231,18 @@ onMounted(() => {
 .section-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
 .section-title { color: #12312c; font-size: 20px; font-weight: 900; }
 .section-more { color: #c5a059; font-size: 12px; font-weight: 900; }
-.hot-scroll { width: 100%; white-space: nowrap; }
-.service-card { display: inline-block; width: 265px; margin-right: 14px; overflow: hidden; border-radius: 28px; background: #fff; box-shadow: 0 16px 42px rgba(0,77,64,.08); vertical-align: top; }
+.hot-scroll { width: 100%; white-space: nowrap; overflow-x: auto; }
+.service-card { display: inline-block; width: 265px; margin-right: 14px; border-radius: 28px; background: #fff; box-shadow: 0 16px 42px rgba(0,77,64,.08); vertical-align: top; white-space: normal; overflow: hidden; }
 .service-cover { display: block; width: 100%; height: 128px; background: #dfeae6; }
 .service-body { padding: 14px; }
 .service-title-row { display: flex; align-items: center; gap: 8px; }
 .service-icon { font-size: 20px; }
 .service-name { color: #12312c; font-size: 16px; font-weight: 900; }
-.service-desc { height: 38px; margin-top: 8px; color: #6b7c78; font-size: 12px; line-height: 1.6; white-space: normal; overflow: hidden; }
+.service-desc { height: 38px; margin-top: 8px; color: #6b7c78; font-size: 12px; line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; white-space: normal; }
 .service-bottom { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; }
 .service-price { color: #e97832; font-size: 16px; font-weight: 900; }
-.service-unit { color: #9aa7a3; font-size: 11px; }
-.consult-btn { height: 34px; margin: 0; padding: 0 14px; border: 0; border-radius: 17px; color: #fff; background: #004d40; font-size: 12px; font-weight: 900; line-height: 34px; text-align: center; }
+.service-unit { color: #9aa7a3; font-size: 11px; font-weight: normal; margin-left: 2px; }
+.consult-btn { height: 34px; padding: 0 16px; border-radius: 17px; color: #fff; background: #004d40; font-size: 12px; font-weight: 900; line-height: 34px; text-align: center; }
 .news-section { padding-bottom: 8px; }
 .news-card { display: flex; gap: 12px; margin-bottom: 12px; padding: 10px; border-radius: 24px; background: rgba(242,246,245,.78); }
 .news-cover { flex: 0 0 92px; width: 92px; height: 92px; border-radius: 20px; background: #dfeae6; }
