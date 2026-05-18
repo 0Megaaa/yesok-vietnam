@@ -1,9 +1,13 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { useRouter, useRoute } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import request from '@/api/request'
 
-const orderId = ref('YS20260515001')
+const router = useRouter()
+const route = useRoute()
+
+const orderId = ref(route.params.id || 'YS20260515001')
 const loading = ref(true)
 const order = ref(null)
 
@@ -20,65 +24,30 @@ const formEntries = computed(() => {
   return Object.entries(order.value.formData).map(([key, value]) => ({ key, value }))
 })
 
-// showSafeToast 安全展示详情页反馈。
-// 意图：兼容 UniApp 与普通 H5 预览环境。
-// 实现步骤：
-// 1. 优先使用 UniApp showToast。
-// 2. 若运行环境不存在 uni，则降级输出控制台。
-// 3. 保持页面加载失败时仍能稳定展示提示。
-// 返回：无返回值。
-const showSafeToast = (title) => {
-  if (typeof uni !== 'undefined' && uni?.showToast) {
-    uni.showToast({ title, icon: 'none' })
-    return
-  }
-  console.info('[Yesok Admin Detail]', title)
+const showToast = (title, type = 'info') => {
+  ElMessage({ message: title, type })
 }
 
-// loadOrderDetail 加载订单详情。
-// 意图：读取主订单、动态表单、流程轨迹和支付记录，形成后台完整履约视图。
-// 实现步骤：
-// 1. 使用订单号请求 Mock Admin 详情接口。
-// 2. 将后端返回的 formData 解析为可渲染条目。
-// 3. 结束加载态，失败时展示中文轻提示。
-// 返回：Promise<void>。
 const loadOrderDetail = async () => {
   loading.value = true
   try {
     const res = await request.get(`/v1/admin/orders/${orderId.value}`)
     order.value = res.data
   } catch (error) {
-    showSafeToast('订单详情加载失败')
+    showToast('订单详情加载失败', 'error')
   } finally {
     loading.value = false
   }
 }
 
-// goBack 返回后台订单看板。
-// 意图：保证 UniApp 和普通浏览器预览都能从详情页回到 B 端看板。
-// 实现步骤：
-// 1. 优先调用 navigateBack。
-// 2. 无历史栈或非 UniApp 环境时跳转到管理端首页路径。
-// 3. 避免 H5 直达详情页无法返回。
-// 返回：无返回值。
 const goBack = () => {
-  if (typeof uni !== 'undefined' && uni?.navigateBack) {
-    const pages = typeof getCurrentPages === 'function' ? getCurrentPages() : []
-    if (pages.length > 1) {
-      uni.navigateBack()
-      return
-    }
+  if (window.history.length > 1) {
+    router.back()
+  } else {
+    router.push('/admin')
   }
-  window.location.href = '/pages/admin/index'
 }
 
-// applyWorkflowAction 在详情页推进订单流程。
-// 意图：与订单看板保持同一套动态按钮逻辑，验证状态驱动闭环。
-// 实现步骤：
-// 1. 读取节点配置中的目标状态。
-// 2. 调用 Mock PUT 接口模拟后端更新。
-// 3. 用返回值刷新详情页动作区与订单状态。
-// 返回：Promise<void>。
 const applyWorkflowAction = async (node) => {
   if (!order.value) return
   try {
@@ -87,106 +56,98 @@ const applyWorkflowAction = async (node) => {
       statusText: statusMap[node.targetStatus] || '状态已更新',
     })
     order.value = res.data
-    showSafeToast(`${node.buttonName}已执行`)
+    showToast(`${node.buttonName}已执行`, 'success')
   } catch (error) {
-    showSafeToast('流程推进失败')
+    showToast('流程推进失败', 'error')
   }
 }
 
-onLoad((options) => {
-  if (options?.id) orderId.value = options.id
-  loadOrderDetail()
-})
-
 onMounted(() => {
-  if (typeof window !== 'undefined') {
-    const params = new URLSearchParams(window.location.search)
-    if (params.get('id')) orderId.value = params.get('id')
-  }
+  if (route.params.id) orderId.value = route.params.id
   loadOrderDetail()
 })
 </script>
 
 <template>
-  <view class="detail-page">
-    <view class="detail-hero">
-      <view class="back-btn" @click="goBack">‹</view>
-      <view>
-        <text class="eyebrow">ORDER WORKFLOW</text>
-        <text class="hero-title">订单履约详情</text>
-        <text class="hero-desc">动态表单、状态轨迹、支付记录与下一步动作统一在此管理。</text>
-      </view>
-    </view>
+  <div class="detail-page">
+    <div class="detail-hero">
+      <div class="back-btn" @click="goBack">‹</div>
+      <div>
+        <span class="eyebrow">ORDER WORKFLOW</span>
+        <span class="hero-title">订单履约详情</span>
+        <span class="hero-desc">动态表单、状态轨迹、支付记录与下一步动作统一在此管理。</span>
+      </div>
+    </div>
 
-    <view v-if="loading" class="info-card empty-card">正在加载订单详情...</view>
+    <div v-if="loading" class="info-card empty-card">正在加载订单详情...</div>
     <template v-else-if="order">
-      <view class="summary-card">
-        <view class="summary-head">
-          <view class="service-icon">{{ order.icon }}</view>
-          <view class="summary-main">
-            <text class="service-name">{{ order.serviceName }}</text>
-            <text class="order-no">{{ order.orderNo }}</text>
-          </view>
-          <view class="status-pill" :class="order.currentStatus">{{ statusMap[order.currentStatus] || order.statusText }}</view>
-        </view>
-        <view class="summary-grid">
-          <view>
-            <text class="label">客户</text>
-            <text class="value">{{ order.appUserName }}</text>
-          </view>
-          <view>
-            <text class="label">联系电话</text>
-            <text class="value">{{ order.appUserPhone }}</text>
-          </view>
-          <view>
-            <text class="label">金额</text>
-            <text class="value price">{{ order.totalAmountText }}</text>
-          </view>
-          <view>
-            <text class="label">管家</text>
-            <text class="value">{{ order.managerName }}</text>
-          </view>
-        </view>
-      </view>
+      <div class="summary-card">
+        <div class="summary-head">
+          <div class="service-icon">{{ order.icon }}</div>
+          <div class="summary-main">
+            <span class="service-name">{{ order.serviceName }}</span>
+            <span class="order-no">{{ order.orderNo }}</span>
+          </div>
+          <div class="status-pill" :class="order.currentStatus">{{ statusMap[order.currentStatus] || order.statusText }}</div>
+        </div>
+        <div class="summary-grid">
+          <div>
+            <span class="label">客户</span>
+            <span class="value">{{ order.appUserName }}</span>
+          </div>
+          <div>
+            <span class="label">联系电话</span>
+            <span class="value">{{ order.appUserPhone }}</span>
+          </div>
+          <div>
+            <span class="label">金额</span>
+            <span class="value price">{{ order.totalAmountText }}</span>
+          </div>
+          <div>
+            <span class="label">管家</span>
+            <span class="value">{{ order.managerName }}</span>
+          </div>
+        </div>
+      </div>
 
-      <view class="info-card">
-        <view class="section-title">业务 JSON 详情</view>
-        <view v-for="entry in formEntries" :key="entry.key" class="json-row">
-          <text class="json-key">{{ entry.key }}</text>
-          <text class="json-value">{{ entry.value }}</text>
-        </view>
-      </view>
+      <div class="info-card">
+        <div class="section-title">业务 JSON 详情</div>
+        <div v-for="entry in formEntries" :key="entry.key" class="json-row">
+          <span class="json-key">{{ entry.key }}</span>
+          <span class="json-value">{{ entry.value }}</span>
+        </div>
+      </div>
 
-      <view class="info-card">
-        <view class="section-title">状态轨迹</view>
-        <view v-for="timeline in order.timelines" :key="timeline.id" class="timeline-row">
-          <view class="timeline-dot"></view>
-          <view class="timeline-body">
-            <text class="timeline-title">{{ timeline.label }}</text>
-            <text class="timeline-desc">{{ timeline.remark }}</text>
-            <text class="timeline-time">{{ timeline.operator }} · {{ timeline.createdAt }}</text>
-          </view>
-        </view>
-      </view>
+      <div class="info-card">
+        <div class="section-title">状态轨迹</div>
+        <div v-for="timeline in order.timelines" :key="timeline.id" class="timeline-row">
+          <div class="timeline-dot"></div>
+          <div class="timeline-body">
+            <span class="timeline-title">{{ timeline.label }}</span>
+            <span class="timeline-desc">{{ timeline.remark }}</span>
+            <span class="timeline-time">{{ timeline.operator }} · {{ timeline.createdAt }}</span>
+          </div>
+        </div>
+      </div>
 
-      <view class="info-card">
-        <view class="section-title">财务对账</view>
-        <view v-if="!order.payments?.length" class="empty-line">当前订单暂无支付记录</view>
-        <view v-for="payment in order.payments" :key="payment.id" class="payment-row">
-          <view>
-            <text class="payment-id">{{ payment.id }}</text>
-            <text class="payment-method">{{ payment.payMethod }} · {{ payment.thirdTradeNo }}</text>
-          </view>
-          <view class="payment-right">
-            <text class="payment-amount">{{ payment.payAmountText }}</text>
-            <text class="payment-status">{{ payment.status }}</text>
-          </view>
-        </view>
-      </view>
+      <div class="info-card">
+        <div class="section-title">财务对账</div>
+        <div v-if="!order.payments?.length" class="empty-line">当前订单暂无支付记录</div>
+        <div v-for="payment in order.payments" :key="payment.id" class="payment-row">
+          <div>
+            <span class="payment-id">{{ payment.id }}</span>
+            <span class="payment-method">{{ payment.payMethod }} · {{ payment.thirdTradeNo }}</span>
+          </div>
+          <div class="payment-right">
+            <span class="payment-amount">{{ payment.payAmountText }}</span>
+            <span class="payment-status">{{ payment.status }}</span>
+          </div>
+        </div>
+      </div>
 
-      <view class="info-card action-card">
-        <view class="section-title">下一步动作</view>
-        <view class="workflow-actions">
+      <div class="info-card action-card">
+        <div class="section-title">下一步动作</div>
+        <div class="workflow-actions">
           <button
             v-for="node in order.actionNodes"
             :key="node.id"
@@ -197,16 +158,13 @@ onMounted(() => {
             {{ node.buttonName }}
           </button>
           <button v-if="!order.actionNodes?.length" class="action-btn disabled" disabled>暂无下一步动作</button>
-        </view>
-      </view>
+        </div>
+      </div>
     </template>
-  </view>
+  </div>
 </template>
 
 <style scoped>
-/* 意图：构建后台详情页的薄荷灰青背景和纵向信息流。 */
-/* 步骤：页面底色使用 Yesok 2.0 灰青色，并通过卡片承载订单、JSON、轨迹和支付记录。 */
-/* 返回：结构清晰、适合运营人员快速核查的订单详情视图。 */
 .detail-page {
   min-height: 100vh;
   padding-bottom: 32px;
@@ -236,25 +194,10 @@ onMounted(() => {
   background: rgba(255, 255, 255, 0.9);
   font-size: 30px;
   line-height: 34px;
+  cursor: pointer;
 }
 
-.eyebrow,
-.hero-title,
-.hero-desc,
-.service-name,
-.order-no,
-.label,
-.value,
-.json-key,
-.json-value,
-.timeline-title,
-.timeline-desc,
-.timeline-time,
-.payment-id,
-.payment-method,
-.payment-amount,
-.payment-status,
-.empty-line {
+.eyebrow, .hero-title, .hero-desc, .service-name, .order-no, .label, .value, .json-key, .json-value, .timeline-title, .timeline-desc, .timeline-time, .payment-id, .payment-method, .payment-amount, .payment-status, .empty-line, .section-title {
   display: block;
 }
 
@@ -266,10 +209,7 @@ onMounted(() => {
   letter-spacing: 1.4px;
 }
 
-.hero-title {
-  font-size: 24px;
-  font-weight: 900;
-}
+.hero-title { font-size: 24px; font-weight: 900; }
 
 .hero-desc {
   max-width: 280px;
@@ -279,8 +219,7 @@ onMounted(() => {
   line-height: 1.7;
 }
 
-.summary-card,
-.info-card {
+.summary-card, .info-card {
   margin: 14px 14px 0;
   padding: 16px;
   border-radius: 32px;
@@ -288,21 +227,11 @@ onMounted(() => {
   box-shadow: 0 18px 48px rgba(0, 77, 64, 0.05);
 }
 
-.summary-card {
-  margin-top: -16px;
-}
+.summary-card { margin-top: -16px; }
 
-.empty-card {
-  color: #6b7c78;
-  font-size: 13px;
-  text-align: center;
-}
+.empty-card { color: #6b7c78; font-size: 13px; text-align: center; }
 
-.summary-head {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
+.summary-head { display: flex; gap: 12px; align-items: center; }
 
 .service-icon {
   display: flex;
@@ -316,21 +245,11 @@ onMounted(() => {
   font-size: 24px;
 }
 
-.summary-main {
-  flex: 1;
-}
+.summary-main { flex: 1; }
 
-.service-name {
-  color: #12312c;
-  font-size: 18px;
-  font-weight: 900;
-}
+.service-name { color: #12312c; font-size: 18px; font-weight: 900; }
 
-.order-no {
-  margin-top: 5px;
-  color: #6b7c78;
-  font-size: 11px;
-}
+.order-no { margin-top: 5px; color: #6b7c78; font-size: 11px; }
 
 .status-pill {
   padding: 6px 10px;
@@ -341,10 +260,7 @@ onMounted(() => {
   font-weight: 900;
 }
 
-.status-pill.payment_pending {
-  color: #7a5a21;
-  background: rgba(197, 160, 89, 0.2);
-}
+.status-pill.payment_pending { color: #7a5a21; background: rgba(197, 160, 89, 0.2); }
 
 .summary-grid {
   display: grid;
@@ -356,21 +272,10 @@ onMounted(() => {
   background: #f2f6f5;
 }
 
-.label {
-  color: #87938f;
-  font-size: 10px;
-}
+.label { color: #87938f; font-size: 10px; }
 
-.value {
-  margin-top: 4px;
-  color: #12312c;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.value.price {
-  color: #e97832;
-}
+.value { margin-top: 4px; color: #12312c; font-size: 13px; font-weight: 800; }
+.value.price { color: #e97832; }
 
 .section-title {
   margin-bottom: 12px;
@@ -387,12 +292,7 @@ onMounted(() => {
   border-bottom: 1px solid rgba(0, 77, 64, 0.07);
 }
 
-.json-key {
-  flex-shrink: 0;
-  color: #87938f;
-  font-size: 12px;
-  font-weight: 800;
-}
+.json-key { flex-shrink: 0; color: #87938f; font-size: 12px; font-weight: 800; }
 
 .json-value {
   color: #12312c;
@@ -418,28 +318,13 @@ onMounted(() => {
   background: #004d40;
 }
 
-.timeline-body {
-  flex: 1;
-}
+.timeline-body { flex: 1; }
 
-.timeline-title {
-  color: #12312c;
-  font-size: 13px;
-  font-weight: 900;
-}
+.timeline-title { color: #12312c; font-size: 13px; font-weight: 900; }
 
-.timeline-desc {
-  margin-top: 5px;
-  color: #6b7c78;
-  font-size: 12px;
-  line-height: 1.6;
-}
+.timeline-desc { margin-top: 5px; color: #6b7c78; font-size: 12px; line-height: 1.6; }
 
-.timeline-time {
-  margin-top: 6px;
-  color: #a0aaa7;
-  font-size: 10px;
-}
+.timeline-time { margin-top: 6px; color: #a0aaa7; font-size: 10px; }
 
 .payment-row {
   display: flex;
@@ -450,40 +335,18 @@ onMounted(() => {
   background: rgba(197, 160, 89, 0.09);
 }
 
-.payment-id {
-  color: #12312c;
-  font-size: 13px;
-  font-weight: 900;
-}
+.payment-id { color: #12312c; font-size: 13px; font-weight: 900; }
+.payment-method { margin-top: 5px; color: #6b7c78; font-size: 11px; }
+.payment-right { text-align: right; }
+.payment-amount { color: #e97832; font-size: 15px; font-weight: 900; }
 
-.payment-method {
-  margin-top: 5px;
-  color: #6b7c78;
-  font-size: 11px;
-}
-
-.payment-right {
-  text-align: right;
-}
-
-.payment-amount {
-  color: #e97832;
-  font-size: 15px;
-  font-weight: 900;
-}
-
-.payment-status,
-.empty-line {
+.payment-status, .empty-line {
   margin-top: 4px;
   color: #7a5a21;
   font-size: 11px;
 }
 
-.workflow-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
+.workflow-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 
 .action-btn {
   height: 36px;
@@ -496,20 +359,12 @@ onMounted(() => {
   font-size: 12px;
   font-weight: 800;
   line-height: 36px;
+  cursor: pointer;
 }
 
-.action-btn.payment {
-  color: #12312c;
-  background: #c5a059;
-}
+.action-btn.payment { color: #12312c; background: #c5a059; }
 
-.action-btn.material {
-  color: #004d40;
-  background: rgba(0, 77, 64, 0.1);
-}
+.action-btn.material { color: #004d40; background: rgba(0, 77, 64, 0.1); }
 
-.action-btn.disabled {
-  color: #9aa3b5;
-  background: #eef2f1;
-}
+.action-btn.disabled { color: #9aa3b5; background: #eef2f1; }
 </style>

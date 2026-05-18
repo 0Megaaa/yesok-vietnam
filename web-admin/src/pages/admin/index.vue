@@ -1,6 +1,10 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
 import request from '@/api/request'
+
+const router = useRouter()
 
 const loading = ref(true)
 const loggedIn = ref(false)
@@ -42,9 +46,6 @@ const panels = [
   { key: 'users', label: '用户矩阵' },
 ]
 
-// 1.意图 -> 基于订单、字典和资讯状态派生后台统计与筛选列表。
-// 2.步骤 -> 使用 computed 对响应式数组进行状态计数和分类筛选，避免模板内复杂计算。
-// 3.返回 -> 订单筛选项、当前筛选订单和资讯分类字典。
 const filters = computed(() => [
   { key: 'all', label: '全部', count: orders.value.length },
   { key: 'pending', label: '待受理', count: orders.value.filter((item) => item.current_status === 'pending').length },
@@ -55,22 +56,10 @@ const filters = computed(() => [
 const filteredOrders = computed(() => (activeFilter.value === 'all' ? orders.value : orders.value.filter((item) => item.current_status === activeFilter.value)))
 const articleCategories = computed(() => dictData.value.filter((item) => item.dict_code === 'article_category' && item.status === 1))
 
-// showSafeToast 展示跨端提示。
-// 1.意图 -> B 端操作反馈在浏览器、H5 与小程序容器中均可见。
-// 2.步骤 -> 优先使用 uni.showToast，缺失时降级 console.info。
-// 3.返回 -> 无返回值。
-const showSafeToast = (title) => {
-  if (typeof uni !== 'undefined' && uni?.showToast) {
-    uni.showToast({ title, icon: 'none' })
-    return
-  }
-  console.info('[Yesok Admin]', title)
+const showToast = (title, type = 'info') => {
+  ElMessage({ message: title, type })
 }
 
-// normalizeOrder 规范化后端订单字段。
-// 1.意图 -> 兼容 Go 后端 snake_case 与页面驼峰展示需求。
-// 2.步骤 -> 解析金额、状态、时间线和动态流程按钮字段。
-// 3.返回 -> 后台页面可直接渲染的订单对象。
 const normalizeOrder = (order) => ({
   ...order,
   order_no: order.order_no || order.orderNo,
@@ -88,10 +77,6 @@ const normalizeOrder = (order) => ({
   })),
 })
 
-// normalizePayment 规范化后端财务流水字段。
-// 1.意图 -> 让 B 端财务页准确展示 payment_records 的真实字段，避免 pay_amount 被旧 amount 字段映射成 NaN。
-// 2.步骤 -> 兼容 snake_case 与 camelCase，补齐流水号、金额、状态、币种和展示文本。
-// 3.返回 -> 财务流水表格可直接渲染的标准对象。
 const normalizePayment = (payment) => {
   const payAmount = Number(payment.pay_amount ?? payment.payAmount ?? payment.amount ?? 0)
   return {
@@ -103,48 +88,30 @@ const normalizePayment = (payment) => {
   }
 }
 
-// saveAdminToken 保存后台令牌。
-// 1.意图 -> 复用既有 admin_token 鉴权存储，避免破坏 AuthPopup 等底层登录逻辑。
-// 2.步骤 -> 同步写入 uni storage 与浏览器 localStorage。
-// 3.返回 -> 无返回值。
 const saveAdminToken = (token) => {
-  if (typeof uni !== 'undefined' && uni?.setStorageSync) uni.setStorageSync('admin_token', token)
   if (typeof localStorage !== 'undefined') localStorage.setItem('admin_token', token)
 }
 
-// getAdminToken 读取后台令牌。
-// 1.意图 -> 给原生 fetch 上传图片时补齐与 request 封装一致的鉴权头。
-// 2.步骤 -> 优先读取 uni storage，浏览器环境读取 localStorage。
-// 3.返回 -> admin_token 字符串或空字符串。
 const getAdminToken = () => {
-  if (typeof uni !== 'undefined' && uni?.getStorageSync) return uni.getStorageSync('admin_token') || ''
   if (typeof localStorage !== 'undefined') return localStorage.getItem('admin_token') || ''
   return ''
 }
 
-// login 登录管家后台。
-// 1.意图 -> 使用 sys_users 种子账号 admin/123456 获取真实 JWT。
-// 2.步骤 -> 调用后端登录接口，保存 token，再加载全量经营数据。
-// 3.返回 -> Promise<void>。
 const login = async () => {
   submitting.value = true
   try {
     const res = await request.post('/v1/admin/auth/login', loginForm.value)
     saveAdminToken(res.data.token)
     loggedIn.value = true
-    showSafeToast('管家登录成功')
+    showToast('管家登录成功', 'success')
     await loadAll()
   } catch (error) {
-    showSafeToast(error?.message || '登录失败')
+    showToast(error?.message || '登录失败', 'error')
   } finally {
     submitting.value = false
   }
 }
 
-// loadAll 加载 B 端全量业务数据。
-// 1.意图 -> 建立数据看板、订单、服务、财务、用户、字典和资讯七个后台模块的真实闭环。
-// 2.步骤 -> 并发读取统计、订单、服务、支付流水、客户、员工、字典类型、字典数据和资讯列表。
-// 3.返回 -> Promise<void>。
 const loadAll = async () => {
   loading.value = true
   try {
@@ -170,16 +137,12 @@ const loadAll = async () => {
     articles.value = articleRes.data.list || []
   } catch (error) {
     if (error?.response?.status === 401) loggedIn.value = false
-    showSafeToast(error?.message || '后台数据加载失败')
+    showToast(error?.message || '后台数据加载失败', 'error')
   } finally {
     loading.value = false
   }
 }
 
-// applyWorkflowAction 执行动态流程按钮。
-// 1.意图 -> 让订单状态完全由 sys_workflow_nodes 驱动，而不是前端写死按钮。
-// 2.步骤 -> 提交 target_status 给后端，后端生成时间线和必要财务流水。
-// 3.返回 -> Promise<void>。
 const applyWorkflowAction = async (order, node) => {
   try {
     const res = await request.put(`/v1/admin/orders/${order.id}`, {
@@ -188,69 +151,45 @@ const applyWorkflowAction = async (order, node) => {
     })
     orders.value = orders.value.map((item) => (item.id === order.id ? normalizeOrder(res.data.order || res.data) : item))
     await loadAll()
-    showSafeToast(`${node.button_name}已执行`)
+    showToast(`${node.button_name}已执行`, 'success')
   } catch (error) {
-    showSafeToast(error?.message || '流程推进失败')
+    showToast(error?.message || '流程推进失败', 'error')
   }
 }
 
-// saveService 保存服务配置。
-// 1.意图 -> 让 C 端服务分类、价格与热门卡片由 B 端动态驱动。
-// 2.步骤 -> 将表单数据写入 sys_services，再刷新服务与看板数据。
-// 3.返回 -> Promise<void>。
 const saveService = async () => {
   try {
     await request.post('/v1/admin/services', { ...serviceForm.value, base_price: Number(serviceForm.value.base_price), sort_order: Number(serviceForm.value.sort_order) })
     serviceForm.value = { service_code: '', service_name: '', display_name: '', icon: '🌴', description: '', base_price: 0, currency: 'VND', unit: '次', sort_order: 10, status: 1, is_hot: false, form_schema: '{"fields":[]}' }
-    showSafeToast('服务配置已保存，C端将动态更新')
+    showToast('服务配置已保存，C端将动态更新', 'success')
     await loadAll()
   } catch (error) {
-    showSafeToast(error?.message || '服务保存失败')
+    showToast(error?.message || '服务保存失败', 'error')
   }
 }
 
-// toggleService 切换服务启停状态。
-// 1.意图 -> 支持后台一键控制 C 端是否展示某服务。
-// 2.步骤 -> 将 status 在 0 与 1 之间切换并提交后端。
-// 3.返回 -> Promise<void>。
 const toggleService = async (service) => {
   try {
     await request.put(`/v1/admin/services/${service.id}`, { ...service, status: service.status === 1 ? 0 : 1 })
     await loadAll()
   } catch (error) {
-    showSafeToast(error?.message || '服务状态更新失败')
+    showToast(error?.message || '服务状态更新失败', 'error')
   }
 }
 
-// selectPanel 切换后台模块。
-// 1.意图 -> 支持响应式侧边栏在移动端点选模块后自动收起。
-// 2.步骤 -> 设置 activePanel，小屏宽度下将 sidebarCollapsed 置为 true。
-// 3.返回 -> 无返回值。
 const selectPanel = (key) => {
   activePanel.value = key
   if (typeof window !== 'undefined' && window.innerWidth < 768) sidebarCollapsed.value = true
 }
 
-// resetDictTypeForm 重置字典类型表单。
-// 1.意图 -> 在新增和编辑模式间快速恢复空表单。
-// 2.步骤 -> 清空 id、名称、编码和备注并默认启用。
-// 3.返回 -> 无返回值。
 const resetDictTypeForm = () => {
   dictTypeForm.value = { id: null, dict_name: '', dict_code: '', remark: '', status: 1 }
 }
 
-// editDictType 编辑字典类型。
-// 1.意图 -> 将已有字典类型回填到表单以支持修改。
-// 2.步骤 -> 克隆当前行数据到 dictTypeForm。
-// 3.返回 -> 无返回值。
 const editDictType = (item) => {
   dictTypeForm.value = { ...item }
 }
 
-// saveDictType 保存字典类型。
-// 1.意图 -> 让后台可新增或更新业务枚举分组。
-// 2.步骤 -> 根据表单是否存在 id 选择 POST 或 PUT，再刷新全量数据。
-// 3.返回 -> Promise<void>。
 const saveDictType = async () => {
   try {
     const payload = { ...dictTypeForm.value, status: Number(dictTypeForm.value.status) }
@@ -258,46 +197,30 @@ const saveDictType = async () => {
     else await request.post('/v1/admin/dict-types', payload)
     resetDictTypeForm()
     await loadAll()
-    showSafeToast('字典类型已保存')
+    showToast('字典类型已保存', 'success')
   } catch (error) {
-    showSafeToast(error?.message || '字典类型保存失败')
+    showToast(error?.message || '字典类型保存失败', 'error')
   }
 }
 
-// deleteDictType 删除字典类型。
-// 1.意图 -> 支持后台清理无效枚举分组。
-// 2.步骤 -> 调用 DELETE 接口并刷新字典列表。
-// 3.返回 -> Promise<void>。
 const deleteDictType = async (item) => {
   try {
     await request.delete(`/v1/admin/dict-types/${item.id}`)
     await loadAll()
-    showSafeToast('字典类型已删除')
+    showToast('字典类型已删除', 'success')
   } catch (error) {
-    showSafeToast(error?.message || '字典类型删除失败')
+    showToast(error?.message || '字典类型删除失败', 'error')
   }
 }
 
-// resetDictDataForm 重置字典数据表单。
-// 1.意图 -> 在新增和编辑模式间快速恢复默认枚举项表单。
-// 2.步骤 -> 清空 id、标签、值和备注，默认使用资讯分类编码。
-// 3.返回 -> 无返回值。
 const resetDictDataForm = () => {
   dictDataForm.value = { id: null, dict_code: 'article_category', dict_label: '', dict_value: '', sort_order: 10, status: 1, remark: '' }
 }
 
-// editDictData 编辑字典数据。
-// 1.意图 -> 将已有枚举项回填到表单以支持修改。
-// 2.步骤 -> 克隆当前行数据到 dictDataForm。
-// 3.返回 -> 无返回值。
 const editDictData = (item) => {
   dictDataForm.value = { ...item }
 }
 
-// saveDictData 保存字典数据。
-// 1.意图 -> 让后台可新增或更新具体枚举项。
-// 2.步骤 -> 根据表单是否存在 id 选择 POST 或 PUT，再刷新全量数据。
-// 3.返回 -> Promise<void>。
 const saveDictData = async () => {
   try {
     const payload = { ...dictDataForm.value, sort_order: Number(dictDataForm.value.sort_order), status: Number(dictDataForm.value.status) }
@@ -305,46 +228,30 @@ const saveDictData = async () => {
     else await request.post('/v1/admin/dict-data', payload)
     resetDictDataForm()
     await loadAll()
-    showSafeToast('字典数据已保存')
+    showToast('字典数据已保存', 'success')
   } catch (error) {
-    showSafeToast(error?.message || '字典数据保存失败')
+    showToast(error?.message || '字典数据保存失败', 'error')
   }
 }
 
-// deleteDictData 删除字典数据。
-// 1.意图 -> 支持后台清理无效枚举项。
-// 2.步骤 -> 调用 DELETE 接口并刷新字典数据列表。
-// 3.返回 -> Promise<void>。
 const deleteDictData = async (item) => {
   try {
     await request.delete(`/v1/admin/dict-data/${item.id}`)
     await loadAll()
-    showSafeToast('字典数据已删除')
+    showToast('字典数据已删除', 'success')
   } catch (error) {
-    showSafeToast(error?.message || '字典数据删除失败')
+    showToast(error?.message || '字典数据删除失败', 'error')
   }
 }
 
-// resetArticleForm 重置资讯表单。
-// 1.意图 -> 在新增和编辑模式间快速恢复默认文章表单。
-// 2.步骤 -> 清空标题、摘要、正文和 id，保留默认封面与分类。
-// 3.返回 -> 无返回值。
 const resetArticleForm = () => {
   articleForm.value = { id: null, title: '', cover_img: '/static/img.png', summary: '', content: '', category: 'guide', author: 'Yesok Vietnam', status: 1, sort_order: 10, view_count: 0 }
 }
 
-// editArticle 编辑资讯文章。
-// 1.意图 -> 将已有文章回填到表单以支持修改。
-// 2.步骤 -> 克隆当前行数据到 articleForm。
-// 3.返回 -> 无返回值。
 const editArticle = (item) => {
   articleForm.value = { ...item }
 }
 
-// saveArticle 保存资讯文章。
-// 1.意图 -> 让后台发布或更新 C 端首页和资讯 Tab 的动态内容。
-// 2.步骤 -> 根据表单是否存在 id 选择 POST 或 PUT，再刷新文章列表。
-// 3.返回 -> Promise<void>。
 const saveArticle = async () => {
   try {
     const payload = { ...articleForm.value, sort_order: Number(articleForm.value.sort_order), status: Number(articleForm.value.status), view_count: Number(articleForm.value.view_count || 0) }
@@ -352,30 +259,22 @@ const saveArticle = async () => {
     else await request.post('/v1/admin/articles', payload)
     resetArticleForm()
     await loadAll()
-    showSafeToast('资讯已保存，C端将动态更新')
+    showToast('资讯已保存，C端将动态更新', 'success')
   } catch (error) {
-    showSafeToast(error?.message || '资讯保存失败')
+    showToast(error?.message || '资讯保存失败', 'error')
   }
 }
 
-// deleteArticle 删除资讯文章。
-// 1.意图 -> 支持后台清理无效资讯内容。
-// 2.步骤 -> 调用 DELETE 接口并刷新资讯列表。
-// 3.返回 -> Promise<void>。
 const deleteArticle = async (item) => {
   try {
     await request.delete(`/v1/admin/articles/${item.id}`)
     await loadAll()
-    showSafeToast('资讯已删除')
+    showToast('资讯已删除', 'success')
   } catch (error) {
-    showSafeToast(error?.message || '资讯删除失败')
+    showToast(error?.message || '资讯删除失败', 'error')
   }
 }
 
-// uploadArticleCover 上传资讯封面。
-// 1.意图 -> 将本地图片真实保存到 server/uploads，并把 /uploads 静态 URL 写入文章表单。
-// 2.步骤 -> 读取文件选择事件，使用 FormData 和 admin_token 调用 /api/v1/admin/upload。
-// 3.返回 -> Promise<void>。
 const uploadArticleCover = async (event) => {
   const file = event?.target?.files?.[0]
   if (!file) return
@@ -390,16 +289,12 @@ const uploadArticleCover = async (event) => {
     const body = await res.json()
     if (!res.ok) throw new Error(body?.error || '上传失败')
     articleForm.value.cover_img = body.url
-    showSafeToast('封面已上传')
+    showToast('封面已上传', 'success')
   } catch (error) {
-    showSafeToast(error?.message || '封面上传失败')
+    showToast(error?.message || '封面上传失败', 'error')
   }
 }
 
-// handleResize 处理响应式侧边栏状态。
-// 1.意图 -> 在移动端默认折叠侧边栏，桌面端默认展开。
-// 2.步骤 -> 读取 window.innerWidth，小于 768px 时折叠，否则展开。
-// 3.返回 -> 无返回值。
 const handleResize = () => {
   if (typeof window === 'undefined') return
   sidebarCollapsed.value = window.innerWidth < 768
@@ -408,7 +303,7 @@ const handleResize = () => {
 onMounted(async () => {
   handleResize()
   if (typeof window !== 'undefined') window.addEventListener('resize', handleResize)
-  loggedIn.value = Boolean((typeof localStorage !== 'undefined' && localStorage.getItem('admin_token')) || (typeof uni !== 'undefined' && uni?.getStorageSync?.('admin_token')))
+  loggedIn.value = Boolean(typeof localStorage !== 'undefined' && localStorage.getItem('admin_token'))
   if (loggedIn.value) await loadAll()
   loading.value = false
 })
@@ -419,113 +314,141 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <view class="admin-shell" :class="{ collapsed: sidebarCollapsed }">
-    <view v-if="!loggedIn" class="login-card">
-      <text class="eyebrow">YESOK COMMAND CENTER</text>
-      <text class="login-title">管家后台登录</text>
-      <text class="login-desc">使用 sys_users 种子账号进入商业闭环后台。</text>
-      <input v-model="loginForm.username" class="input" placeholder="账号 admin" />
-      <input v-model="loginForm.password" class="input" password placeholder="密码 123456" />
-      <button class="primary-btn" :disabled="submitting" @click="login">进入后台</button>
-    </view>
+  <div class="admin-shell" :class="{ collapsed: sidebarCollapsed }">
+    <div v-if="!loggedIn" class="login-card">
+      <span class="eyebrow">YESOK COMMAND CENTER</span>
+      <span class="login-title">管家后台登录</span>
+      <span class="login-desc">使用 sys_users 种子账号进入商业闭环后台。</span>
+      <el-input v-model="loginForm.username" class="input" placeholder="账号 admin" />
+      <el-input v-model="loginForm.password" class="input" type="password" placeholder="密码 123456" show-password />
+      <el-button class="primary-btn" :loading="submitting" type="default" @click="login">进入后台</el-button>
+    </div>
 
     <template v-else>
-      <button class="collapse-toggle" @click="sidebarCollapsed = !sidebarCollapsed">{{ sidebarCollapsed ? '展开菜单' : '收起菜单' }}</button>
-      <view class="side-nav">
-        <text class="brand">Yesok 2.0</text>
-        <button v-for="panel in panels" :key="panel.key" class="nav-item" :class="{ active: activePanel === panel.key }" @click="selectPanel(panel.key)">{{ panel.label }}</button>
-      </view>
+      <el-button class="collapse-toggle" type="default" @click="sidebarCollapsed = !sidebarCollapsed">{{ sidebarCollapsed ? '展开菜单' : '收起菜单' }}</el-button>
+      <div class="side-nav">
+        <span class="brand">Yesok 2.0</span>
+        <el-button v-for="panel in panels" :key="panel.key" class="nav-item" :class="{ active: activePanel === panel.key }" type="default" @click="selectPanel(panel.key)">{{ panel.label }}</el-button>
+      </div>
 
-      <view class="workspace">
-        <view class="hero-card">
-          <view>
-            <text class="eyebrow">REAL DATA BUSINESS LOOP</text>
-            <text class="hero-title">越南奢华生活服务管家后台</text>
-            <text class="hero-desc">后台配置服务、字典、资讯与流程，C 端动态展示，下单后由状态节点自动沉淀时间线与财务流水。</text>
-          </view>
-          <button class="refresh-btn" @click="loadAll">刷新数据</button>
-        </view>
+      <div class="workspace">
+        <div class="hero-card">
+          <div>
+            <span class="eyebrow">REAL DATA BUSINESS LOOP</span>
+            <span class="hero-title">越南奢华生活服务管家后台</span>
+            <span class="hero-desc">后台配置服务、字典、资讯与流程，C 端动态展示，下单后由状态节点自动沉淀时间线与财务流水。</span>
+          </div>
+          <el-button class="refresh-btn" type="default" @click="loadAll">刷新数据</el-button>
+        </div>
 
-        <view class="stats-grid">
-          <view class="stat-card green"><text>{{ stats.total_orders || stats.totalOrders || 0 }}</text><text>总订单</text></view>
-          <view class="stat-card"><text>{{ stats.pending_orders || stats.pendingOrders || 0 }}</text><text>待受理</text></view>
-          <view class="stat-card"><text>{{ articles.length }}</text><text>资讯内容</text></view>
-          <view class="stat-card gold"><text>{{ stats.total_revenue_text || stats.total_revenue || 0 }}</text><text>确认收入</text></view>
-        </view>
+        <div class="stats-grid">
+          <div class="stat-card green"><span>{{ stats.total_orders || stats.totalOrders || 0 }}</span><span>总订单</span></div>
+          <div class="stat-card"><span>{{ stats.pending_orders || stats.pendingOrders || 0 }}</span><span>待受理</span></div>
+          <div class="stat-card"><span>{{ articles.length }}</span><span>资讯内容</span></div>
+          <div class="stat-card gold"><span>{{ stats.total_revenue_text || stats.total_revenue || 0 }}</span><span>确认收入</span></div>
+        </div>
 
-        <view v-if="activePanel === 'dashboard'" class="panel-grid">
-          <view class="glass-panel wide"><text class="panel-title">今日履约雷达</text><view v-for="filter in filters" :key="filter.key" class="radar-line"><text>{{ filter.label }}</text><text class="strong">{{ filter.count }}</text></view></view>
-          <view class="glass-panel"><text class="panel-title">服务上架</text><text class="big-number">{{ services.filter((s) => s.status === 1).length }}</text><text>项启用服务正在驱动 C 端</text></view>
-          <view class="glass-panel"><text class="panel-title">字典枚举</text><text class="big-number">{{ dictData.length }}</text><text>条可配置业务字典</text></view>
-          <view class="glass-panel"><text class="panel-title">客户矩阵</text><text class="big-number">{{ appUsers.length }}</text><text>位 C 端客户画像</text></view>
-        </view>
+        <div v-if="activePanel === 'dashboard'" class="panel-grid">
+          <div class="glass-panel wide"><span class="panel-title">今日履约雷达</span><div v-for="filter in filters" :key="filter.key" class="radar-line"><span>{{ filter.label }}</span><span class="strong">{{ filter.count }}</span></div></div>
+          <div class="glass-panel"><span class="panel-title">服务上架</span><span class="big-number">{{ services.filter((s) => s.status === 1).length }}</span><span>项启用服务正在驱动 C 端</span></div>
+          <div class="glass-panel"><span class="panel-title">字典枚举</span><span class="big-number">{{ dictData.length }}</span><span>条可配置业务字典</span></div>
+          <div class="glass-panel"><span class="panel-title">客户矩阵</span><span class="big-number">{{ appUsers.length }}</span><span>位 C 端客户画像</span></div>
+        </div>
 
-        <view v-if="activePanel === 'orders'" class="content-card">
-          <view class="section-head"><text class="panel-title">订单中心</text><view class="chip-row"><button v-for="filter in filters" :key="filter.key" class="chip" :class="{ active: activeFilter === filter.key }" @click="activeFilter = filter.key">{{ filter.label }} {{ filter.count }}</button></view></view>
-          <view v-if="loading" class="empty">正在加载真实订单...</view>
-          <view v-else class="order-list">
-            <view v-for="order in filteredOrders" :key="order.id" class="order-card">
-              <view class="order-top"><view><text class="order-title">{{ order.service_name }}</text><text class="muted">{{ order.order_no }} · {{ order.contact_name }} {{ order.contact_phone }}</text></view><text class="status">{{ statusMap[order.current_status] || order.current_status }}</text></view>
-              <view class="order-meta"><text>金额：{{ order.totalAmountText }}</text><text>支付：{{ order.payment_status }}</text><text>时间：{{ order.created_at }}</text></view>
-              <view class="json-box"><text v-for="(value, key) in order.form_data" :key="key">{{ key }}：{{ value }}</text></view>
-              <view class="actions"><button v-for="node in order.actionNodes" :key="node.id" class="action-btn" :class="{ payment: node.trigger_payment }" @click="applyWorkflowAction(order, node)">{{ node.button_name }}</button><text v-if="!order.actionNodes.length" class="muted">暂无下一步动作</text></view>
-            </view>
-          </view>
-        </view>
+        <div v-if="activePanel === 'orders'" class="content-card">
+          <div class="section-head"><span class="panel-title">订单中心</span><div class="chip-row"><el-button v-for="filter in filters" :key="filter.key" class="chip" :class="{ active: activeFilter === filter.key }" type="default" @click="activeFilter = filter.key">{{ filter.label }} {{ filter.count }}</el-button></div></div>
+          <div v-if="loading" class="empty">正在加载真实订单...</div>
+          <div v-else class="order-list">
+            <div v-for="order in filteredOrders" :key="order.id" class="order-card">
+              <div class="order-top"><div><span class="order-title">{{ order.service_name }}</span><span class="muted">{{ order.order_no }} · {{ order.contact_name }} {{ order.contact_phone }}</span></div><span class="status">{{ statusMap[order.current_status] || order.current_status }}</span></div>
+              <div class="order-meta"><span>金额：{{ order.totalAmountText }}</span><span>支付：{{ order.payment_status }}</span><span>时间：{{ order.created_at }}</span></div>
+              <div class="json-box"><span v-for="(value, key) in order.form_data" :key="key">{{ key }}：{{ value }}</span></div>
+              <div class="actions"><el-button v-for="node in order.actionNodes" :key="node.id" class="action-btn" :class="{ payment: node.trigger_payment }" type="default" @click="applyWorkflowAction(order, node)">{{ node.button_name }}</el-button><span v-if="!order.actionNodes.length" class="muted">暂无下一步动作</span></div>
+            </div>
+          </div>
+        </div>
 
-        <view v-if="activePanel === 'services'" class="content-card">
-          <view class="section-head"><text class="panel-title">服务配置</text><text>服务价格与热门标签会立即驱动 C 端首页</text></view>
-          <view class="service-form">
-            <input v-model="serviceForm.service_code" class="input" placeholder="service_code" />
-            <input v-model="serviceForm.service_name" class="input" placeholder="服务名称" />
-            <input v-model="serviceForm.display_name" class="input" placeholder="展示名称" />
-            <input v-model="serviceForm.icon" class="input" placeholder="图标" />
-            <input v-model="serviceForm.base_price" class="input" type="number" placeholder="价格（分）" />
-            <input v-model="serviceForm.unit" class="input" placeholder="单位" />
-            <input v-model="serviceForm.description" class="input span-2" placeholder="服务描述" />
-            <button class="primary-btn" @click="saveService">保存服务</button>
-          </view>
-          <view class="table-scroll"><view class="table-list"><view v-for="service in services" :key="service.id" class="table-row"><text>{{ service.icon }} {{ service.display_name || service.service_name }}</text><text>{{ Math.round(service.base_price / 100) }} {{ service.currency }}/{{ service.unit }}</text><button class="ghost-btn" @click="toggleService(service)">{{ service.status === 1 ? '下架' : '上架' }}</button></view></view></view>
-        </view>
+        <div v-if="activePanel === 'services'" class="content-card">
+          <div class="section-head"><span class="panel-title">服务配置</span><span>服务价格与热门标签会立即驱动 C 端首页</span></div>
+          <div class="service-form">
+            <el-input v-model="serviceForm.service_code" class="input" placeholder="service_code" />
+            <el-input v-model="serviceForm.service_name" class="input" placeholder="服务名称" />
+            <el-input v-model="serviceForm.display_name" class="input" placeholder="展示名称" />
+            <el-input v-model="serviceForm.icon" class="input" placeholder="图标" />
+            <el-input v-model="serviceForm.base_price" class="input" type="number" placeholder="价格（分）" />
+            <el-input v-model="serviceForm.unit" class="input" placeholder="单位" />
+            <el-input v-model="serviceForm.description" class="input span-2" placeholder="服务描述" />
+            <el-button class="primary-btn" type="default" @click="saveService">保存服务</el-button>
+          </div>
+          <div class="table-scroll"><div class="table-list"><div v-for="service in services" :key="service.id" class="table-row"><span>{{ service.icon }} {{ service.display_name || service.service_name }}</span><span>{{ Math.round(service.base_price / 100) }} {{ service.currency }}/{{ service.unit }}</span><el-button class="ghost-btn" type="default" @click="toggleService(service)">{{ service.status === 1 ? '下架' : '上架' }}</el-button></div></div></div>
+        </div>
 
-        <view v-if="activePanel === 'dicts'" class="content-card">
-          <view class="section-head"><text class="panel-title">字典管理</text><text>服务分类、资讯分类与订单状态统一维护</text></view>
-          <view class="dual-grid">
-            <view class="sub-panel">
-              <text class="sub-title">字典类型</text>
-              <view class="service-form two-col"><input v-model="dictTypeForm.dict_name" class="input" placeholder="字典名称" /><input v-model="dictTypeForm.dict_code" class="input" placeholder="dict_code" /><input v-model="dictTypeForm.remark" class="input span-2" placeholder="备注" /><button class="primary-btn" @click="saveDictType">{{ dictTypeForm.id ? '更新类型' : '新增类型' }}</button><button class="ghost-btn form-btn" @click="resetDictTypeForm">清空</button></view>
-              <view class="table-scroll"><view class="table-list"><view v-for="item in dictTypes" :key="item.id" class="table-row"><text>{{ item.dict_name }} · {{ item.dict_code }}</text><text>{{ item.status === 1 ? '启用' : '停用' }}</text><button class="ghost-btn" @click="editDictType(item)">编辑</button><button class="danger-btn" @click="deleteDictType(item)">删除</button></view></view></view>
-            </view>
-            <view class="sub-panel">
-              <text class="sub-title">字典数据</text>
-              <view class="service-form two-col"><input v-model="dictDataForm.dict_code" class="input" placeholder="dict_code" /><input v-model="dictDataForm.dict_label" class="input" placeholder="标签" /><input v-model="dictDataForm.dict_value" class="input" placeholder="值" /><input v-model="dictDataForm.sort_order" class="input" type="number" placeholder="排序" /><input v-model="dictDataForm.remark" class="input span-2" placeholder="备注" /><button class="primary-btn" @click="saveDictData">{{ dictDataForm.id ? '更新数据' : '新增数据' }}</button><button class="ghost-btn form-btn" @click="resetDictDataForm">清空</button></view>
-              <view class="table-scroll"><view class="table-list"><view v-for="item in dictData" :key="item.id" class="table-row"><text>{{ item.dict_code }} · {{ item.dict_label }}</text><text>{{ item.dict_value }}</text><button class="ghost-btn" @click="editDictData(item)">编辑</button><button class="danger-btn" @click="deleteDictData(item)">删除</button></view></view></view>
-            </view>
-          </view>
-        </view>
+        <div v-if="activePanel === 'dicts'" class="content-card">
+          <div class="section-head"><span class="panel-title">字典管理</span><span>服务分类、资讯分类与订单状态统一维护</span></div>
+          <div class="dual-grid">
+            <div class="sub-panel">
+              <span class="sub-title">字典类型</span>
+              <div class="service-form two-col">
+                <el-input v-model="dictTypeForm.dict_name" class="input" placeholder="字典名称" />
+                <el-input v-model="dictTypeForm.dict_code" class="input" placeholder="dict_code" />
+                <el-input v-model="dictTypeForm.remark" class="input span-2" placeholder="备注" />
+                <el-button class="primary-btn" type="default" @click="saveDictType">{{ dictTypeForm.id ? '更新类型' : '新增类型' }}</el-button>
+                <el-button class="ghost-btn form-btn" type="default" @click="resetDictTypeForm">清空</el-button>
+              </div>
+              <div class="table-scroll"><div class="table-list"><div v-for="item in dictTypes" :key="item.id" class="table-row"><span>{{ item.dict_name }} · {{ item.dict_code }}</span><span>{{ item.status === 1 ? '启用' : '停用' }}</span><el-button class="ghost-btn" type="default" @click="editDictType(item)">编辑</el-button><el-button class="danger-btn" type="default" @click="deleteDictType(item)">删除</el-button></div></div></div>
+            </div>
+            <div class="sub-panel">
+              <span class="sub-title">字典数据</span>
+              <div class="service-form two-col">
+                <el-input v-model="dictDataForm.dict_code" class="input" placeholder="dict_code" />
+                <el-input v-model="dictDataForm.dict_label" class="input" placeholder="标签" />
+                <el-input v-model="dictDataForm.dict_value" class="input" placeholder="值" />
+                <el-input v-model="dictDataForm.sort_order" class="input" type="number" placeholder="排序" />
+                <el-input v-model="dictDataForm.remark" class="input span-2" placeholder="备注" />
+                <el-button class="primary-btn" type="default" @click="saveDictData">{{ dictDataForm.id ? '更新数据' : '新增数据' }}</el-button>
+                <el-button class="ghost-btn form-btn" type="default" @click="resetDictDataForm">清空</el-button>
+              </div>
+              <div class="table-scroll"><div class="table-list"><div v-for="item in dictData" :key="item.id" class="table-row"><span>{{ item.dict_code }} · {{ item.dict_label }}</span><span>{{ item.dict_value }}</span><el-button class="ghost-btn" type="default" @click="editDictData(item)">编辑</el-button><el-button class="danger-btn" type="default" @click="deleteDictData(item)">删除</el-button></div></div></div>
+            </div>
+          </div>
+        </div>
 
-        <view v-if="activePanel === 'articles'" class="content-card">
-          <view class="section-head"><text class="panel-title">资讯配置</text><text>资讯封面可上传到 server/uploads 并通过 /uploads 访问</text></view>
-          <view class="article-form">
-            <view class="cover-box"><image class="cover-preview" :src="articleForm.cover_img || '/static/img.png'" mode="aspectFill" /><input class="file-input" type="file" accept="image/*" @change="uploadArticleCover" /><text class="muted">当前封面：{{ articleForm.cover_img }}</text></view>
-            <view class="service-form two-col"><input v-model="articleForm.title" class="input span-2" placeholder="资讯标题" /><input v-model="articleForm.category" class="input" placeholder="分类，如 guide/city/notice" /><input v-model="articleForm.author" class="input" placeholder="作者" /><input v-model="articleForm.sort_order" class="input" type="number" placeholder="排序" /><input v-model="articleForm.status" class="input" type="number" placeholder="状态 1发布 0草稿" /><textarea v-model="articleForm.summary" class="textarea span-2" placeholder="摘要" /><textarea v-model="articleForm.content" class="textarea span-2" placeholder="正文内容" /><button class="primary-btn" @click="saveArticle">{{ articleForm.id ? '更新资讯' : '发布资讯' }}</button><button class="ghost-btn form-btn" @click="resetArticleForm">清空</button></view>
-          </view>
-          <view class="category-hint"><text v-for="cat in articleCategories" :key="cat.id">{{ cat.dict_label }}：{{ cat.dict_value }}</text></view>
-          <view class="table-scroll"><view class="article-list"><view v-for="article in articles" :key="article.id" class="article-row"><image class="article-thumb" :src="article.cover_img || '/static/img.png'" mode="aspectFill" /><view class="article-info"><text class="order-title">{{ article.title }}</text><text class="muted">{{ article.category }} · {{ article.summary }}</text></view><button class="ghost-btn" @click="editArticle(article)">编辑</button><button class="danger-btn" @click="deleteArticle(article)">删除</button></view></view></view>
-        </view>
+        <div v-if="activePanel === 'articles'" class="content-card">
+          <div class="section-head"><span class="panel-title">资讯配置</span><span>资讯封面可上传到 server/uploads 并通过 /uploads 访问</span></div>
+          <div class="article-form">
+            <div class="cover-box">
+              <img class="cover-preview" :src="articleForm.cover_img || '/static/img.png'" alt="封面" />
+              <input class="file-input" type="file" accept="image/*" @change="uploadArticleCover" />
+              <span class="muted">当前封面：{{ articleForm.cover_img }}</span>
+            </div>
+            <div class="service-form two-col">
+              <el-input v-model="articleForm.title" class="input span-2" placeholder="资讯标题" />
+              <el-input v-model="articleForm.category" class="input" placeholder="分类，如 guide/city/notice" />
+              <el-input v-model="articleForm.author" class="input" placeholder="作者" />
+              <el-input v-model="articleForm.sort_order" class="input" type="number" placeholder="排序" />
+              <el-input v-model="articleForm.status" class="input" type="number" placeholder="状态 1发布 0草稿" />
+              <el-input v-model="articleForm.summary" class="input span-2" type="textarea" placeholder="摘要" />
+              <el-input v-model="articleForm.content" class="input span-2" type="textarea" placeholder="正文内容" />
+              <el-button class="primary-btn" type="default" @click="saveArticle">{{ articleForm.id ? '更新资讯' : '发布资讯' }}</el-button>
+              <el-button class="ghost-btn form-btn" type="default" @click="resetArticleForm">清空</el-button>
+            </div>
+          </div>
+          <div class="category-hint"><span v-for="cat in articleCategories" :key="cat.id">{{ cat.dict_label }}：{{ cat.dict_value }}</span></div>
+          <div class="table-scroll"><div class="article-list"><div v-for="article in articles" :key="article.id" class="article-row"><img class="article-thumb" :src="article.cover_img || '/static/img.png'" alt="封面" /><div class="article-info"><span class="order-title">{{ article.title }}</span><span class="muted">{{ article.category }} · {{ article.summary }}</span></div><el-button class="ghost-btn" type="default" @click="editArticle(article)">编辑</el-button><el-button class="danger-btn" type="default" @click="deleteArticle(article)">删除</el-button></div></div></div>
+        </div>
 
-        <view v-if="activePanel === 'finance'" class="content-card">
-          <view class="section-head"><text class="panel-title">财务流水</text><text>订单状态推进到收款节点后自动生成 payment_records</text></view>
-          <view class="table-scroll"><view class="table-list"><view v-for="payment in payments" :key="payment.id" class="table-row"><text>{{ payment.payment_no }} · 订单 #{{ payment.order_id }}</text><text>{{ payment.amountText }}</text><text>{{ payment.pay_status }}</text></view><view v-if="!payments.length" class="empty">暂无财务流水，推进订单“确认收款”后自动生成。</view></view></view>
-        </view>
+        <div v-if="activePanel === 'finance'" class="content-card">
+          <div class="section-head"><span class="panel-title">财务流水</span><span>订单状态推进到收款节点后自动生成 payment_records</span></div>
+          <div class="table-scroll"><div class="table-list"><div v-for="payment in payments" :key="payment.id" class="table-row"><span>{{ payment.payment_no }} · 订单 #{{ payment.order_id }}</span><span>{{ payment.amountText }}</span><span>{{ payment.pay_status }}</span></div><div v-if="!payments.length" class="empty">暂无财务流水，推进订单"确认收款"后自动生成。</div></div></div>
+        </div>
 
-        <view v-if="activePanel === 'users'" class="panel-grid">
-          <view class="glass-panel wide"><text class="panel-title">C 端客户矩阵</text><view v-for="user in appUsers" :key="user.id" class="user-line"><text>{{ user.nickname || '未命名客户' }}</text><text class="strong">{{ user.phone || user.wechat_open_id || '无联系方式' }}</text></view></view>
-          <view class="glass-panel wide"><text class="panel-title">B 端员工矩阵</text><view v-for="user in sysUsers" :key="user.id" class="user-line"><text>{{ user.real_name || user.username }}</text><text class="strong">{{ user.role }}</text></view></view>
-        </view>
-      </view>
+        <div v-if="activePanel === 'users'" class="panel-grid">
+          <div class="glass-panel wide"><span class="panel-title">C 端客户矩阵</span><div v-for="user in appUsers" :key="user.id" class="user-line"><span>{{ user.nickname || '未命名客户' }}</span><span class="strong">{{ user.phone || user.wechat_open_id || '无联系方式' }}</span></div></div>
+          <div class="glass-panel wide"><span class="panel-title">B 端员工矩阵</span><div v-for="user in sysUsers" :key="user.id" class="user-line"><span>{{ user.real_name || user.username }}</span><span class="strong">{{ user.role }}</span></div></div>
+        </div>
+      </div>
     </template>
-  </view>
+  </div>
 </template>
 
 <style scoped>
@@ -534,10 +457,9 @@ onUnmounted(() => {
 .eyebrow, .login-title, .login-desc, .hero-title, .hero-desc, .panel-title, .order-title, .muted, .sub-title { display: block; }
 .eyebrow { color: #c5a059; font-size: 11px; font-weight: 900; letter-spacing: 1.8px; }
 .login-title, .hero-title { margin-top: 10px; font-size: 28px; font-weight: 900; }
-.login-desc, .hero-desc, .muted, .section-head text + text, .glass-panel text:last-child { color: #6b7c78; font-size: 13px; line-height: 1.7; }
-.input, .textarea { box-sizing: border-box; width: 100%; margin-top: 12px; padding: 0 16px; border: 1px solid rgba(0,77,64,.1); border-radius: 16px; background: #fff; color: #12312c; }
-.input { height: 44px; }
-.textarea { min-height: 92px; padding-top: 12px; line-height: 1.6; }
+.login-desc, .hero-desc, .muted, .section-head span + span, .glass-panel span:last-child { color: #6b7c78; font-size: 13px; line-height: 1.7; }
+.input, .textarea { box-sizing: border-box; width: 100%; margin-top: 12px; }
+.textarea { min-height: 92px; padding: 12px 16px; line-height: 1.6; }
 .primary-btn, .refresh-btn, .ghost-btn, .danger-btn, .nav-item, .chip, .action-btn, .collapse-toggle { border: 0; border-radius: 999px; font-weight: 900; }
 .primary-btn { width: 100%; height: 46px; margin-top: 16px; color: #fff; background: #004d40; }
 .side-nav { position: fixed; inset: 0 auto 0 0; z-index: 8; width: 218px; padding: 72px 18px 28px; overflow-y: auto; background: linear-gradient(180deg,#07362f,#004d40); box-shadow: 24px 0 70px rgba(0,77,64,.16); transition: transform .24s ease; }
@@ -553,7 +475,7 @@ onUnmounted(() => {
 .stats-grid, .panel-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-top: 18px; }
 .stat-card, .glass-panel, .content-card, .sub-panel { border: 1px solid rgba(255,255,255,.72); border-radius: 30px; background: rgba(255,255,255,.78); box-shadow: 0 20px 60px rgba(0,77,64,.08); backdrop-filter: blur(15px); }
 .stat-card { padding: 22px; }
-.stat-card text:first-child, .big-number { display: block; font-size: 28px; font-weight: 900; }
+.stat-card span:first-child, .big-number { display: block; font-size: 28px; font-weight: 900; }
 .stat-card.green { color: #fff; background: #004d40; }
 .stat-card.gold { background: linear-gradient(135deg,#f5d98f,#fff); }
 .glass-panel, .content-card, .sub-panel { padding: 22px; }
@@ -586,11 +508,11 @@ onUnmounted(() => {
 .sub-title { color: #12312c; font-size: 18px; font-weight: 900; }
 .article-form { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; align-items: start; }
 .cover-box { margin-top: 12px; }
-.cover-preview { width: 100%; height: 180px; border-radius: 24px; background: #dfeae6; }
+.cover-preview { width: 100%; height: 180px; border-radius: 24px; background: #dfeae6; object-fit: cover; display: block; }
 .file-input { width: 100%; margin-top: 12px; }
 .category-hint { margin-top: 12px; color: #6b7c78; font-size: 12px; }
 .article-row { min-width: 1200px !important; padding: 12px 0; border-bottom: 1px solid rgba(0,77,64,.08); }
-.article-thumb { flex: 0 0 88px; width: 88px; height: 66px; border-radius: 16px; background: #dfeae6; }
+.article-thumb { flex: 0 0 88px; width: 88px; height: 66px; border-radius: 16px; background: #dfeae6; object-fit: cover; }
 .article-info { flex: 1; min-width: 260px; }
 .empty { padding: 20px; color: #6b7c78; text-align: center; }
 @media (max-width: 1024px) { .stats-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dual-grid, .article-form { grid-template-columns: 1fr; } }

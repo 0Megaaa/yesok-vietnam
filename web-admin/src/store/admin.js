@@ -1,9 +1,24 @@
 import { defineStore } from 'pinia'
 import { adminLogin, adminLogout } from '@/api/admin/auth'
 
+const readStorage = (key) => {
+  if (typeof localStorage !== 'undefined') return localStorage.getItem(key) || ''
+  return ''
+}
+
+const writeStorage = (key, value) => {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(key, value)
+  }
+}
+
+const removeStorage = (key) => {
+  if (typeof localStorage !== 'undefined') localStorage.removeItem(key)
+}
+
 export const useAdminStore = defineStore('admin', {
   state: () => ({
-    token: uni.getStorageSync('admin_token') || '',
+    token: readStorage('admin_token') || '',
     userInfo: null,
   }),
 
@@ -14,11 +29,8 @@ export const useAdminStore = defineStore('admin', {
   actions: {
     setToken(token) {
       this.token = token
-      if (token) {
-        uni.setStorageSync('admin_token', token)
-      } else {
-        uni.removeStorageSync('admin_token')
-      }
+      if (token) writeStorage('admin_token', token)
+      else removeStorage('admin_token')
     },
 
     setUserInfo(userInfo) {
@@ -40,7 +52,7 @@ export const useAdminStore = defineStore('admin', {
       }
       this.token = ''
       this.userInfo = null
-      uni.removeStorageSync('admin_token')
+      removeStorage('admin_token')
     },
   },
 })

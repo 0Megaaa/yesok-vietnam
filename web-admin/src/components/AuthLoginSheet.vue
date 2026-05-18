@@ -1,50 +1,43 @@
 <script setup>
 import { computed } from 'vue'
 import { useClientStore } from '@/store/client'
+import { ElMessage } from 'element-plus'
 
 const client = useClientStore()
 const visible = computed(() => client.loginSheetVisible)
 
-// handleDemoLogin 执行演示登录动作。
-// 实现步骤：
-// 1. 调用客户端 store 的 Mock 登录方法。
-// 2. 由 store 统一写入 token、用户资料和本地缓存。
-// 3. 登录失败时展示轻提示，避免用户停留在无反馈状态。
+const showToast = (title, type = 'info') => {
+  ElMessage({ message: title, type })
+}
+
 const handleDemoLogin = async () => {
   try {
     await client.loginByDemo()
   } catch (error) {
-    uni.showToast({ title: '登录失败，请稍后重试', icon: 'none' })
+    showToast('登录失败，请稍后重试', 'error')
   }
 }
 
-// handleTelegramPlaceholder 预留 Telegram Mini App 登录入口。
-// 实现步骤：
-// 1. 当前不联调真实 Telegram 无感登录，避免误信任前端 initData。
-// 2. 保留按钮与注释，日后接入时在 api/client/auth.js 中补充真实校验。
-// 3. 临时引导用户使用演示登录继续验收页面。
 const handleTelegramPlaceholder = () => {
-  uni.showToast({ title: 'TG 登录占位已保留，当前请用演示登录', icon: 'none' })
+  showToast('TG 登录占位已保留，当前请用演示登录', 'info')
 }
 </script>
 
 <template>
-  <view v-if="visible" class="auth-mask" @click="client.closeLoginSheet">
-    <view class="auth-sheet" @click.stop>
-      <view class="auth-handle"></view>
-      <view class="auth-title">登录后{{ client.pendingActionText }}</view>
-      <view class="auth-desc">
+  <div v-if="visible" class="auth-mask" @click="client.closeLoginSheet">
+    <div class="auth-sheet" @click.stop>
+      <div class="auth-handle"></div>
+      <div class="auth-title">登录后{{ client.pendingActionText }}</div>
+      <div class="auth-desc">
         为保障服务履约与订单进度通知，请先完成授权登录。当前演示版使用 Mock 数据，不会向真实后端提交个人信息。
-      </view>
-
+      </div>
       <button class="auth-primary" @click="handleDemoLogin">一键演示登录</button>
       <button class="auth-secondary" @click="handleTelegramPlaceholder">Telegram 登录占位</button>
-
-      <view class="auth-tips">
-        <text>已预留微信小程序、Telegram Mini App 与未来 iOS/Android 原生登录扩展位。</text>
-      </view>
-    </view>
-  </view>
+      <div class="auth-tips">
+        <span>已预留微信小程序、Telegram Mini App 与未来 iOS/Android 原生登录扩展位。</span>
+      </div>
+    </div>
+  </div>
 </template>
 
 <style scoped>
@@ -93,6 +86,8 @@ const handleTelegramPlaceholder = () => {
 
 .auth-primary,
 .auth-secondary {
+  display: block;
+  width: 100%;
   height: 46px;
   margin: 0 0 10px;
   border: none;
@@ -100,6 +95,7 @@ const handleTelegramPlaceholder = () => {
   font-size: 15px;
   font-weight: 700;
   line-height: 46px;
+  cursor: pointer;
 }
 
 .auth-primary {
