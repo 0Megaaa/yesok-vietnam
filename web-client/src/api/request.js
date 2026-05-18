@@ -1,4 +1,4 @@
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+const BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:7625/api'
 const TIMEOUT = 10000
 
 // safeUni 获取跨端可用的 uni 对象。

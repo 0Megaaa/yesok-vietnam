@@ -18,6 +18,11 @@ function yesokUniH5MountFix() {
       mainEntry = path.resolve(inputDir, 'main.js').split(path.sep).join('/')
     },
     transform(code, id) {
+      // 【新增环境拦截】：如果当前不是 H5 编译环境，直接跳过，防止污染小程序或 App 端
+      if (process.env.UNI_PLATFORM !== 'h5') {
+        return null
+      }
+
       const normalizedId = id.split('?')[0].split(path.sep).join('/')
       if (normalizedId !== mainEntry || code.includes('createApp().app.use(__plugin).mount("#app")')) {
         return null
@@ -76,7 +81,7 @@ export default defineConfig({
       // 2.步骤 -> 将 /api 请求转发到 Go 后端实际监听端口。
       // 3.返回 -> Vite 代理配置对象。
       '/api': {
-        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:8080',
+        target: process.env.VITE_PROXY_TARGET || 'http://127.0.0.1:7625',
         changeOrigin: true
       }
     }

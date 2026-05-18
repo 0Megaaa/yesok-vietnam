@@ -3042,10 +3042,4 @@
       color: #fff;
       border-color: #0B4FE8;
     }
-    .hero-bg {
-        /* 只有在 <style> 块里使用 @/static 路径，uni-app 编译器才会自动将其处理为小程序兼容的格式 */
-        background-image: url('@/static/img.png');
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-    }
+    /* .hero-bg 已移除背景图，使用 image 标签替代以兼容微信小程序 */

@@ -86,7 +86,7 @@ onMounted(loadArticles)
       </view>
     </view>
 
-    <scroll-view scroll-x class="category-scroll">
+    <scroll-view scroll-x class="category-scroll" enable-flex="true">
       <view class="category-row">
         <view v-for="item in categories" :key="item.value" class="category-btn" :class="{ active: activeCategory === item.value }" @click="switchCategory(item.value)">{{ item.label }}</view>
       </view>

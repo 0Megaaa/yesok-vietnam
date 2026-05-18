@@ -147,7 +147,10 @@ onMounted(loadHomeData)
 
 <template>
   <view class="home-page">
-    <view class="hero-bleed"></view>
+    <view class="hero-bleed">
+      <image class="hero-image" src="/static/img.png" mode="aspectFill" />
+      <view class="hero-mask"></view>
+    </view>
 
     <view class="search-capsule">
       <text class="search-icon">⌕</text>
@@ -167,7 +170,7 @@ onMounted(loadHomeData)
         <text class="section-more" @click="goPage('services')">全部服务 &gt;</text>
       </view>
       <view v-if="loading" class="empty">正在从后台读取服务价格...</view>
-      <scroll-view v-else scroll-x class="hot-scroll">
+      <scroll-view v-else scroll-x class="hot-scroll" enable-flex="true">
         <view v-for="service in hotServices" :key="service.id" class="service-card" @click="openServiceDetail(service)">
           <image class="service-cover" :src="service.cover_image" mode="aspectFill" />
           <view class="service-body">
@@ -231,7 +234,7 @@ onMounted(loadHomeData)
 
 <style scoped>
 .home-page { min-height: 100vh; padding-bottom: 92px; background: #f2f6f5; color: #12312c; }
-.hero-bleed { position: relative; height: 340px; margin: 0; overflow: hidden; border-bottom-left-radius: 0; border-bottom-right-radius: 0; background: linear-gradient(to bottom, transparent, #F2F6F5), url('/static/img.png') no-repeat center/cover; }
+.hero-bleed { position: relative; height: 340px; margin: 0; overflow: hidden; border-bottom-left-radius: 0; border-bottom-right-radius: 0; background: transparent; }
 .hero-image { position: absolute; inset: 0; width: 100%; height: 100%; transform: scale(1.02); }
 .hero-mask { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(15,61,62,.04) 0%, rgba(15,61,62,.08) 44%, #f2f6f5 100%); }
 .hero-topbar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 62px 22px 0; color: #fff; }
