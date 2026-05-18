@@ -15,18 +15,28 @@ const orderForm = ref({ contact_name: '', contact_phone: '', hotel_address: '', 
 
 useGlobalShare({ title: 'Yesok Vietnam｜越南本地生活管家', path: '/pages/home/index' })
 
-// 1.意图 -> 从服务接口中提取首页热门服务、分类入口和 Banner 图片。
-// 2.步骤 -> 使用 computed 对响应式服务列表与配置对象进行派生，避免页面硬编码服务名称和价格。
-// 3.返回 -> 可被模板直接消费的热门服务、分类和首页文案。
-const hotServices = computed(() => services.value.filter((item) => item.is_hot).slice(0, 6))
-const categories = computed(() => services.value.slice(0, 5).map((item) => ({ id: item.id, icon: item.icon || '🌴', name: item.display_name || item.service_name })))
-const bannerImage = computed(() => '/static/img.png')
-const featuredArticles = computed(() => articles.value.slice(0, 3))
+// 容错计算属性，确保数据为 undefined 时不会报错
+const hotServices = computed(() => {
+  if (!services.value || !Array.isArray(services.value)) return []
+  return services.value.filter((item) => item.is_hot).slice(0, 6)
+})
 
-// showSafeToast 展示跨端提示。
-// 1.意图 -> 下单、咨询、加载失败时在 H5 与小程序都能反馈。
-// 2.步骤 -> 优先使用 uni.showToast，缺失时降级 console.info。
-// 3.返回 -> 无返回值。
+const categories = computed(() => {
+  if (!services.value || !Array.isArray(services.value)) return []
+  return services.value.slice(0, 5).map((item) => ({
+    id: item.id,
+    icon: item.icon || '🌴',
+    name: item.display_name || item.service_name
+  }))
+})
+
+const bannerImage = computed(() => '/static/img.png')
+
+const featuredArticles = computed(() => {
+  if (!articles.value || !Array.isArray(articles.value)) return []
+  return articles.value.slice(0, 3)
+})
+
 const showSafeToast = (title) => {
   if (typeof uni !== 'undefined' && uni?.showToast) {
     uni.showToast({ title, icon: 'none' })
@@ -35,10 +45,6 @@ const showSafeToast = (title) => {
   console.info('[Yesok Client]', title)
 }
 
-// normalizeService 规范化 C 端服务字段。
-// 1.意图 -> 将 Go 接口返回的 sys_services 字段转换为首页卡片可直接消费的数据。
-// 2.步骤 -> 补齐展示名、价格、单位、封面图和服务编码。
-// 3.返回 -> 标准服务对象。
 const normalizeService = (item) => ({
   ...item,
   display_name: item.display_name || item.service_name || item.name,
@@ -47,10 +53,6 @@ const normalizeService = (item) => ({
   service_code: item.service_code || item.code,
 })
 
-// normalizeArticle 规范化 C 端资讯字段。
-// 1.意图 -> 将 sys_articles 接口字段转换为首页资讯卡片所需结构。
-// 2.步骤 -> 补齐封面、分类、作者和摘要，保证空字段不影响渲染。
-// 3.返回 -> 标准资讯对象。
 const normalizeArticle = (item) => ({
   ...item,
   cover_img: item.cover_img || bannerImage.value,
@@ -59,66 +61,43 @@ const normalizeArticle = (item) => ({
   summary: item.summary || item.content || 'Yesok Vietnam 管家精选资讯',
 })
 
-// loadHomeData 加载首页真实数据。
-// 1.意图 -> 让首页 Banner 文案、服务分类、价格、热门卡片和资讯全部由后端动态驱动。
-// 2.步骤 -> 并发请求 /v1/configs、/v1/services 与 /v1/articles，再写入页面响应式状态。
-// 3.返回 -> Promise<void>。
+// 独立并发加载，杜绝熔断
 const loadHomeData = async () => {
   loading.value = true
-  try {
-    const [configRes, serviceRes, articleRes] = await Promise.all([
-      request.get('/v1/configs'),
-      request.get('/v1/services'),
-      request.get('/v1/articles', { params: { limit: 3 } }),
-    ])
-    configs.value = configRes.data.configs || configRes.data || {}
-    services.value = (serviceRes.data.list || []).map(normalizeService)
-    articles.value = (articleRes.data.list || []).map(normalizeArticle)
-  } catch (error) {
-    showSafeToast(error?.message || '首页数据加载失败')
-  } finally {
-    loading.value = false
-  }
+
+  request.get('/v1/configs').then(res => {
+    configs.value = res.data?.configs || res.data || {}
+  }).catch(e => console.error('加载配置失败:', e))
+
+  request.get('/v1/services').then(res => {
+    services.value = (res.data?.list || res.data || []).map(normalizeService)
+  }).catch(e => console.error('加载服务失败:', e))
+
+  request.get('/v1/articles', { params: { limit: 3 } }).then(res => {
+    articles.value = (res.data?.list || res.data || []).map(normalizeArticle)
+  }).catch(e => console.error('加载资讯失败:', e))
+
+  setTimeout(() => { loading.value = false }, 600)
 }
 
-// goPage 切换原生 Tab 页面。
-// 1.意图 -> 使用 pages.json 标准 Tabbar 唤醒首页、资讯、服务、我的。
-// 2.步骤 -> 调用 uni.switchTab 并传入目标页面。
-// 3.返回 -> 无返回值。
 const goPage = (page) => {
   uni.switchTab({ url: `/pages/${page}/index` })
 }
 
-// openServiceDetail 打开服务详情。
-// 1.意图 -> 将服务 ID 与服务编码带给详情页，保持真实服务链路。
-// 2.步骤 -> 优先使用 uni.navigateTo，缺失时降级 H5 地址跳转。
-// 3.返回 -> 无返回值。
 const openServiceDetail = (service) => {
   const url = `/pages/service-detail/index?id=${encodeURIComponent(service.id)}&code=${encodeURIComponent(service.service_code)}`
   if (typeof uni !== 'undefined' && uni?.navigateTo) uni.navigateTo({ url })
 }
 
-// openOrderSheet 打开轻量下单面板。
-// 1.意图 -> 在首页直接演示 C 端提交订单到 orders 表。
-// 2.步骤 -> 通过 AuthPopup 兼容方法做登录挡板，通过后设置 selectedService。
-// 3.返回 -> 无返回值。
 const openOrderSheet = (service) => {
   if (!client.checkAuth(`咨询「${service.display_name}」`)) return
   selectedService.value = service
 }
 
-// openNewsList 跳转资讯 Tab。
-// 1.意图 -> 从首页资讯模块进入四栏 Tabbar 的资讯频道。
-// 2.步骤 -> 使用 uni.switchTab 跳转到 /pages/news/index。
-// 3.返回 -> 无返回值。
 const openNewsList = () => {
   uni.switchTab({ url: '/pages/news/index' })
 }
 
-// submitOrder 提交真实订单。
-// 1.意图 -> 将 C 端需求写入 orders.form_data，并触发后台订单中心可见。
-// 2.步骤 -> 组装服务编码、联系人和动态表单 JSON 后 POST /v1/orders。
-// 3.返回 -> Promise<void>。
 const submitOrder = async () => {
   if (!selectedService.value) return
   try {
@@ -142,7 +121,9 @@ const submitOrder = async () => {
   }
 }
 
-onMounted(loadHomeData)
+onMounted(() => {
+  loadHomeData()
+})
 </script>
 
 <template>
@@ -169,8 +150,10 @@ onMounted(loadHomeData)
         <text class="section-title">热门服务</text>
         <text class="section-more" @click="goPage('services')">全部服务 &gt;</text>
       </view>
+
       <view v-if="loading" class="empty">正在从后台读取服务价格...</view>
-      <scroll-view v-else scroll-x class="hot-scroll" enable-flex="true">
+      <view v-else-if="hotServices.length === 0" class="empty">暂无热门服务</view>
+      <scroll-view v-else scroll-x enable-flex="true" class="hot-scroll">
         <view v-for="service in hotServices" :key="service.id" class="service-card" @click="openServiceDetail(service)">
           <image class="service-cover" :src="service.cover_image" mode="aspectFill" />
           <view class="service-body">
@@ -193,7 +176,8 @@ onMounted(loadHomeData)
         <text class="section-title">越南灵感</text>
         <text class="section-more" @click="openNewsList">进入资讯 &gt;</text>
       </view>
-      <view v-if="featuredArticles.length === 0" class="empty">正在同步后台资讯...</view>
+      <view v-if="loading" class="empty">正在同步后台资讯...</view>
+      <view v-else-if="featuredArticles.length === 0" class="empty">暂无相关资讯</view>
       <view v-for="article in featuredArticles" :key="article.id" class="news-card" @click="openNewsList">
         <image class="news-cover" :src="article.cover_img" mode="aspectFill" />
         <view class="news-body">
@@ -237,13 +221,6 @@ onMounted(loadHomeData)
 .hero-bleed { position: relative; height: 340px; margin: 0; overflow: hidden; border-bottom-left-radius: 0; border-bottom-right-radius: 0; background: transparent; }
 .hero-image { position: absolute; inset: 0; width: 100%; height: 100%; transform: scale(1.02); }
 .hero-mask { position: absolute; inset: 0; background: linear-gradient(to bottom, rgba(15,61,62,.04) 0%, rgba(15,61,62,.08) 44%, #f2f6f5 100%); }
-.hero-topbar { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; padding: 62px 22px 0; color: #fff; }
-.brand { font-size: 20px; font-weight: 900; letter-spacing: .4px; text-shadow: 0 8px 26px rgba(0,0,0,.28); }
-.locale { padding: 7px 12px; border-radius: 999px; background: rgba(255,255,255,.22); backdrop-filter: blur(12px); font-size: 11px; font-weight: 900; }
-.hero-copy { position: absolute; left: 22px; right: 22px; bottom: 54px; z-index: 1; color: #fff; }
-.hero-title, .hero-subtitle, .section-title, .section-more, .service-name, .service-desc, .panel-kicker, .panel-title, .panel-desc, .news-tag, .news-title, .news-summary { display: block; }
-.hero-title { max-width: 320px; font-size: 34px; font-weight: 900; line-height: 1.18; text-shadow: 0 14px 38px rgba(0,0,0,.32); }
-.hero-subtitle { max-width: 310px; margin-top: 12px; color: rgba(255,255,255,.88); font-size: 14px; line-height: 1.7; }
 .search-capsule { position: relative; z-index: 3; display: flex; align-items: center; gap: 10px; height: 52px; margin: -38px 18px 14px; padding: 0 18px; border: 1px solid rgba(255,255,255,.65); border-radius: 26px; background: rgba(255,255,255,.65); box-shadow: 0 18px 48px rgba(0,77,64,.16); backdrop-filter: blur(15px); }
 .search-icon { color: #004d40; font-size: 20px; font-weight: 900; }
 .search-input { flex: 1; color: #12312c; font-size: 14px; }
@@ -284,5 +261,4 @@ onMounted(loadHomeData)
 .cancel-btn, .submit-btn { flex: 1; height: 44px; border: 0; border-radius: 22px; font-weight: 900; line-height: 44px; text-align: center; }
 .cancel-btn { color: #6b7c78; background: #eef5f2; }
 .submit-btn { color: #fff; background: #004d40; }
-@media (min-width: 768px) { .home-page { max-width: 560px; margin: 0 auto; box-shadow: 0 0 80px rgba(0,77,64,.08); } }
 </style>
