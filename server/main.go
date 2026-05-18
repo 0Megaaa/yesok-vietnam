@@ -47,12 +47,12 @@ func main() {
 func connectDatabase() *gorm.DB {
 	dbType := "mysql"
 
-	username := "root"          // 数据库账号
-	password := "YOUR_PASSWORD" // ⚠️ 请在替换后手动把这里改成真实的数据库密码！
-	dbName := "yesok"           // 数据库名称
+	username := ""  // 数据库账号
+	password := "D" // ⚠️ 请在替换后手动把这里改成真实的数据库密码！
+	dbName := ""    // 数据库名称
 
 	// 自动拼接成 Go 标准的 MySQL DSN 格式 (指向 72.61.213.87:3610)
-	dsn := fmt.Sprintf("%s:%s@tcp(72.61.213.87:3610)/%s?charset=utf8mb4&parseTime=True&loc=Local", username, password, dbName)
+	dsn := fmt.Sprintf("%s:%s@tcp(数据库)/%s?charset=utf8mb4&parseTime=True&loc=Local", username, password, dbName)
 
 	var db *gorm.DB
 	var err error
