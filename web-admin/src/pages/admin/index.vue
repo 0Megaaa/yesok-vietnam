@@ -1,10 +1,7 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
-
-const router = useRouter()
 
 const loading = ref(true)
 const loggedIn = ref(false)
@@ -98,14 +95,22 @@ const getAdminToken = () => {
 }
 
 const login = async () => {
+  console.log('[Yesok Admin] 🔐 login() 开始执行，credentials =', loginForm.value)
   submitting.value = true
   try {
+    console.log('[Yesok Admin] 🚀 发起 POST /v1/admin/auth/login')
     const res = await request.post('/v1/admin/auth/login', loginForm.value)
+    console.log('[Yesok Admin] ✅ 登录成功，res.data =', res.data)
+    console.log('[Yesok Admin] 💾 写入 localStorage admin_token')
     saveAdminToken(res.data.token)
     loggedIn.value = true
+    console.log('[Yesok Admin] 🏷️ loggedIn = true，显示后台界面')
     showToast('管家登录成功', 'success')
+    console.log('[Yesok Admin] 🔄 登录成功后调用 loadAll()')
     await loadAll()
   } catch (error) {
+    console.error('[Yesok Admin] ❌ 登录失败：', error)
+    console.error('[Yesok Admin] ❌ error.message =', error?.message)
     showToast(error?.message || '登录失败', 'error')
   } finally {
     submitting.value = false
@@ -113,8 +118,10 @@ const login = async () => {
 }
 
 const loadAll = async () => {
+  console.log('[Yesok Admin] ⏳ loadAll() 开始执行，loading = true')
   loading.value = true
   try {
+    console.log('[Yesok Admin] 🚀 正在发起 9 个并发 API 请求...')
     const [statsRes, ordersRes, servicesRes, paymentsRes, appUsersRes, sysUsersRes, dictTypeRes, dictDataRes, articleRes] = await Promise.all([
       request.get('/v1/admin/dashboard/stats'),
       request.get('/v1/admin/orders'),
@@ -126,6 +133,16 @@ const loadAll = async () => {
       request.get('/v1/admin/dict-data'),
       request.get('/v1/admin/articles'),
     ])
+    console.log('[Yesok Admin] ✅ 9 个 API 全部返回成功：')
+    console.log('  statsRes.data =', statsRes.data)
+    console.log('  ordersRes.data =', ordersRes.data)
+    console.log('  servicesRes.data =', servicesRes.data)
+    console.log('  paymentsRes.data =', paymentsRes.data)
+    console.log('  appUsersRes.data =', appUsersRes.data)
+    console.log('  sysUsersRes.data =', sysUsersRes.data)
+    console.log('  dictTypeRes.data =', dictTypeRes.data)
+    console.log('  dictDataRes.data =', dictDataRes.data)
+    console.log('  articleRes.data =', articleRes.data)
     stats.value = statsRes.data
     orders.value = (ordersRes.data.list || ordersRes.data.orders || []).map(normalizeOrder)
     services.value = servicesRes.data.list || []
@@ -135,11 +152,19 @@ const loadAll = async () => {
     dictTypes.value = dictTypeRes.data.list || []
     dictData.value = dictDataRes.data.list || []
     articles.value = articleRes.data.list || []
+    console.log('[Yesok Admin] 🎉 数据填充完成，渲染即将更新')
   } catch (error) {
-    if (error?.response?.status === 401) loggedIn.value = false
+    console.error('[Yesok Admin] ❌ API 调用报错：', error)
+    console.error('[Yesok Admin] ❌ error.response =', error?.response)
+    console.error('[Yesok Admin] ❌ error.message =', error?.message)
+    if (error?.response?.status === 401) {
+      console.warn('[Yesok Admin] ⚠️ 401 未授权，清理 token，显示登录页')
+      loggedIn.value = false
+    }
     showToast(error?.message || '后台数据加载失败', 'error')
   } finally {
     loading.value = false
+    console.log('[Yesok Admin] 📦 loadAll() 执行完毕，loading = false')
   }
 }
 
@@ -301,10 +326,22 @@ const handleResize = () => {
 }
 
 onMounted(async () => {
+  console.log('[Yesok Admin] ✅ 页面 onMounted 触发')
   handleResize()
   if (typeof window !== 'undefined') window.addEventListener('resize', handleResize)
-  loggedIn.value = Boolean(typeof localStorage !== 'undefined' && localStorage.getItem('admin_token'))
-  if (loggedIn.value) await loadAll()
+
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('admin_token') : ''
+  console.log('[Yesok Admin] 🔑 localStorage admin_token =', token ? `"${token.substring(0, 20)}..."（已存在）` : 'null（不存在）')
+
+  loggedIn.value = Boolean(token)
+  console.log('[Yesok Admin] 🏷️  loggedIn =', loggedIn.value)
+
+  if (loggedIn.value) {
+    console.log('[Yesok Admin] 🔄 开始调用 loadAll()...')
+    await loadAll()
+  } else {
+    console.log('[Yesok Admin] ⏳ 未登录，显示登录卡片，请先点击"进入后台"按钮')
+  }
   loading.value = false
 })
 

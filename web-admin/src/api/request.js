@@ -58,7 +58,13 @@ function createRequest() {
       const isAdminRoute = config.url && config.url.startsWith('/v1/admin')
       const tokenKey = isAdminRoute ? 'admin_token' : 'client_token'
       const token = readStorage(tokenKey)
-      if (token) config.headers.Authorization = `Bearer ${token}`
+      if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+        console.log(`[axios 请求拦截] ✅ 已注入 ${tokenKey}，前20字符：${token.substring(0, 20)}...`)
+      } else {
+        console.warn(`[axios 请求拦截] ⚠️ 未找到 ${tokenKey}，请求不带 Authorization`)
+      }
+      console.log(`[axios 请求拦截] ${config.method?.toUpperCase()} ${BASE_URL}${config.url}`)
       // 规范化 GET 参数
       if (config.method === 'get' && config.params && Object.keys(config.params).length) {
         config.url = buildUrl(config.url, { params: config.params }, 'GET')
@@ -71,28 +77,30 @@ function createRequest() {
 
   // 响应拦截器：统一错误处理
   http.interceptors.response.use(
-    (response) => ({ data: response.data, status: response.status }),
+    (response) => {
+      console.log(`[axios 响应拦截] ✅ HTTP ${response.status} ← ${response.config?.method?.toUpperCase()} ${response.config?.url}`)
+      return { data: response.data, status: response.status }
+    },
     (error) => {
-      if (error.response) {
-        const status = error.response.status
-        const responseBody = error.response.data
-        if (status === 401) {
-          const isAdminRoute = error.config?.url?.startsWith('/v1/admin')
-          removeStorage(isAdminRoute ? 'admin_token' : 'client_token')
-        }
-        return Promise.reject({
-          response: { status, data: responseBody },
-          message: normalizeErrorMessage(responseBody, `HTTP ${status}`),
-        })
+      const status = error.response?.status
+      const responseBody = error.response?.data
+      const url = error.config?.url
+      console.error(`[axios 响应拦截] ❌ HTTP ${status} ← GET/PUT/POST ${url}`)
+      console.error('[axios 响应拦截] ❌ 响应体：', responseBody)
+      if (status === 401) {
+        const isAdminRoute = url?.startsWith('/v1/admin')
+        removeStorage(isAdminRoute ? 'admin_token' : 'client_token')
+        console.warn('[axios 响应拦截] ⚠️ 401 未授权，已清理 token')
       }
       return Promise.reject({
-        response: null,
-        message: error.message || '网络请求失败',
+        response: { status, data: responseBody },
+        message: normalizeErrorMessage(responseBody, `HTTP ${status}`),
       })
     }
   )
 
   function request(method, url, data = {}, config = {}) {
+    console.log(`[request.js] 调用 request(${method}, ${url}, data, config)`)
     return http({
       method,
       url,
