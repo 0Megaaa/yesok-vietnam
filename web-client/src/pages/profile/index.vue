@@ -3,14 +3,6 @@ import { useClientStore } from '@/store/client'
 
 const client = useClientStore()
 
-// goAdmin 打开 B 端管理后台入口。
-// 1.意图 -> 保留移动端个人中心到内部后台的快捷入口。
-// 2.步骤 -> 使用 uni.navigateTo 进入后台页面。
-// 3.返回 -> 无返回值。
-const goAdmin = () => {
-  uni.navigateTo({ url: '/pages/admin/index' })
-}
-
 // sendMessage 触发管家消息提示。
 // 1.意图 -> 替代原生 button，保持 Uni-app 组件规范。
 // 2.步骤 -> 调用 uni.showToast 展示占位提示。
@@ -69,11 +61,6 @@ const sendMessage = () => {
       <view class="menu-row"><view class="menu-icon">设</view><view class="menu-main"><text class="menu-name">设置</text><text class="menu-desc">账号与偏好</text></view><text class="arrow">›</text></view>
     </view>
 
-    <view class="admin-card" @click="goAdmin">
-      <view class="admin-icon">锁</view>
-      <view class="admin-main"><text class="admin-title">管理后台</text><text class="admin-desc">平台运营管理（内部）</text></view>
-      <text class="admin-arrow">›</text>
-    </view>
 
     <view v-if="client.isLoggedIn" class="logout-wrap">
       <view class="logout-btn" @click="client.logout()">退出登录</view>
@@ -90,17 +77,17 @@ const sendMessage = () => {
 .avatar-wrap { position: relative; z-index: 1; display: flex; align-items: center; justify-content: center; width: 78px; height: 78px; margin: 0 auto 14px; border-radius: 50%; background: rgba(255,255,255,.18); border: 3px solid rgba(255,255,255,.34); }
 .avatar-img { width: 72px; height: 72px; border-radius: 50%; }
 .avatar-text { font-size: 42px; }
-.user-name, .user-role, .wallet-value, .wallet-label, .manager-name, .card-title, .menu-name, .menu-desc, .admin-title, .admin-desc { display: block; }
+.user-name, .user-role, .wallet-value, .wallet-label, .manager-name, .card-title, .menu-name, .menu-desc { display: block; }
 .user-name { position: relative; z-index: 1; font-size: 22px; font-weight: 900; }
 .user-role { position: relative; z-index: 1; margin-top: 6px; color: rgba(255,255,255,.76); font-size: 12px; }
 .wallet-row { position: relative; z-index: 1; display: flex; margin-top: 22px; padding: 14px 0; border-radius: 24px; background: rgba(255,255,255,.15); backdrop-filter: blur(16px); }
 .wallet-item { flex: 1; }
 .wallet-value { font-size: 18px; font-weight: 900; }
 .wallet-label { margin-top: 4px; color: rgba(255,255,255,.72); font-size: 11px; }
-.manager-card, .order-card, .menu-card, .admin-card { margin: 14px 14px 0; border-radius: 26px; background: rgba(255,255,255,.88); box-shadow: 0 18px 52px rgba(0,77,64,.08); }
+.manager-card, .order-card, .menu-card { margin: 14px 14px 0; border-radius: 26px; background: rgba(255,255,255,.88); box-shadow: 0 18px 52px rgba(0,77,64,.08); }
 .manager-card { display: flex; align-items: center; gap: 12px; padding: 14px; }
-.manager-avatar, .admin-icon { display: flex; align-items: center; justify-content: center; width: 46px; height: 46px; border-radius: 18px; background: linear-gradient(135deg,#f5d98f,#e97832); color: #12312c; font-size: 18px; font-weight: 900; }
-.manager-main, .admin-main, .menu-main { flex: 1; min-width: 0; }
+.manager-avatar { display: flex; align-items: center; justify-content: center; width: 46px; height: 46px; border-radius: 18px; background: linear-gradient(135deg,#f5d98f,#e97832); color: #12312c; font-size: 18px; font-weight: 900; }
+.manager-main, .menu-main { flex: 1; min-width: 0; }
 .manager-name { font-size: 15px; font-weight: 900; }
 .manager-status { display: flex; align-items: center; gap: 6px; margin-top: 4px; color: #6b7c78; font-size: 11px; }
 .dot { width: 7px; height: 7px; border-radius: 50%; background: #36c66f; }
@@ -122,12 +109,8 @@ const sendMessage = () => {
 .menu-icon { display: flex; align-items: center; justify-content: center; width: 38px; height: 38px; border-radius: 14px; background: #eef5f2; color: #004d40; font-weight: 900; }
 .menu-name { font-size: 14px; font-weight: 900; }
 .menu-desc { margin-top: 3px; color: #8a9996; font-size: 11px; }
-.arrow, .admin-arrow { color: #9aa7a3; font-size: 22px; }
+.arrow { color: #9aa7a3; font-size: 22px; }
 .badge { padding: 5px 9px; border-radius: 999px; background: rgba(233,120,50,.12); color: #e97832; font-size: 11px; font-weight: 900; }
-.admin-card { display: flex; align-items: center; gap: 12px; padding: 15px 16px; background: linear-gradient(135deg,#1a237e,#283593); }
-.admin-title { color: #f5d98f; font-size: 15px; font-weight: 900; }
-.admin-desc { margin-top: 3px; color: rgba(255,255,255,.62); font-size: 11px; }
-.admin-arrow { color: rgba(255,255,255,.52); }
 .logout-wrap { padding: 14px; }
 .logout-btn { height: 46px; border-radius: 18px; background: #ffebee; color: #c62828; font-size: 13px; font-weight: 900; line-height: 46px; text-align: center; border: 1px solid #ffcdd2; }
 @media (min-width: 768px) { .profile-page { max-width: 560px; margin: 0 auto; box-shadow: 0 0 80px rgba(0,77,64,.08); } }
