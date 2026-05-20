@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,9 +12,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	// ⚠️ 注意：如果以下四个包在本地仍报错 "missing dot in first path element"
-	// 说明你 server 目录下的 go.mod 里的 module 名字不是 yesok-vietnam/server
-	// 如果 go.mod 里写的是 module server，请把下面四行的前缀改为 "server/xxx"
 	"yesok-vietnam/server/config"
 	"yesok-vietnam/server/handlers"
 	"yesok-vietnam/server/middleware"
@@ -22,9 +20,21 @@ import (
 
 // main 是服务端启动入口，负责数据库连接、核心表迁移、种子数据、路由注册和 H5 静态资源托管。
 func main() {
+	// 1. 定义命令行参数
+	runMigrate := flag.Bool("migrate", false, "是否在启动时执行数据库迁移和种子数据注入")
+	flag.Parse()
+
 	db := connectDatabase()
-	migrateCoreTables(db)
-	seedCoreData(db)
+
+	// 2. 根据参数决定是否执行耗时的迁移操作
+	if *runMigrate {
+		log.Println("检测到 -migrate 参数，开始执行数据库表结构迁移与种子数据检查...")
+		migrateCoreTables(db)
+		seedCoreData(db)
+		log.Println("迁移与种子数据注入完成！")
+	} else {
+		log.Println("跳过数据库表结构迁移与种子数据注入 (如需执行请加上 -migrate 参数)")
+	}
 
 	authMw := middleware.NewAuthMiddleware()
 	gin.SetMode(gin.ReleaseMode)
@@ -47,12 +57,12 @@ func main() {
 func connectDatabase() *gorm.DB {
 	dbType := "mysql"
 
-	username := ""  // 数据库账号
-	password := "D" // ⚠️ 请在替换后手动把这里改成真实的数据库密码！
-	dbName := ""    // 数据库名称
+	username := "root"          // 数据库账号
+	password := "fangchenye520" // ⚠️ 请在替换后手动把这里改成真实的数据库密码！
+	dbName := "yesok_vn"        // 数据库名称
 
 	// 自动拼接成 Go 标准的 MySQL DSN 格式 (指向 72.61.213.87:3610)
-	dsn := fmt.Sprintf("%s:%s@tcp(数据库)/%s?charset=utf8mb4&parseTime=True&loc=Local", username, password, dbName)
+	dsn := fmt.Sprintf("%s:%s@tcp(127.0.0.1:3306)/%s?charset=utf8mb4&parseTime=True&loc=Local", username, password, dbName)
 
 	var db *gorm.DB
 	var err error
