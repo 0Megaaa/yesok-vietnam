@@ -21,7 +21,7 @@ const routes = [
     children: [
       {
         path: '',
-        redirect: 'dashboard',
+        redirect: '/admin/dashboard',
       },
       {
         path: 'dashboard',
@@ -58,6 +58,12 @@ const routes = [
         name: 'SystemDict',
         component: () => import('@/views/admin/system/dict/index.vue'),
       },
+      {
+        path: 'order/:id',
+        name: 'OrderDetail',
+        component: () => import('@/views/admin/order/detail.vue'),
+        props: true,
+      },
     ],
   },
   {
@@ -66,10 +72,8 @@ const routes = [
     component: () => import('@/views/admin/Login.vue'),
   },
   {
-    path: '/admin/order/:id',
-    name: 'OrderDetail',
-    component: () => import('@/pages/admin/order-detail.vue'),
-    props: true,
+    path: '/:pathMatch(.*)*',
+    redirect: '/admin/dashboard',
   },
 ]
 
