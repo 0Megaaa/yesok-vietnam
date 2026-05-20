@@ -155,15 +155,25 @@ func AdminDeleteDictType(db *gorm.DB) gin.HandlerFunc {
 }
 
 // AdminListDictData 返回后台字典数据列表。
-// 1.意图 -> 让前后台可按 dict_code 获取具体标签和值配置。
-// 2.步骤 -> 支持按 dict_code 查询，并按 sort_order 与 ID 排序。
+// 1.意图 -> 支持前后端按 dict_code 查询；左侧类型联动时通过 type_id 定位字典数据。
+// 2.步骤 -> 优先读取 type_id → 反查 dict_code → 拼接 WHERE 条件；否则降级走 dict_code 查询。
 // 3.返回 -> list 格式字典数据数组。
 func AdminListDictData(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := db.Model(&models.SysDictData{})
-		if code := strings.TrimSpace(c.Query("dict_code")); code != "" {
+
+		if typeIDStr := strings.TrimSpace(c.Query("type_id")); typeIDStr != "" {
+			typeID, err := strconv.ParseUint(typeIDStr, 10, 64)
+			if err == nil {
+				var t models.SysDictType
+				if err := db.First(&t, typeID).Error; err == nil {
+					query = query.Where("dict_code = ?", t.DictCode)
+				}
+			}
+		} else if code := strings.TrimSpace(c.Query("dict_code")); code != "" {
 			query = query.Where("dict_code = ?", code)
 		}
+
 		var list []models.SysDictData
 		query.Order("dict_code asc, sort_order asc, id asc").Find(&list)
 		c.JSON(http.StatusOK, gin.H{"list": list})

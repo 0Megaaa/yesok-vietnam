@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useAdminStore } from '@/store'
@@ -28,10 +28,35 @@ const navItems = [
   { label: '订单中心', path: '/admin/orders' },
   { label: '服务配置', path: '/admin/services' },
   { label: '资讯管理', path: '/admin/articles' },
-  { label: '财务流水', path: '/admin/finance' },
-  { label: '用户矩阵', path: '/admin/users' },
-  { label: '系统管理', path: '/admin/system/dict' },
+  { label: '财务管理', path: '/admin/finance' },
+  { label: '用户管理', path: '/admin/users' },
 ]
+
+const systemSubItems = [
+  { label: '字典设置', path: '/admin/system/dict' },
+  // 未来可追加：{ label: '菜单管理', path: '/admin/system/menu' },
+]
+
+// 系统管理：支持手动展开/收起，同时在子路由激活时自动展开
+const isSystemOpen = ref(false)
+
+const isSubActive = (path) => route.path === path
+
+// 点击父级切换展开状态
+const toggleSystemMenu = () => {
+  isSystemOpen.value = !isSystemOpen.value
+}
+
+// 路由变化时自动展开（支持页面刷新后仍保持展开）
+watch(
+  () => route.path,
+  (path) => {
+    if (path.startsWith('/admin/system')) {
+      isSystemOpen.value = true
+    }
+  },
+  { immediate: true }
+)
 
 // 退出登录
 const handleLogout = async () => {
@@ -82,6 +107,30 @@ onUnmounted(() => {
         @click="navigateTo(item.path)"
       >
         {{ item.label }}
+      </div>
+
+      <!-- 系统管理（折叠子菜单） -->
+      <div class="nav-group">
+        <div
+          class="nav-item nav-group-parent"
+          :class="{ open: isSystemOpen }"
+          @click="toggleSystemMenu"
+        >
+          <span>系统管理</span>
+          <span class="nav-arrow" :class="{ rotated: isSystemOpen }">›</span>
+        </div>
+
+        <div v-show="isSystemOpen" class="nav-sub-items">
+          <div
+            v-for="item in systemSubItems"
+            :key="item.path"
+            class="nav-item nav-sub-item"
+            :class="{ active: isSubActive(item.path) }"
+            @click="navigateTo(item.path)"
+          >
+            {{ item.label }}
+          </div>
+        </div>
       </div>
 
       <div class="nav-exit" @click="handleLogout">
@@ -177,6 +226,67 @@ onUnmounted(() => {
 .nav-item.active {
   color: #12312c;
   background: #f5d98f;
+}
+
+/* 系统管理父级 */
+.nav-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav-group-parent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: default;
+}
+
+/* 父级激活（子菜单已展开）时高亮 */
+.nav-group-parent.open {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.nav-arrow {
+  font-size: 18px;
+  font-weight: 400;
+  transition: transform 0.2s ease;
+  transform: rotate(90deg);
+}
+
+.nav-arrow.rotated {
+  transform: rotate(-90deg);
+}
+
+/* 子菜单容器 */
+.nav-sub-items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-left: 10px;
+}
+
+/* 子菜单项 */
+.nav-sub-item {
+  height: 38px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.55);
+  font-weight: 400;
+}
+
+.nav-sub-item:hover {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* 子菜单激活态 — 与父级保持一致的高亮色 */
+.nav-sub-item.active {
+  color: #12312c;
+  background: #f5d98f;
+  font-weight: 600;
 }
 
 .nav-exit {

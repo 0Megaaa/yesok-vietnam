@@ -1,49 +1,66 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
 
-const loading = ref(true)
+const loading = ref(false)
+const dataLoading = ref(false)
 const dictTypes = ref([])
 const dictData = ref([])
+
+const currentTypeId = ref(null)
+const currentDictCode = ref('')
 
 const showToast = (title, type = 'info') => {
   ElMessage({ message: title, type })
 }
 
-const dictTypeForm = ref({ id: null, dict_name: '', dict_code: '', remark: '', status: 1 })
-
-const dictDataForm = ref({
-  id: null,
-  dict_code: 'article_category',
-  dict_label: '',
-  dict_value: '',
-  sort_order: 10,
-  status: 1,
-  remark: '',
-})
-
+// 加载字典类型列表（仅类型，不含数据）
 const loadDicts = async () => {
   loading.value = true
   try {
-    console.log('[Dict] 发起 GET /v1/admin/dict-types + /v1/admin/dict-data')
-    const [typeRes, dataRes] = await Promise.all([
-      request.get('/v1/admin/dict-types'),
-      request.get('/v1/admin/dict-data'),
-    ])
-    console.log('[Dict] ✅ dictTypes =', typeRes.data)
-    console.log('[Dict] ✅ dictData =', dataRes.data)
-    dictTypes.value = typeRes.data.list || []
-    dictData.value = dataRes.data.list || []
+    const res = await request.get('/v1/admin/dict-types')
+    dictTypes.value = res.data.list || []
   } catch (error) {
-    console.error('[Dict] ❌ 报错：', error)
-    showToast(error?.message || '字典数据加载失败', 'error')
+    showToast('字典类型加载失败', 'error')
   } finally {
     loading.value = false
   }
 }
 
+// 根据当前选中的 typeId（联动）获取字典数据列表
+const fetchDictData = async () => {
+  if (!currentTypeId.value) {
+    dictData.value = []
+    return
+  }
+  dataLoading.value = true
+  try {
+    const res = await request.get('/v1/admin/dict-data', {
+      params: { type_id: currentTypeId.value },
+    })
+    dictData.value = res.data.list || []
+  } catch (error) {
+    showToast('字典数据加载失败', 'error')
+  } finally {
+    dataLoading.value = false
+  }
+}
+
+// 点击左侧字典类型 → 联动右侧数据
+const selectType = (item) => {
+  currentTypeId.value = item.id
+  currentDictCode.value = item.dict_code
+}
+
+// 监听类型切换，自动重新加载数据
+watch(currentTypeId, () => {
+  fetchDictData()
+})
+
 // 字典类型操作
+const dictTypeForm = ref({ id: null, dict_name: '', dict_code: '', remark: '', status: 1 })
+
 const resetDictTypeForm = () => {
   dictTypeForm.value = { id: null, dict_name: '', dict_code: '', remark: '', status: 1 }
 }
@@ -72,6 +89,11 @@ const deleteDictType = async (item) => {
   try {
     await request.delete(`/v1/admin/dict-types/${item.id}`)
     showToast('字典类型已删除', 'success')
+    if (currentTypeId.value === item.id) {
+      currentTypeId.value = null
+      currentDictCode.value = ''
+      dictData.value = []
+    }
     await loadDicts()
   } catch (error) {
     showToast(error?.message || '字典类型删除失败', 'error')
@@ -79,10 +101,20 @@ const deleteDictType = async (item) => {
 }
 
 // 字典数据操作
+const dictDataForm = ref({
+  id: null,
+  dict_code: '',
+  dict_label: '',
+  dict_value: '',
+  sort_order: 10,
+  status: 1,
+  remark: '',
+})
+
 const resetDictDataForm = () => {
   dictDataForm.value = {
     id: null,
-    dict_code: 'article_category',
+    dict_code: currentDictCode.value,
     dict_label: '',
     dict_value: '',
     sort_order: 10,
@@ -99,6 +131,7 @@ const saveDictData = async () => {
   try {
     const payload = {
       ...dictDataForm.value,
+      dict_code: currentDictCode.value,
       sort_order: Number(dictDataForm.value.sort_order),
       status: Number(dictDataForm.value.status),
     }
@@ -109,7 +142,7 @@ const saveDictData = async () => {
     }
     resetDictDataForm()
     showToast('字典数据已保存', 'success')
-    await loadDicts()
+    await fetchDictData()
   } catch (error) {
     showToast(error?.message || '字典数据保存失败', 'error')
   }
@@ -119,14 +152,13 @@ const deleteDictData = async (item) => {
   try {
     await request.delete(`/v1/admin/dict-data/${item.id}`)
     showToast('字典数据已删除', 'success')
-    await loadDicts()
+    await fetchDictData()
   } catch (error) {
     showToast(error?.message || '字典数据删除失败', 'error')
   }
 }
 
 onMounted(() => {
-  console.log('[Dict] 组件挂载，调用 loadDicts')
   loadDicts()
 })
 </script>
@@ -141,9 +173,9 @@ onMounted(() => {
       </el-button>
     </div>
 
-    <div class="dual-grid">
-      <!-- 字典类型 -->
-      <div class="sub-panel">
+    <div class="master-detail">
+      <!-- 左侧：字典类型列表 -->
+      <div class="type-panel">
         <span class="sub-title">字典类型</span>
 
         <div class="service-form two-col">
@@ -161,26 +193,36 @@ onMounted(() => {
             <div
               v-for="item in dictTypes"
               :key="item.id"
-              class="table-row"
+              class="type-row"
+              :class="{ active: currentTypeId === item.id }"
+              @click="selectType(item)"
             >
-              <span class="dict-name">{{ item.dict_name }} · {{ item.dict_code }}</span>
-              <span class="dict-status" :class="{ active: item.status === 1 }">
-                {{ item.status === 1 ? '启用' : '停用' }}
-              </span>
-              <el-button class="ghost-btn" type="default" @click="editDictType(item)">编辑</el-button>
-              <el-button class="danger-btn" type="default" @click="deleteDictType(item)">删除</el-button>
+              <div class="type-info">
+                <span class="dict-name">{{ item.dict_name }}</span>
+                <span class="dict-code">{{ item.dict_code }}</span>
+              </div>
+              <div class="type-actions">
+                <span class="dict-status" :class="{ active: item.status === 1 }">
+                  {{ item.status === 1 ? '启用' : '停用' }}
+                </span>
+                <el-button class="ghost-btn" type="default" @click.stop="editDictType(item)">编辑</el-button>
+                <el-button class="danger-btn" type="default" @click.stop="deleteDictType(item)">删除</el-button>
+              </div>
             </div>
-            <div v-if="!dictTypes.length" class="empty">暂无字典类型</div>
+            <div v-if="!dictTypes.length && !loading" class="empty">暂无字典类型</div>
+            <div v-if="loading" class="empty">加载中…</div>
           </div>
         </div>
       </div>
 
-      <!-- 字典数据 -->
-      <div class="sub-panel">
-        <span class="sub-title">字典数据</span>
+      <!-- 右侧：字典数据明细 -->
+      <div class="data-panel">
+        <span class="sub-title">
+          字典数据
+          <span v-if="currentDictCode" class="data-hint">（当前类型：{{ currentDictCode }}）</span>
+        </span>
 
         <div class="service-form two-col">
-          <el-input v-model="dictDataForm.dict_code" class="input" placeholder="dict_code" />
           <el-input v-model="dictDataForm.dict_label" class="input" placeholder="标签" />
           <el-input v-model="dictDataForm.dict_value" class="input" placeholder="值" />
           <el-input v-model="dictDataForm.sort_order" class="input" type="number" placeholder="排序" />
@@ -193,17 +235,27 @@ onMounted(() => {
 
         <div class="table-scroll">
           <div class="table-list">
+            <div v-if="!currentTypeId && !dataLoading" class="empty hint">
+              请先在左侧选择一个字典类型
+            </div>
+            <div v-else-if="dataLoading" class="empty">数据加载中…</div>
             <div
+              v-else
               v-for="item in dictData"
               :key="item.id"
               class="table-row"
             >
-              <span class="dict-name">{{ item.dict_code }} · {{ item.dict_label }}</span>
+              <span class="dict-name">{{ item.dict_label }}</span>
               <span class="dict-value">{{ item.dict_value }}</span>
+              <span class="dict-status" :class="{ active: item.status === 1 }">
+                {{ item.status === 1 ? '启用' : '停用' }}
+              </span>
               <el-button class="ghost-btn" type="default" @click="editDictData(item)">编辑</el-button>
               <el-button class="danger-btn" type="default" @click="deleteDictData(item)">删除</el-button>
             </div>
-            <div v-if="!dictData.length" class="empty">暂无字典数据</div>
+            <div v-if="currentTypeId && !dataLoading && !dictData.length" class="empty">
+              该类型暂无数据
+            </div>
           </div>
         </div>
       </div>
@@ -246,13 +298,17 @@ onMounted(() => {
   font-weight: 700;
 }
 
-.dual-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
+/* 主从联动布局 */
+.master-detail {
+  display: flex;
+  gap: 20px;
+  align-items: stretch;
 }
 
-.sub-panel {
+/* 两侧面板统一卡片样式 */
+.type-panel,
+.data-panel {
+  min-height: 580px;
   padding: 22px;
   border: 1px solid rgba(255, 255, 255, 0.72);
   border-radius: 30px;
@@ -261,12 +317,30 @@ onMounted(() => {
   backdrop-filter: blur(15px);
 }
 
+/* 左侧面板宽度加宽 */
+.type-panel {
+  flex: 0 0 300px;
+  min-width: 300px;
+}
+
+/* 右侧自动填满 */
+.data-panel {
+  flex: 1;
+  min-width: 0;
+}
+
 .sub-title {
   display: block;
   margin-bottom: 12px;
   color: #12312c;
   font-size: 18px;
   font-weight: 900;
+}
+
+.data-hint {
+  font-size: 13px;
+  font-weight: 500;
+  color: #6b7c78;
 }
 
 .service-form {
@@ -323,6 +397,86 @@ onMounted(() => {
   min-width: 500px;
 }
 
+/* 字典类型列表项 */
+.type-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 14px 16px;
+  margin-bottom: 6px;
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background 0.15s;
+  border: 1.5px solid transparent;
+}
+
+/* 左侧激活指示条 — 默认隐藏 */
+.type-row::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 0;
+  border-radius: 0 3px 3px 0;
+  background: #f5d98f;
+  transition: height 0.2s ease;
+}
+
+/* 定位用于 ::before 绝对定位 */
+.type-row {
+  position: relative;
+  overflow: hidden;
+}
+
+.type-row:hover {
+  background: rgba(0, 77, 64, 0.05);
+}
+
+/* 激活态：浅绿背景 + 左侧金色条 */
+.type-row.active {
+  background: rgba(0, 77, 64, 0.10);
+  border-color: rgba(245, 217, 143, 0.5);
+}
+
+.type-row.active::before {
+  height: 70%;
+}
+
+.type-row.active .dict-name {
+  color: #004d40;
+  font-weight: 800;
+}
+
+.type-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.dict-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #12312c;
+  line-height: 1.3;
+}
+
+.dict-code {
+  font-size: 11px;
+  color: #6b7c78;
+}
+
+.type-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
 .table-row {
   display: flex;
   align-items: center;
@@ -330,13 +484,6 @@ onMounted(() => {
   gap: 8px;
   padding: 12px 0;
   border-bottom: 1px solid rgba(0, 77, 64, 0.08);
-}
-
-.dict-name {
-  flex: 1;
-  font-size: 13px;
-  font-weight: 600;
-  color: #12312c;
 }
 
 .dict-status {
@@ -369,9 +516,22 @@ onMounted(() => {
   font-size: 13px;
 }
 
-@media (max-width: 1024px) {
-  .dual-grid {
-    grid-template-columns: 1fr;
+.empty.hint {
+  color: #9ab;
+  font-size: 14px;
+}
+
+@media (max-width: 900px) {
+  .master-detail {
+    flex-direction: column;
+  }
+  .type-panel {
+    flex: none;
+    width: 100%;
+    min-height: auto;
+  }
+  .data-panel {
+    min-height: auto;
   }
 }
 </style>
