@@ -30,14 +30,6 @@ type SaveDictDataRequest struct {
 	Remark    string `json:"remark"`
 }
 
-// DictDataQuery GET /api/v1/admin/dict-data 的查询参数。
-type DictDataQuery struct {
-	DictType string `form:"dictType"` // 前端字段 dictType → DB 字段 dict_code
-	Status   string `form:"status"`
-	PageNum  int    `form:"pageNum"`
-	PageSize int    `form:"pageSize"`
-}
-
 type SaveArticleRequest struct {
 	Title     string `json:"title"`
 	CoverImg  string `json:"cover_img"`
@@ -164,51 +156,47 @@ func AdminDeleteDictType(db *gorm.DB) gin.HandlerFunc {
 
 // AdminListDictData 返回后台字典数据列表。
 // 1.意图 -> 支持前后端按 dict_code 查询；左侧类型联动时通过 type_id 定位字典数据。
-// 2.步骤 -> 优先读取 type_id → 反查 dict_code → 拼接 WHERE 条件；否则降级走 dict_code 查询。
-// 3.返回 -> list 格式字典数据数组。
+// 2.步骤 -> dict_type / dict_code / dictType 三参兼容，取第一个非空值；为空时返回空列表（不过滤全部）。
+// 3.返回 -> {"code":200,"data":[...],"msg":"ok"}。
 func AdminListDictData(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var query DictDataQuery
-		if err := c.ShouldBindQuery(&query); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid query parameters"})
-			return
+		// ── 参数获取：dict_type → dict_code → dictType ──
+		dictType := c.Query("dict_type")
+		if dictType == "" {
+			dictType = c.Query("dict_code")
+		}
+		if dictType == "" {
+			dictType = c.Query("dictType")
 		}
 
+		// 初始化查询
 		tx := db.Model(&models.SysDictData{})
 
-		// 核心过滤：dict_type / dict_code
-		if query.DictType != "" {
-			tx = tx.Where("dict_code = ?", strings.TrimSpace(query.DictType))
+		// ── 核心过滤：dict_type 不为空时必须加条件 ──
+		if dictType != "" {
+			tx = tx.Where("dict_code = ?", strings.TrimSpace(dictType))
 		}
-		if code := strings.TrimSpace(c.Query("dict_code")); code != "" {
-			tx = tx.Where("dict_code = ?", code)
+
+		// 状态过滤（前端有传则生效）
+		if status := strings.TrimSpace(c.Query("status")); status != "" {
+			tx = tx.Where("status = ?", status)
 		}
-		// type_id → 反查 dict_code（优先级最高）
-		if typeIDStr := strings.TrimSpace(c.Query("type_id")); typeIDStr != "" {
-			typeID, err := strconv.ParseUint(typeIDStr, 10, 64)
-			if err == nil {
-				var t models.SysDictType
-				if err := db.First(&t, typeID).Error; err == nil {
-					tx = tx.Where("dict_code = ?", t.DictCode)
-				}
+
+		// 排序（sort_order 升序）
+		tx = tx.Order("sort_order ASC, id ASC")
+
+		// 分页（默认 pageSize=10）
+		pageSize := 10
+		if ps := c.Query("pageSize"); ps != "" {
+			if v, err := strconv.Atoi(ps); err == nil && v > 0 {
+				pageSize = v
 			}
 		}
-		// 按状态过滤
-		if query.Status != "" {
-			tx = tx.Where("status = ?", query.Status)
-		}
-
-		// 排序
-		tx = tx.Order("dict_code ASC, sort_order ASC, id ASC")
-
-		// 分页
-		pageSize := query.PageSize
-		pageNum := query.PageNum
-		if pageSize <= 0 {
-			pageSize = 10
-		}
-		if pageNum <= 0 {
-			pageNum = 1
+		pageNum := 1
+		if pn := c.Query("pageNum"); pn != "" {
+			if v, err := strconv.Atoi(pn); err == nil && v > 0 {
+				pageNum = v
+			}
 		}
 		tx = tx.Limit(pageSize).Offset((pageNum - 1) * pageSize)
 

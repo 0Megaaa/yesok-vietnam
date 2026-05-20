@@ -37,9 +37,9 @@ const fetchDictData = async () => {
   dataLoading.value = true
   try {
     const res = await request.get('/v1/admin/dict-data', {
-      params: { type_id: currentTypeId.value },
+      params: { dict_type: currentDictCode.value },
     })
-    dictData.value = res.data.list || []
+    dictData.value = res.data.data || []
   } catch (error) {
     showToast('字典数据加载失败', 'error')
   } finally {
@@ -317,13 +317,8 @@ onMounted(() => {
   backdrop-filter: blur(15px);
 }
 
-/* 左侧面板宽度加宽 */
-.type-panel {
-  flex: 0 0 300px;
-  min-width: 300px;
-}
-
-/* 右侧自动填满 */
+/* 左右两侧均分 50/50 */
+.type-panel,
 .data-panel {
   flex: 1;
   min-width: 0;
