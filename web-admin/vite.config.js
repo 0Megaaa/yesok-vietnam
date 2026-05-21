@@ -3,6 +3,9 @@ import { defineConfig } from 'vite'
 import vue from '@vitejs/plugin-vue'
 
 export default defineConfig({
+  // 核心修复：指定生产环境构建的基础路径，与后端的 r.Static("/admin", ...) 完美对接
+  base: '/admin/',
+
   resolve: {
     alias: [
       {

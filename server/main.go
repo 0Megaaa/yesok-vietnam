@@ -172,39 +172,54 @@ func registerStaticRoutes(r *gin.Engine) {
 		clientDir = "./dist/client"
 	}
 
-	// 1. 最高优先级：基础上传目录托管
+	// 1. 最高优先级：上传目录托管
 	r.Static("/uploads", "./uploads")
 
-	// 2. 核心隔离：管理后台静态资源与它自己内部的 assets 显式挂载
-	// 这样访问 /admin/assets/... 时会精准去 adminDir 寻找，再也不会和 C 端混淆
-	r.Static("/admin", adminDir)
-	r.Static("/admin/assets", filepath.Join(adminDir, "assets"))
-
-	// 3. 用户端静态资源与它自己内部的 assets 显式挂载
+	// 2. 挂载 C 端（用户端Mini App）的静态产物根目录
 	r.Static("/client", clientDir)
-	r.Static("/client/assets", filepath.Join(clientDir, "assets"))
 
-	// 4. 留下一层根目录的兼容别名别名防呆（优先指向 C 端）
+	// 3. 挂载 B 端（管理后台）的静态产物根目录
+	r.Static("/admin", adminDir)
+
+	// 4. 彻底解决根路径别名冲突：当浏览器请求 B 端的 /admin 时，如果它去找根目录的 /assets 会报错。
+	// 我们移除对 /admin/assets 的通配符重复挂载，改为在 NoRoute 之外为根路径提供防呆兼容（优先指向 C 端）
 	r.Static("/assets", filepath.Join(clientDir, "assets"))
 	r.Static("/static", filepath.Join(clientDir, "static"))
 
-	// 5. 优雅兜底处理单页应用 (SPA) 页面刷新及 fallback
+	// 5. 单页应用 (SPA) 路由兜底转发中心 (核心破案点)
+	// 无论是静态资源的错位寻址，还是用户在浏览器刷新了页面（如 /admin/dashboard），全部在这里分流处理
 	r.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path
 
-		// 如果是管理后台页面路由，一律返回 admin 的 index.html
+		// 如果是后端真正的 /api 路由找不到，返回标准 404 JSON，不干扰前端
+		if strings.HasPrefix(path, "/api") {
+			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "API route not found"})
+			return
+		}
+
+		// 如果请求是以 /admin 开头（例如：/admin/assets/index-xxx.js 或者刷新了后台页面）
 		if strings.HasPrefix(path, "/admin") {
+			// 如果它是请求后台的 css/js 静态资源
+			if strings.Contains(path, "/assets/") {
+				// 提取真正的资源文件名，直接通过物理路径返回给浏览器，完美绕过通配符冲突！
+				filename := path[strings.Index(path, "/assets/")+8:]
+				c.File(filepath.Join(adminDir, "assets", filename))
+				return
+			}
+			// 如果是普通路由页面或刷新，返回 admin 的 index.html 入口
 			c.File(filepath.Join(adminDir, "index.html"))
 			return
 		}
 
-		// 其余非 /api 开头的请求，一律返回用户端的 index.html
-		if !strings.HasPrefix(path, "/api") {
-			c.File(filepath.Join(clientDir, "index.html"))
+		// 其余所有非 API 请求，默认归为 C 端移动用户端处理
+		if strings.Contains(path, "/assets/") {
+			filename := path[strings.Index(path, "/assets/")+8:]
+			c.File(filepath.Join(clientDir, "assets", filename))
 			return
 		}
 
-		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "API route not found"})
+		// 兜底返回用户端的 index.html 入口
+		c.File(filepath.Join(clientDir, "index.html"))
 	})
 }
 
