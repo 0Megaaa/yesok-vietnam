@@ -161,7 +161,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 // registerStaticRoutes 注册前端静态资源和上传资源托管。
 // 路由优先级：/uploads > /admin/* > /client/* > NoRoute(SPA fallback)
 func registerStaticRoutes(r *gin.Engine) {
-	isDev := os.Getenv("ENV") == "dev"
+	isDev := getEnv("ENV", "prod") == "dev"
 
 	var adminDir, clientDir string
 	if isDev {
