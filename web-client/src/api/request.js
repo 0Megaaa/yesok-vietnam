@@ -1,4 +1,6 @@
-const BASE_URL = (import.meta.env.VITE_API_URL) || 'http://127.0.0.1:7625/api'
+// 动态获取网络请求基地址
+// 生产打包时会自动从本地的 .env.local 中捕获 VITE_API_URL，GitHub 源码上不包含真实 IP
+const BASE_URL = import.meta.env.VITE_API_URL || 'http://127.0.0.1:7625/api'
 const TIMEOUT = 10000
 
 const safeUni = () => (typeof uni !== 'undefined' ? uni : null)
