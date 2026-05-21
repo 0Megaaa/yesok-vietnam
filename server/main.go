@@ -165,43 +165,46 @@ func registerStaticRoutes(r *gin.Engine) {
 
 	var adminDir, clientDir string
 	if isDev {
-		// 开发环境：指向各自源码 dist 目录
 		adminDir = "../web-admin/dist"
 		clientDir = "../web-client/dist"
 	} else {
-		// 生产环境：统一放在 server/dist/ 下
 		adminDir = "./dist/admin"
 		clientDir = "./dist/client"
 	}
 
-	// 1. 上传目录（最高优先级）
+	// 1. 最高优先级：基础上传目录托管
 	r.Static("/uploads", "./uploads")
 
-	// 2. 管理后台静态资源（/admin/* → dist/admin/）
+	// 2. 核心隔离：管理后台静态资源与它自己内部的 assets 显式挂载
+	// 这样访问 /admin/assets/... 时会精准去 adminDir 寻找，再也不会和 C 端混淆
 	r.Static("/admin", adminDir)
+	r.Static("/admin/assets", filepath.Join(adminDir, "assets"))
 
-	// 3. 用户端静态资源（/client/* → dist/client/）
+	// 3. 用户端静态资源与它自己内部的 assets 显式挂载
 	r.Static("/client", clientDir)
+	r.Static("/client/assets", filepath.Join(clientDir, "assets"))
 
-	// 4. 资源路径别名（修正 Cursor 错误：r.Static 的第二个参数必须是普通的 string 路径）
+	// 4. 留下一层根目录的兼容别名别名防呆（优先指向 C 端）
 	r.Static("/assets", filepath.Join(clientDir, "assets"))
 	r.Static("/static", filepath.Join(clientDir, "static"))
 
-	// 5. 兜底处理 (SPA 路由 fallback)：解决刷新页面 404 问题
+	// 5. 优雅兜底处理单页应用 (SPA) 页面刷新及 fallback
 	r.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path
 
-		// 如果是请求后台管理端路由，返回 admin 的 index.html
+		// 如果是管理后台页面路由，一律返回 admin 的 index.html
 		if strings.HasPrefix(path, "/admin") {
 			c.File(filepath.Join(adminDir, "index.html"))
 			return
 		}
 
-		// 其余所有非 API 请求，全部返回用户端的 index.html
+		// 其余非 /api 开头的请求，一律返回用户端的 index.html
 		if !strings.HasPrefix(path, "/api") {
 			c.File(filepath.Join(clientDir, "index.html"))
 			return
 		}
+
+		c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "API route not found"})
 	})
 }
 
