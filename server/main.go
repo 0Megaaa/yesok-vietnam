@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/mysql"
@@ -57,12 +59,13 @@ func main() {
 func connectDatabase() *gorm.DB {
 	dbType := "mysql"
 
-	username := "root"          // 数据库账号
-	password := "fangchenye520" // ⚠️ 请在替换后手动把这里改成真实的数据库密码！
-	dbName := "yesok_vn"        // 数据库名称
+	username := getEnv("DB_USER", "root")
+	password := getEnv("DB_PASS", "fangchenye520")
+	dbName := getEnv("DB_NAME", "yesok_vn")
+	dbHost := getEnv("DB_HOST", "127.0.0.1")
+	dbPort := getEnv("DB_PORT", "3306")
 
-	// 自动拼接成 Go 标准的 MySQL DSN 格式 (指向 72.61.213.87:3610)
-	dsn := fmt.Sprintf("%s:%s@tcp(127.0.0.1:3306)/%s?charset=utf8mb4&parseTime=True&loc=Local", username, password, dbName)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local", username, password, dbHost, dbPort, dbName)
 
 	var db *gorm.DB
 	var err error
@@ -155,11 +158,57 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 	}
 }
 
-// registerStaticRoutes 注册 H5 静态资源和上传资源托管。
+// registerStaticRoutes 注册前端静态资源和上传资源托管。
+// 路由优先级：/uploads > /admin/* > /client/* > NoRoute(SPA fallback)
 func registerStaticRoutes(r *gin.Engine) {
-	staticDir := config.Global.Server.StaticDir
+	isDev := os.Getenv("ENV") == "dev"
+
+	var adminDir, clientDir string
+	if isDev {
+		// 开发环境：指向各自源码 dist 目录
+		adminDir = "../web-admin/dist"
+		clientDir = "../web-client/dist"
+	} else {
+		// 生产环境：统一放在 server/dist/ 下
+		adminDir = "./dist/admin"
+		clientDir = "./dist/client"
+	}
+
+	// 1. 上传目录（最高优先级）
 	r.Static("/uploads", "./uploads")
-	r.StaticFS("/assets", http.Dir(filepath.Join(staticDir, "assets")))
-	r.StaticFS("/static", http.Dir(filepath.Join(staticDir, "static")))
-	r.NoRoute(func(c *gin.Context) { c.File(filepath.Join(staticDir, "index.html")) })
+
+	// 2. 管理后台静态资源（/admin/* → dist/admin/）
+	r.Static("/admin", adminDir)
+
+	// 3. 用户端静态资源（/client/* → dist/client/）
+	r.Static("/client", clientDir)
+
+	// 4. 资源路径别名（修正 Cursor 错误：r.Static 的第二个参数必须是普通的 string 路径）
+	r.Static("/assets", filepath.Join(clientDir, "assets"))
+	r.Static("/static", filepath.Join(clientDir, "static"))
+
+	// 5. 兜底处理 (SPA 路由 fallback)：解决刷新页面 404 问题
+	r.NoRoute(func(c *gin.Context) {
+		path := c.Request.URL.Path
+
+		// 如果是请求后台管理端路由，返回 admin 的 index.html
+		if strings.HasPrefix(path, "/admin") {
+			c.File(filepath.Join(adminDir, "index.html"))
+			return
+		}
+
+		// 其余所有非 API 请求，全部返回用户端的 index.html
+		if !strings.HasPrefix(path, "/api") {
+			c.File(filepath.Join(clientDir, "index.html"))
+			return
+		}
+	})
+}
+
+// getEnv 返回环境变量值，若为空则返回默认值。
+func getEnv(key, fallback string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return fallback
 }

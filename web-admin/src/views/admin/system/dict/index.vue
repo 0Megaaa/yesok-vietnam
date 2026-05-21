@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue'
+import { onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
 
@@ -28,35 +28,39 @@ const loadDicts = async () => {
   }
 }
 
-// 根据当前选中的 typeId（联动）获取字典数据列表
+// 根据选中的 dict_code 获取字典数据列表
 const fetchDictData = async () => {
-  if (!currentTypeId.value) {
+  // 1. 守卫：如果没值，别乱发请求
+  if (!currentDictCode.value) {
     dictData.value = []
     return
   }
+
   dataLoading.value = true
   try {
-    const res = await request.get('/v1/admin/dict-data', {
-      params: { dict_type: currentDictCode.value },
-    })
+    // 2. 使用模板字符串强制拼接参数，URL 绝对不会出错
+    // 使用 encodeURIComponent 确保特殊字符不会导致请求报错
+    const url = `/v1/admin/dict-data?dict_type=${encodeURIComponent(currentDictCode.value)}`
+
+    // 3. 直接调用，不传第二个参数
+    const res = await request.get(url)
+
+    // 4. 处理数据
     dictData.value = res.data.data || []
   } catch (error) {
     showToast('字典数据加载失败', 'error')
+    console.error('字典加载错误:', error)
   } finally {
     dataLoading.value = false
   }
 }
 
-// 点击左侧字典类型 → 联动右侧数据
-const selectType = (item) => {
+// 点击左侧字典类型 → 同步更新状态并立即请求数据
+const selectType = async (item) => {
   currentTypeId.value = item.id
   currentDictCode.value = item.dict_code
+  await fetchDictData(item.dict_code)
 }
-
-// 监听类型切换，自动重新加载数据
-watch(currentTypeId, () => {
-  fetchDictData()
-})
 
 // 字典类型操作
 const dictTypeForm = ref({ id: null, dict_name: '', dict_code: '', remark: '', status: 1 })
@@ -223,14 +227,14 @@ onMounted(() => {
         </span>
 
         <div class="service-form two-col">
-          <el-input v-model="dictDataForm.dict_label" class="input" placeholder="标签" />
-          <el-input v-model="dictDataForm.dict_value" class="input" placeholder="值" />
-          <el-input v-model="dictDataForm.sort_order" class="input" type="number" placeholder="排序" />
-          <el-input v-model="dictDataForm.remark" class="input span-2" placeholder="备注" />
+<!--          <el-input v-model="dictDataForm.dict_label" class="input" placeholder="标签" />-->
+<!--          <el-input v-model="dictDataForm.dict_value" class="input" placeholder="值" />-->
+<!--          <el-input v-model="dictDataForm.sort_order" class="input" type="number" placeholder="排序" />-->
+<!--          <el-input v-model="dictDataForm.remark" class="input span-2" placeholder="备注" />-->
           <el-button class="primary-btn" type="default" @click="saveDictData">
             {{ dictDataForm.id ? '更新数据' : '新增数据' }}
           </el-button>
-          <el-button class="ghost-btn" type="default" @click="resetDictDataForm">清空</el-button>
+<!--          <el-button class="ghost-btn" type="default" @click="resetDictDataForm">清空</el-button>-->
         </div>
 
         <div class="table-scroll">

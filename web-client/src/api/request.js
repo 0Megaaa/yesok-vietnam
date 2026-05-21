@@ -1,5 +1,4 @@
-// 绝对锁死小程序的真实后端地址
-const BASE_URL = 'http://127.0.0.1:7625/api'
+const BASE_URL = (import.meta.env.VITE_API_URL) || 'http://127.0.0.1:7625/api'
 const TIMEOUT = 10000
 
 const safeUni = () => (typeof uni !== 'undefined' ? uni : null)
