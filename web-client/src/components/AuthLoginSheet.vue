@@ -14,7 +14,10 @@ const handleDemoLogin = async () => {
   try {
     await client.loginByDemo()
   } catch (error) {
-    uni.showToast({ title: '登录失败，请稍后重试', icon: 'none' })
+    const uniApi = typeof uni !== 'undefined' ? uni : null
+    if (uniApi?.showToast) {
+      uniApi.showToast({ title: '登录失败，请稍后重试', icon: 'none' })
+    }
   }
 }
 
@@ -24,7 +27,10 @@ const handleDemoLogin = async () => {
 // 2. 保留按钮与注释，日后接入时在 api/client/auth.js 中补充真实校验。
 // 3. 临时引导用户使用演示登录继续验收页面。
 const handleTelegramPlaceholder = () => {
-  uni.showToast({ title: 'TG 登录占位已保留，当前请用演示登录', icon: 'none' })
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  if (uniApi?.showToast) {
+    uniApi.showToast({ title: 'TG 登录占位已保留，当前请用演示登录', icon: 'none' })
+  }
 }
 </script>
 

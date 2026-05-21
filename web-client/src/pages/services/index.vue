@@ -46,7 +46,10 @@ const loadServices = async () => {
 // 3.返回 -> 无返回值。
 const consultService = (service) => {
   if (!client.checkAuth(`咨询「${service.display_name}」`)) return
-  uni.navigateTo({ url: `/pages/service-detail/index?id=${service.id}&code=${service.service_code}` })
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  if (uniApi?.navigateTo) {
+    uniApi.navigateTo({ url: `/pages/service-detail/index?id=${service.id}&code=${service.service_code}` })
+  }
 }
 
 onMounted(loadServices)

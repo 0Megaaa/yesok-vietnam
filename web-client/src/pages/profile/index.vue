@@ -8,7 +8,8 @@ const client = useClientStore()
 // 2.步骤 -> 调用 uni.showToast 展示占位提示。
 // 3.返回 -> 无返回值。
 const sendMessage = () => {
-  uni.showToast({ title: '管家稍后联系您', icon: 'none' })
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  if (uniApi?.showToast) uniApi.showToast({ title: '管家稍后联系您', icon: 'none' })
 }
 </script>
 

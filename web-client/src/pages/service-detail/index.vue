@@ -66,10 +66,11 @@ const loadService = async (id) => {
 // 2. 若没有历史栈则回到首页，避免 H5 直达详情页无法返回。
 const goBack = () => {
   const pages = getCurrentPages()
+  const uniApi = typeof uni !== 'undefined' ? uni : null
   if (pages.length > 1) {
-    uni.navigateBack()
+    if (uniApi?.navigateBack) uniApi.navigateBack()
   } else {
-    uni.switchTab({ url: '/pages/home/index' })
+    if (uniApi?.switchTab) uniApi.switchTab({ url: '/pages/home/index' })
   }
 }
 
@@ -80,7 +81,8 @@ const goBack = () => {
 const contactManager = () => {
   const serviceName = serviceData.value?.name || '服务详情'
   if (!client.checkAuth(`咨询「${serviceName}」`)) return
-  uni.navigateTo({ url: `/pages/chat/index?svc=${encodeURIComponent(serviceName)}` })
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  if (uniApi?.navigateTo) uniApi.navigateTo({ url: `/pages/chat/index?svc=${encodeURIComponent(serviceName)}` })
 }
 
 // createConsultOrder 创建演示咨询订单。
@@ -93,7 +95,8 @@ const createConsultOrder = async () => {
   if (!client.checkAuth(`预约「${serviceName}」`)) return
   const res = await request.post('/v1/client/orders', { serviceId: serviceData.value?.id || serviceId.value })
   client.addOrder(res.data)
-  uni.showToast({ title: '已生成咨询订单', icon: 'success' })
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  if (uniApi?.showToast) uniApi.showToast({ title: '已生成咨询订单', icon: 'success' })
 }
 </script>
 

@@ -82,12 +82,14 @@ const loadHomeData = async () => {
 }
 
 const goPage = (page) => {
-  uni.switchTab({ url: `/pages/${page}/index` })
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  if (uniApi?.switchTab) uniApi.switchTab({ url: `/pages/${page}/index` })
 }
 
 const openServiceDetail = (service) => {
   const url = `/pages/service-detail/index?id=${encodeURIComponent(service.id)}&code=${encodeURIComponent(service.service_code)}`
-  if (typeof uni !== 'undefined' && uni?.navigateTo) uni.navigateTo({ url })
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  if (uniApi?.navigateTo) uniApi.navigateTo({ url })
 }
 
 const openOrderSheet = (service) => {
@@ -96,7 +98,8 @@ const openOrderSheet = (service) => {
 }
 
 const openNewsList = () => {
-  uni.switchTab({ url: '/pages/news/index' })
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  if (uniApi?.switchTab) uniApi.switchTab({ url: '/pages/news/index' })
 }
 
 const submitOrder = async () => {
