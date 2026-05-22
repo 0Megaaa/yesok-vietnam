@@ -14,7 +14,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"yesok-vietnam/server/config"
 	"yesok-vietnam/server/handlers"
 	"yesok-vietnam/server/middleware"
 	"yesok-vietnam/server/models"
@@ -48,7 +47,7 @@ func main() {
 	registerAPIRoutes(r, db, authMw)
 	registerStaticRoutes(r)
 
-	addr := ":" + config.Global.Server.Port
+	addr := ":" + getEnv("SERVER_PORT", "7625")
 	log.Printf("YesokVietnam starting on %s", addr)
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("server failed: %v", err)
@@ -96,78 +95,69 @@ func registerHealthRoute(r *gin.Engine) {
 }
 
 // registerAPIRoutes 注册 API 路由。
+// 彻底拆解父子嵌套关系：公开组与鉴权组完全并列，互不继承，终结 401 死锁。
 func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddleware) {
 	// ==========================================================
-	// 1. 彻底独立的匿名公开组 (免 Token，通畅小程序冷启动与健康检查)
+	// 1. 全裸独立公开组 (免 Token，畅通小程序冷启动与健康检查)
 	// ==========================================================
-	publicGroup := r.Group("/api/v1")
+	apiV1 := r.Group("/api/v1")
 	{
-		// 系统健康检查接口
-		publicGroup.GET("/state", handlers.GetState(db))
-		publicGroup.GET("/configs", handlers.ClientGetConfigs(db))
+		// 系统健康检查 /api/v1/state
+		apiV1.GET("/state", handlers.GetState(db))
+		apiV1.GET("/configs", handlers.ClientGetConfigs(db))
 
-		// 客户端冷启动免登录接口
-		publicGroup.GET("/client/services", handlers.ClientListServices(db))
-		publicGroup.GET("/client/articles", handlers.ClientListArticles(db))
+		// 客户端免登录公共数据
+		apiV1.GET("/client/services", handlers.ClientListServices(db))
+		apiV1.GET("/client/articles", handlers.ClientListArticles(db))
+
+		// 凭证换取登录接口 (公开)
+		apiV1.POST("/auth/login", handlers.AuthAdmin(db))  // 后台管家登录
+		apiV1.POST("/client/auth/tg", handlers.AuthTG(db)) // Telegram Mini App 登录
 	}
 
 	// ==========================================================
-	// 2. 彻底独立的私有鉴权组 (必须要登录 Token 才能进入的接口)
+	// 2. 高级鉴权受保护组 (必须带 Token 才可访问)
 	// ==========================================================
-	privateGroup := r.Group("/api/v1")
-	privateGroup.Use(authMw.RequireAuth())
+	authGroup := r.Group("/api/v1")
+	authGroup.Use(authMw.RequireAuth())
 	{
-		// 用户鉴权核心
-		privateGroup.POST("/client/auth/tg", handlers.AuthTG(db))
-		privateGroup.GET("/client/user/me", handlers.GetMe(db))
-		privateGroup.GET("/client/state", handlers.GetState(db))
-		privateGroup.PUT("/client/state", handlers.UpdateState(db))
+		// B 端管理后台路由
+		authGroup.GET("/admin/auth/me", handlers.AdminMe(db))
+		authGroup.GET("/admin/dashboard/stats", handlers.DashboardStats(db))
+		authGroup.GET("/admin/orders", handlers.AdminListOrders(db))
+		authGroup.GET("/admin/orders/:id", handlers.AdminGetOrder(db))
+		authGroup.PUT("/admin/orders/:id", handlers.AdminUpdateOrder(db))
+		authGroup.GET("/admin/services", handlers.AdminListServices(db))
+		authGroup.POST("/admin/services", handlers.AdminSaveService(db))
+		authGroup.PUT("/admin/services/:id", handlers.AdminUpdateService(db))
+		authGroup.POST("/admin/upload", handlers.UploadFile(db))
+		authGroup.GET("/admin/dict-types", handlers.AdminListDictTypes(db))
+		authGroup.POST("/admin/dict-types", handlers.AdminSaveDictType(db))
+		authGroup.PUT("/admin/dict-types/:id", handlers.AdminUpdateDictType(db))
+		authGroup.DELETE("/admin/dict-types/:id", handlers.AdminDeleteDictType(db))
+		authGroup.GET("/admin/dict-data", handlers.AdminListDictData(db))
+		authGroup.POST("/admin/dict-data", handlers.AdminSaveDictData(db))
+		authGroup.PUT("/admin/dict-data/:id", handlers.AdminUpdateDictData(db))
+		authGroup.DELETE("/admin/dict-data/:id", handlers.AdminDeleteDictData(db))
+		authGroup.GET("/admin/articles", handlers.AdminListArticles(db))
+		authGroup.POST("/admin/articles", handlers.AdminSaveArticle(db))
+		authGroup.PUT("/admin/articles/:id", handlers.AdminUpdateArticle(db))
+		authGroup.DELETE("/admin/articles/:id", handlers.AdminDeleteArticle(db))
+		authGroup.GET("/admin/payments", handlers.AdminListPayments(db))
+		authGroup.GET("/admin/app-users", handlers.AdminListAppUsers(db))
+		authGroup.GET("/admin/sys-users", handlers.AdminListSysUsers(db))
+		authGroup.POST("/admin/sys-users", handlers.AdminCreateSysUser(db))
+		authGroup.PUT("/admin/sys-users/:id", handlers.AdminUpdateSysUser(db))
+		authGroup.DELETE("/admin/sys-users/:id", handlers.AdminDeleteSysUser(db))
+		authGroup.GET("/admin/users", handlers.ListUsers(db))
+		authGroup.PUT("/admin/users/:id/role", handlers.UpdateUserRole(db))
+		authGroup.DELETE("/admin/users/:id", handlers.DeleteUser(db))
 
-		// 其它未来需要登录才能访问的用户端私有接口
-		// privateGroup.POST("/client/order", handlers.CreateOrder)
-	}
-
-	// ==========================================================
-	// 3. 管理后台路由组 (B 端，需角色权限)
-	// ==========================================================
-	admin := r.Group("/api/v1/admin")
-	{
-		admin.POST("/auth/login", handlers.AuthAdmin(db))
-		adminProtected := admin.Group("")
-		adminProtected.Use(authMw.RequireAuth(), authMw.RequireRole(models.RoleAdmin, models.RoleManager))
-		{
-			adminProtected.POST("/auth/logout", handlers.AuthLogout())
-			adminProtected.GET("/auth/me", handlers.AdminMe(db))
-			adminProtected.GET("/dashboard/stats", handlers.DashboardStats(db))
-			adminProtected.GET("/orders", handlers.AdminListOrders(db))
-			adminProtected.GET("/orders/:id", handlers.AdminGetOrder(db))
-			adminProtected.PUT("/orders/:id", handlers.AdminUpdateOrder(db))
-			adminProtected.GET("/services", handlers.AdminListServices(db))
-			adminProtected.POST("/services", handlers.AdminSaveService(db))
-			adminProtected.PUT("/services/:id", handlers.AdminUpdateService(db))
-			adminProtected.POST("/upload", handlers.UploadFile(db))
-			adminProtected.GET("/dict-types", handlers.AdminListDictTypes(db))
-			adminProtected.POST("/dict-types", handlers.AdminSaveDictType(db))
-			adminProtected.PUT("/dict-types/:id", handlers.AdminUpdateDictType(db))
-			adminProtected.DELETE("/dict-types/:id", handlers.AdminDeleteDictType(db))
-			adminProtected.GET("/dict-data", handlers.AdminListDictData(db))
-			adminProtected.POST("/dict-data", handlers.AdminSaveDictData(db))
-			adminProtected.PUT("/dict-data/:id", handlers.AdminUpdateDictData(db))
-			adminProtected.DELETE("/dict-data/:id", handlers.AdminDeleteDictData(db))
-			adminProtected.GET("/articles", handlers.AdminListArticles(db))
-			adminProtected.POST("/articles", handlers.AdminSaveArticle(db))
-			adminProtected.PUT("/articles/:id", handlers.AdminUpdateArticle(db))
-			adminProtected.DELETE("/articles/:id", handlers.AdminDeleteArticle(db))
-			adminProtected.GET("/payments", handlers.AdminListPayments(db))
-			adminProtected.GET("/app-users", handlers.AdminListAppUsers(db))
-			adminProtected.GET("/sys-users", handlers.AdminListSysUsers(db))
-			adminProtected.POST("/sys-users", handlers.AdminCreateSysUser(db))
-			adminProtected.PUT("/sys-users/:id", handlers.AdminUpdateSysUser(db))
-			adminProtected.DELETE("/sys-users/:id", handlers.AdminDeleteSysUser(db))
-			adminProtected.GET("/users", handlers.ListUsers(db))
-			adminProtected.PUT("/users/:id/role", handlers.UpdateUserRole(db))
-			adminProtected.DELETE("/users/:id", handlers.DeleteUser(db))
-		}
+		// C 端用户私有路由
+		authGroup.GET("/client/user/me", handlers.GetMe(db))
+		authGroup.GET("/client/state", handlers.GetState(db))
+		authGroup.PUT("/client/state", handlers.UpdateState(db))
+		authGroup.POST("/client/auth/logout", handlers.AuthLogout())
 	}
 }
 
@@ -188,50 +178,41 @@ func registerStaticRoutes(r *gin.Engine) {
 	// 1. 最高优先级：上传目录托管
 	r.Static("/uploads", "./uploads")
 
-	// 2. 挂载 C 端（用户端Mini App）的静态产物根目录
+	// 2. 挂载 C 端（用户端 Mini App）的静态产物根目录
 	r.Static("/client", clientDir)
 
 	// 3. 挂载 B 端（管理后台）的静态产物根目录
 	r.Static("/admin", adminDir)
 
-	// 4. 彻底解决根路径别名冲突：当浏览器请求 B 端的 /admin 时，如果它去找根目录的 /assets 会报错。
-	// 我们移除对 /admin/assets 的通配符重复挂载，改为在 NoRoute 之外为根路径提供防呆兼容（优先指向 C 端）
+	// 4. 根路径别名防呆（优先指向 C 端）
 	r.Static("/assets", filepath.Join(clientDir, "assets"))
 	r.Static("/static", filepath.Join(clientDir, "static"))
 
-	// 5. 单页应用 (SPA) 路由兜底转发中心 (核心破案点)
-	// 无论是静态资源的错位寻址，还是用户在浏览器刷新了页面（如 /admin/dashboard），全部在这里分流处理
+	// 5. 单页应用 (SPA) 路由兜底转发中心
 	r.NoRoute(func(c *gin.Context) {
 		path := c.Request.URL.Path
 
-		// 如果是后端真正的 /api 路由找不到，返回标准 404 JSON，不干扰前端
 		if strings.HasPrefix(path, "/api") {
 			c.JSON(http.StatusNotFound, gin.H{"code": 404, "message": "API route not found"})
 			return
 		}
 
-		// 如果请求是以 /admin 开头（例如：/admin/assets/index-xxx.js 或者刷新了后台页面）
 		if strings.HasPrefix(path, "/admin") {
-			// 如果它是请求后台的 css/js 静态资源
 			if strings.Contains(path, "/assets/") {
-				// 提取真正的资源文件名，直接通过物理路径返回给浏览器，完美绕过通配符冲突！
 				filename := path[strings.Index(path, "/assets/")+8:]
 				c.File(filepath.Join(adminDir, "assets", filename))
 				return
 			}
-			// 如果是普通路由页面或刷新，返回 admin 的 index.html 入口
 			c.File(filepath.Join(adminDir, "index.html"))
 			return
 		}
 
-		// 其余所有非 API 请求，默认归为 C 端移动用户端处理
 		if strings.Contains(path, "/assets/") {
 			filename := path[strings.Index(path, "/assets/")+8:]
 			c.File(filepath.Join(clientDir, "assets", filename))
 			return
 		}
 
-		// 兜底返回用户端的 index.html 入口
 		c.File(filepath.Join(clientDir, "index.html"))
 	})
 }
