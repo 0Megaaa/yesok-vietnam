@@ -1,110 +1,192 @@
-// 动态获取网络请求基地址
-// 生产打包时会自动从本地的 .env.local 中捕获 VITE_API_URL，GitHub 源码上不包含真实 IP
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://8.135.11.228/api'
-const TIMEOUT = 10000
+/**
+ * 统一请求模块（生产级）
+ * - 微信小程序 / uni-app 端：uni.request
+ * - Web 端：axios（按需动态加载，绝不进入 uni-app 产物）
+ *
+ * 所有 IP/域名通过 VITE_API_BASE_URL 环境变量注入，源码中无任何硬编码。
+ */
 
-const safeUni = () => (typeof uni !== 'undefined' ? uni : null)
+// ─── 环境检测（模块加载时求值，打包工具可识别 dead-code branch）───────────────────
 
-const readStorage = (key) => {
-  const uniApi = safeUni()
-  if (uniApi?.getStorageSync) return uniApi.getStorageSync(key) || ''
-  if (typeof localStorage !== 'undefined') return localStorage.getItem(key) || ''
-  return ''
+const BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const isUniApp = typeof uni !== 'undefined' && typeof uni.request === 'function';
+
+// ─── BASE_URL 兜底校验 ─────────────────────────────────────────────────────────
+
+if (!BASE_URL) {
+  if (isUniApp && uni.showModal) {
+    uni.showModal({ title: '配置缺失', content: 'API 配置缺失：请在 .env 中设置 VITE_API_BASE_URL', showCancel: false });
+  }
+  throw new Error('缺少 VITE_API_BASE_URL 环境变量！');
 }
 
-const removeStorage = (key) => {
-  const uniApi = safeUni()
-  if (uniApi?.removeStorageSync) uniApi.removeStorageSync(key)
-  if (typeof localStorage !== 'undefined') localStorage.removeItem(key)
-}
+// ─── 顶层分支：uni-app 与 Web 逻辑完全分离，确保 bundler tree-shaking 生效 ─────
 
-const buildUrl = (url, data, method) => {
-  let queryStr = '';
-  // 极度安全的参数拼接，绝不使用小程序的死穴 URLSearchParams
-  if (method === 'GET' && data && typeof data === 'object') {
-    const params = data.params || data;
-    const queryParts = [];
-    for (const key in params) {
-      if (Object.prototype.hasOwnProperty.call(params, key) && params[key] !== undefined && params[key] !== null) {
-        queryParts.push(`${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`);
+if (isUniApp) {
+  // ══════════════════════════════════════════════════════════════════════════
+  //  uni-app / 微信小程序 分支
+  //  此分支内不引用任何 Web 端模块，打包工具可将 axios 完全剔除出产物
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const TIMEOUT = 10000;
+
+  const readStorage = (key) =>
+    uni.getStorageSync ? (uni.getStorageSync(key) || '') : '';
+
+  const removeStorage = (key) => {
+    uni.removeStorageSync?.({ key });
+  };
+
+  const normalizeError = (err) => ({
+    status: err?.response?.status ?? null,
+    message: err?.response?.data?.message || err?.response?.data?.error || err?.response?.data?.detail || err?.message || '网络请求失败',
+    data: err?.response?.data ?? null,
+  });
+
+  const buildUrl = (url, data, method) => {
+    if (method === 'GET' && data && typeof data === 'object') {
+      const params = data.params || data;
+      const parts = [];
+      for (const key in params) {
+        if (Object.prototype.hasOwnProperty.call(params, key) && params[key] != null) {
+          parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`);
+        }
       }
+      if (parts.length) return `${BASE_URL}${url}?${parts.join('&')}`;
     }
-    if (queryParts.length > 0) {
-      queryStr = `?${queryParts.join('&')}`;
-    }
-  }
-  return `${BASE_URL}${url}${queryStr}`;
-}
+    return `${BASE_URL}${url}`;
+  };
 
-const normalizeErrorMessage = (body, fallback) => body?.message || body?.error || body?.detail || fallback || '网络请求失败'
+  const wrapRequest = (options) =>
+    new Promise((resolve, reject) => {
+      uni.request({
+        ...options,
+        success: (res) => {
+          if (res.statusCode >= 200 && res.statusCode < 300) {
+            resolve({ data: res.data, status: res.statusCode });
+          } else {
+            reject({ response: { status: res.statusCode, data: res.data } });
+          }
+        },
+        fail: (err) => reject({ response: null, message: err?.errMsg || '网络请求失败' }),
+      });
+    });
 
-function createRequest() {
-  const instance = {}
+  function createRequest() {
+    const instance = {};
 
-  function request(method, url, data, config = {}) {
-    const isAdminRoute = url && url.startsWith('/v1/admin')
-    const tokenKey = isAdminRoute ? 'admin_token' : 'client_token'
-    const token = readStorage(tokenKey)
-    const header = {
-      'Content-Type': 'application/json',
-      ...(config.headers || {}),
-    }
-    if (token) header.Authorization = `Bearer ${token}`
+    function request(method, url, data, config) {
+      // 实时读取 token，不缓存 header
+      const isAdminRoute = url.startsWith('/v1/admin');
+      const tokenKey = isAdminRoute ? 'admin_token' : 'client_token';
+      const token = readStorage(tokenKey);
 
-    const fullUrl = buildUrl(url, data || {}, method)
-    const uniApi = safeUni()
+      const header = { 'Content-Type': 'application/json', ...((config && config.headers) || {}) };
+      if (token) header.Authorization = `Bearer ${token}`;
 
-    if (uniApi?.request) {
-      return new Promise((resolve, reject) => {
-        const reqOptions = {
-          url: fullUrl,
-          method,
-          header,
-          timeout: TIMEOUT,
-          success: (res) => {
-            const statusCode = res.statusCode
-            const responseBody = res.data
-            if (statusCode >= 200 && statusCode < 300) {
-              resolve({ data: responseBody, status: statusCode })
-              return
-            }
-            if (statusCode === 401) removeStorage(tokenKey)
-            reject({ response: { status: statusCode, data: responseBody }, message: normalizeErrorMessage(responseBody, `HTTP ${statusCode}`) })
-          },
-          fail: (err) => reject({ response: null, message: err?.errMsg || '网络请求失败' }),
-        }
+      const reqOptions = {
+        url: buildUrl(url, data || {}, method),
+        method,
+        header,
+        timeout: (config && config.timeout) || TIMEOUT,
+      };
+      // 【防拦截】：GET 请求不传 body data
+      if (method !== 'GET' && data) reqOptions.data = data;
 
-        // 【核心防拦截机制】：小程序环境中，如果是 GET 请求，绝不允许向底层传递 data 字段！
-        if (method !== 'GET' && data) {
-          reqOptions.data = data;
-        }
-
-        uniApi.request(reqOptions)
-      })
+      return wrapRequest(reqOptions).catch((err) => {
+        const normalized = normalizeError(err);
+        if (normalized.status === 401) removeStorage(tokenKey);
+        throw normalized;
+      });
     }
 
-    return fetch(fullUrl, {
-      method,
-      headers: header,
-      body: method === 'GET' ? null : JSON.stringify(data || {}),
-    }).then(async (res) => {
-      const text = await res.text()
-      const responseBody = text ? JSON.parse(text) : {}
-      if (res.ok) return { data: responseBody, status: res.status }
-      if (res.status === 401) removeStorage(tokenKey)
-      throw { response: { status: res.status, data: responseBody }, message: normalizeErrorMessage(responseBody, `HTTP ${res.status}`) }
-    })
+    instance.get = (url, data, config) => request('GET', url, data, config);
+    instance.post = (url, data, config) => request('POST', url, data, config);
+    instance.put = (url, data, config) => request('PUT', url, data, config);
+    instance.delete = (url, data, config) => request('DELETE', url, data, config);
+    instance.patch = (url, data, config) => request('PATCH', url, data, config);
+    instance.request = request;
+    return instance;
   }
 
-  instance.get = (url, data, config) => request('GET', url, data, config)
-  instance.post = (url, data, config) => request('POST', url, data, config)
-  instance.put = (url, data, config) => request('PUT', url, data, config)
-  instance.delete = (url, data, config) => request('DELETE', url, data, config)
-  instance.patch = (url, data, config) => request('PATCH', url, data, config)
-  instance.request = request
-  return instance
-}
+  module.exports = createRequest();
 
-const request = createRequest()
-export default request
-export { request }
+} else {
+  // ══════════════════════════════════════════════════════════════════════════
+  //  Web 端分支（浏览器 / H5）
+  //  axios 在首次调用时动态加载，不参与 uni-app 构建
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const TIMEOUT = 10000;
+
+  let service = null;
+
+  const getService = () => {
+    if (service) return Promise.resolve(service);
+    return import('axios').then(({ default: axios }) => {
+      service = axios.create({ baseURL: BASE_URL, timeout: TIMEOUT });
+      service.interceptors.response.use(
+        (res) => res,
+        (err) => Promise.reject(err)
+      );
+      return service;
+    });
+  };
+
+  const readStorage = (key) =>
+    typeof localStorage !== 'undefined' ? (localStorage.getItem(key) || '') : '';
+
+  const removeStorage = (key) => {
+    if (typeof localStorage !== 'undefined') localStorage.removeItem(key);
+  };
+
+  const normalizeError = (err) => ({
+    status: err?.response?.status ?? null,
+    message: err?.response?.data?.message || err?.response?.data?.error || err?.response?.data?.detail || err?.message || '网络请求失败',
+    data: err?.response?.data ?? null,
+  });
+
+  function createRequest() {
+    const instance = {};
+
+    function request(method, url, data, config) {
+      // 实时读取 token，不缓存 header
+      const isAdminRoute = url.startsWith('/v1/admin');
+      const tokenKey = isAdminRoute ? 'admin_token' : 'client_token';
+      const token = readStorage(tokenKey);
+
+      const header = { 'Content-Type': 'application/json', ...((config && config.headers) || {}) };
+      if (token) header.Authorization = `Bearer ${token}`;
+
+      return getService().then((svc) =>
+        svc
+          .request({
+            method,
+            url,
+            data,
+            headers: header,
+            params: method === 'GET' ? (data && (data.params || data)) : undefined,
+          })
+          .then((res) => {
+            if (res.status === 401) removeStorage(tokenKey);
+            return { data: res.data, status: res.status };
+          })
+          .catch((err) => {
+            const normalized = normalizeError(err);
+            if (normalized.status === 401) removeStorage(tokenKey);
+            throw normalized;
+          })
+      );
+    }
+
+    instance.get = (url, data, config) => request('GET', url, data, config);
+    instance.post = (url, data, config) => request('POST', url, data, config);
+    instance.put = (url, data, config) => request('PUT', url, data, config);
+    instance.delete = (url, data, config) => request('DELETE', url, data, config);
+    instance.patch = (url, data, config) => request('PATCH', url, data, config);
+    instance.request = request;
+    return instance;
+  }
+
+  module.exports = createRequest();
+}

@@ -7,7 +7,8 @@
     "build": "uni build -p h5",
     "preview": "vite preview --host 0.0.0.0",
     "dev:mp-weixin": "uni -p mp-weixin",
-    "build:mp-weixin": "uni build -p mp-weixin"
+    "build:mp-weixin": "uni build -p mp-weixin",
+    "build:mp-weixin:prod": "uni build -p mp-weixin --mode production"
   },
   "dependencies": {
     "@dcloudio/uni-app": "3.0.0-4080720251210001",
