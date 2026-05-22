@@ -41,20 +41,15 @@ func loadUserFromContext(c *gin.Context, db *gorm.DB) (*models.User, error) {
 
 // ─── GET /api/state ───────────────────────────────────────────────────────────
 
-// GetState returns the full application state for the authenticated user.
-//   - admin  → all users + all orders
-//   - user   → only their own orders + basic profile
+// GetState returns the full application state.
+//   - authenticated → user-specific or admin-aggregated data (Me, Users, Orders)
+//   - anonymous     → public大盘: all orders with Me=nil, Users=nil (HTTP 200, never 401)
 func GetState(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		currentUser, err := loadUserFromContext(c, db)
-		if err != nil || currentUser == nil {
-			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
-			return
-		}
-
+		currentUser, _ := loadUserFromContext(c, db)
 		var resp GetStateResponse
 
-		if currentUser.Role == models.RoleAdmin {
+		if currentUser != nil && currentUser.Role == models.RoleAdmin {
 			// admin sees everything
 			var users []models.User
 			if err := db.Order("id asc").Find(&users).Error; err != nil {
@@ -69,9 +64,8 @@ func GetState(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 			resp.Orders = orders
-
 			resp.Me = currentUser
-		} else {
+		} else if currentUser != nil {
 			// regular user sees only their own data
 			resp.Me = currentUser
 
@@ -83,6 +77,15 @@ func GetState(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 			resp.Orders = orders
+		} else {
+			// anonymous / 小程序冷启动: return public大盘, no 401
+			var orders []models.Order
+			if err := db.Order("created_at desc").Find(&orders).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch orders"})
+				return
+			}
+			resp.Orders = orders
+			// Me=nil, Users=nil signals "not logged in" to the client
 		}
 
 		c.JSON(http.StatusOK, resp)
