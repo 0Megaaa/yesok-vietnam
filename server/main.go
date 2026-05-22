@@ -97,67 +97,76 @@ func registerHealthRoute(r *gin.Engine) {
 
 // registerAPIRoutes 注册 API 路由。
 func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddleware) {
-	v1 := r.Group("/api/v1")
+	// ==========================================================
+	// 1. 彻底独立的匿名公开组 (免 Token，通畅小程序冷启动与健康检查)
+	// ==========================================================
+	publicGroup := r.Group("/api/v1")
 	{
-		// 不需要登录就能看的公共大盘接口（免除 Token 校验，畅通小程序首页）
-		v1.GET("/client/services", handlers.ClientListServices(db))
-		v1.GET("/client/articles", handlers.ClientListArticles(db))
+		// 系统健康检查接口
+		publicGroup.GET("/state", handlers.GetState(db))
+		publicGroup.GET("/configs", handlers.ClientGetConfigs(db))
 
-		v1.GET("/services", handlers.ClientListServices(db))
-		v1.POST("/orders", handlers.ClientCreateOrder(db))
-		v1.GET("/configs", handlers.ClientGetConfigs(db))
-		v1.GET("/articles", handlers.ClientListArticles(db))
+		// 客户端冷启动免登录接口
+		publicGroup.GET("/client/services", handlers.ClientListServices(db))
+		publicGroup.GET("/client/articles", handlers.ClientListArticles(db))
+	}
 
-		client := v1.Group("/client")
+	// ==========================================================
+	// 2. 彻底独立的私有鉴权组 (必须要登录 Token 才能进入的接口)
+	// ==========================================================
+	privateGroup := r.Group("/api/v1")
+	privateGroup.Use(authMw.RequireAuth())
+	{
+		// 用户鉴权核心
+		privateGroup.POST("/client/auth/tg", handlers.AuthTG(db))
+		privateGroup.GET("/client/user/me", handlers.GetMe(db))
+		privateGroup.GET("/client/state", handlers.GetState(db))
+		privateGroup.PUT("/client/state", handlers.UpdateState(db))
+
+		// 其它未来需要登录才能访问的用户端私有接口
+		// privateGroup.POST("/client/order", handlers.CreateOrder)
+	}
+
+	// ==========================================================
+	// 3. 管理后台路由组 (B 端，需角色权限)
+	// ==========================================================
+	admin := r.Group("/api/v1/admin")
+	{
+		admin.POST("/auth/login", handlers.AuthAdmin(db))
+		adminProtected := admin.Group("")
+		adminProtected.Use(authMw.RequireAuth(), authMw.RequireRole(models.RoleAdmin, models.RoleManager))
 		{
-			client.POST("/auth/tg", handlers.AuthTG(db))
-			clientProtected := client.Group("")
-			clientProtected.Use(authMw.RequireAuth())
-			{
-				clientProtected.GET("/user/me", handlers.GetMe(db))
-				clientProtected.GET("/state", handlers.GetState(db))
-				clientProtected.PUT("/state", handlers.UpdateState(db))
-			}
-		}
-
-		admin := v1.Group("/admin")
-		{
-			admin.POST("/auth/login", handlers.AuthAdmin(db))
-			adminProtected := admin.Group("")
-			adminProtected.Use(authMw.RequireAuth(), authMw.RequireRole(models.RoleAdmin, models.RoleManager))
-			{
-				adminProtected.POST("/auth/logout", handlers.AuthLogout())
-				adminProtected.GET("/auth/me", handlers.AdminMe(db))
-				adminProtected.GET("/dashboard/stats", handlers.DashboardStats(db))
-				adminProtected.GET("/orders", handlers.AdminListOrders(db))
-				adminProtected.GET("/orders/:id", handlers.AdminGetOrder(db))
-				adminProtected.PUT("/orders/:id", handlers.AdminUpdateOrder(db))
-				adminProtected.GET("/services", handlers.AdminListServices(db))
-				adminProtected.POST("/services", handlers.AdminSaveService(db))
-				adminProtected.PUT("/services/:id", handlers.AdminUpdateService(db))
-				adminProtected.POST("/upload", handlers.UploadFile(db))
-				adminProtected.GET("/dict-types", handlers.AdminListDictTypes(db))
-				adminProtected.POST("/dict-types", handlers.AdminSaveDictType(db))
-				adminProtected.PUT("/dict-types/:id", handlers.AdminUpdateDictType(db))
-				adminProtected.DELETE("/dict-types/:id", handlers.AdminDeleteDictType(db))
-				adminProtected.GET("/dict-data", handlers.AdminListDictData(db))
-				adminProtected.POST("/dict-data", handlers.AdminSaveDictData(db))
-				adminProtected.PUT("/dict-data/:id", handlers.AdminUpdateDictData(db))
-				adminProtected.DELETE("/dict-data/:id", handlers.AdminDeleteDictData(db))
-				adminProtected.GET("/articles", handlers.AdminListArticles(db))
-				adminProtected.POST("/articles", handlers.AdminSaveArticle(db))
-				adminProtected.PUT("/articles/:id", handlers.AdminUpdateArticle(db))
-				adminProtected.DELETE("/articles/:id", handlers.AdminDeleteArticle(db))
-				adminProtected.GET("/payments", handlers.AdminListPayments(db))
-				adminProtected.GET("/app-users", handlers.AdminListAppUsers(db))
-				adminProtected.GET("/sys-users", handlers.AdminListSysUsers(db))
-				adminProtected.POST("/sys-users", handlers.AdminCreateSysUser(db))
-				adminProtected.PUT("/sys-users/:id", handlers.AdminUpdateSysUser(db))
-				adminProtected.DELETE("/sys-users/:id", handlers.AdminDeleteSysUser(db))
-				adminProtected.GET("/users", handlers.ListUsers(db))
-				adminProtected.PUT("/users/:id/role", handlers.UpdateUserRole(db))
-				adminProtected.DELETE("/users/:id", handlers.DeleteUser(db))
-			}
+			adminProtected.POST("/auth/logout", handlers.AuthLogout())
+			adminProtected.GET("/auth/me", handlers.AdminMe(db))
+			adminProtected.GET("/dashboard/stats", handlers.DashboardStats(db))
+			adminProtected.GET("/orders", handlers.AdminListOrders(db))
+			adminProtected.GET("/orders/:id", handlers.AdminGetOrder(db))
+			adminProtected.PUT("/orders/:id", handlers.AdminUpdateOrder(db))
+			adminProtected.GET("/services", handlers.AdminListServices(db))
+			adminProtected.POST("/services", handlers.AdminSaveService(db))
+			adminProtected.PUT("/services/:id", handlers.AdminUpdateService(db))
+			adminProtected.POST("/upload", handlers.UploadFile(db))
+			adminProtected.GET("/dict-types", handlers.AdminListDictTypes(db))
+			adminProtected.POST("/dict-types", handlers.AdminSaveDictType(db))
+			adminProtected.PUT("/dict-types/:id", handlers.AdminUpdateDictType(db))
+			adminProtected.DELETE("/dict-types/:id", handlers.AdminDeleteDictType(db))
+			adminProtected.GET("/dict-data", handlers.AdminListDictData(db))
+			adminProtected.POST("/dict-data", handlers.AdminSaveDictData(db))
+			adminProtected.PUT("/dict-data/:id", handlers.AdminUpdateDictData(db))
+			adminProtected.DELETE("/dict-data/:id", handlers.AdminDeleteDictData(db))
+			adminProtected.GET("/articles", handlers.AdminListArticles(db))
+			adminProtected.POST("/articles", handlers.AdminSaveArticle(db))
+			adminProtected.PUT("/articles/:id", handlers.AdminUpdateArticle(db))
+			adminProtected.DELETE("/articles/:id", handlers.AdminDeleteArticle(db))
+			adminProtected.GET("/payments", handlers.AdminListPayments(db))
+			adminProtected.GET("/app-users", handlers.AdminListAppUsers(db))
+			adminProtected.GET("/sys-users", handlers.AdminListSysUsers(db))
+			adminProtected.POST("/sys-users", handlers.AdminCreateSysUser(db))
+			adminProtected.PUT("/sys-users/:id", handlers.AdminUpdateSysUser(db))
+			adminProtected.DELETE("/sys-users/:id", handlers.AdminDeleteSysUser(db))
+			adminProtected.GET("/users", handlers.ListUsers(db))
+			adminProtected.PUT("/users/:id/role", handlers.UpdateUserRole(db))
+			adminProtected.DELETE("/users/:id", handlers.DeleteUser(db))
 		}
 	}
 }
