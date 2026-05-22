@@ -99,24 +99,21 @@ func registerHealthRoute(r *gin.Engine) {
 func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddleware) {
 	// ==========================================================
 	// 1. 全裸独立公开组 (免 Token，畅通小程序冷启动与健康检查)
+	// 注意：此组绝对不挂载任何 .Use()，由 r.Group("/api/v1") 直接派生，互不污染
 	// ==========================================================
-	apiV1 := r.Group("/api/v1")
+	publicGroup := r.Group("/api/v1")
 	{
-		// 系统健康检查 /api/v1/state
-		apiV1.GET("/state", handlers.GetState(db))
-		apiV1.GET("/configs", handlers.ClientGetConfigs(db))
-
-		// 客户端免登录公共数据
-		apiV1.GET("/client/services", handlers.ClientListServices(db))
-		apiV1.GET("/client/articles", handlers.ClientListArticles(db))
-
-		// 凭证换取登录接口 (公开)
-		apiV1.POST("/auth/login", handlers.AuthAdmin(db))  // 后台管家登录
-		apiV1.POST("/client/auth/tg", handlers.AuthTG(db)) // Telegram Mini App 登录
+		publicGroup.GET("/state", handlers.GetState(db))
+		publicGroup.GET("/configs", handlers.ClientGetConfigs(db))
+		publicGroup.GET("/client/services", handlers.ClientListServices(db))
+		publicGroup.GET("/client/articles", handlers.ClientListArticles(db))
+		publicGroup.POST("/auth/login", handlers.AuthAdmin(db))
+		publicGroup.POST("/client/auth/tg", handlers.AuthTG(db))
 	}
 
 	// ==========================================================
 	// 2. 高级鉴权受保护组 (必须带 Token 才可访问)
+	// 注意：Use() 挂在此 authGroup 实例上，绝不影响 publicGroup
 	// ==========================================================
 	authGroup := r.Group("/api/v1")
 	authGroup.Use(authMw.RequireAuth())
