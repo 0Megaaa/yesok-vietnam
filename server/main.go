@@ -99,6 +99,10 @@ func registerHealthRoute(r *gin.Engine) {
 func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddleware) {
 	v1 := r.Group("/api/v1")
 	{
+		// 不需要登录就能看的公共大盘接口（免除 Token 校验，畅通小程序首页）
+		v1.GET("/client/services", handlers.ClientListServices(db))
+		v1.GET("/client/articles", handlers.ClientListArticles(db))
+
 		v1.GET("/services", handlers.ClientListServices(db))
 		v1.POST("/orders", handlers.ClientCreateOrder(db))
 		v1.GET("/configs", handlers.ClientGetConfigs(db))
