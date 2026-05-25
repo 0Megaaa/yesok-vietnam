@@ -251,8 +251,8 @@ onMounted(async () => {
           </template>
         </el-table-column>
 
-        <el-table-column prop="service_name" label="业务核心名称" width="180" />
-        <el-table-column prop="display_name" label="客户端展示名称" width="180" />
+        <el-table-column prop="service_name" label="服务名称" width="180" />
+<!--        <el-table-column prop="display_name" label="客户端展示名称" width="180" />-->
 
         <el-table-column label="价格" width="150" align="right">
           <template #default="scope">
@@ -279,7 +279,7 @@ onMounted(async () => {
         </el-table-column>
         <el-table-column prop="description" label="服务简介" show-overflow-tooltip min-width="240" />
 
-        <el-table-column label="核心调度操作" width="180" fixed="right" align="center">
+        <el-table-column label="操作" width="180" fixed="right" align="center">
           <template #default="scope">
             <el-button link type="primary" size="small" @click="openEditDialog(scope.row)">
               编辑服务
@@ -318,11 +318,11 @@ onMounted(async () => {
               <el-input v-model="serviceForm.service_name" placeholder="例: 越南商务签证" />
             </el-form-item>
           </el-col>
-          <el-col :span="12">
-            <el-form-item label="客户端展示名称">
-              <el-input v-model="serviceForm.display_name" placeholder="前端呈现给客户的名字" />
-            </el-form-item>
-          </el-col>
+<!--          <el-col :span="12">-->
+<!--            <el-form-item label="客户端展示名称">-->
+<!--              <el-input v-model="serviceForm.display_name" placeholder="前端呈现给客户的名字" />-->
+<!--            </el-form-item>-->
+<!--          </el-col>-->
         </el-row>
 
         <el-form-item label="系统图标">
@@ -354,7 +354,7 @@ onMounted(async () => {
             </el-form-item>
           </el-col>
           <el-col :span="10">
-            <el-form-item label="计价单位" required>
+            <el-form-item label="价格单位" required>
               <el-input v-model="serviceForm.unit" placeholder="次 / 人 / 单" />
             </el-form-item>
           </el-col>
