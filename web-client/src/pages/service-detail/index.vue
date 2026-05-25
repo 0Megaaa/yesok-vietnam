@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
-import request from '@/api/request'
+import { get, post } from '@/api/request'
 import AuthPopup from '@/components/AuthPopup.vue'
 import { useGlobalShare } from '@/composables/useGlobalShare'
 
@@ -41,7 +41,7 @@ onLoad((options) => {
 const loadService = async (id) => {
   loading.value = true
   try {
-    const res = await request.get(`/v1/client/services/${id}`)
+    const res = await get(`/v1/client/services/${id}`)
     serviceData.value = res.data
   } catch (error) {
     serviceData.value = {
@@ -93,7 +93,7 @@ const contactManager = () => {
 const createConsultOrder = async () => {
   const serviceName = serviceData.value?.name || '服务详情'
   if (!client.checkAuth(`预约「${serviceName}」`)) return
-  const res = await request.post('/v1/client/orders', { serviceId: serviceData.value?.id || serviceId.value })
+  const res = await post('/v1/client/orders', { serviceId: serviceData.value?.id || serviceId.value })
   client.addOrder(res.data)
   const uniApi = typeof uni !== 'undefined' ? uni : null
   if (uniApi?.showToast) uniApi.showToast({ title: '已生成咨询订单', icon: 'success' })

@@ -1,5 +1,5 @@
-import request from '../request'
+import { post } from '../request'
 
 export function loginWithWeChat(code) {
-  return request.post('/v1/client/auth/wechat', { code }).then((res) => res.data)
+  return post('/v1/client/auth/wechat', { code }).then((res) => res.data)
 }
