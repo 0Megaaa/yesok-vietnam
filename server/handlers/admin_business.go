@@ -260,10 +260,16 @@ func AdminUpdateService(db *gorm.DB) gin.HandlerFunc {
 		}
 		updated := serviceFromRequest(req)
 		updated.ID = service.ID
+		// Currency 若前端没传，保持数据库原值
 		if updated.Currency == "" {
 			updated.Currency = service.Currency
 		}
-		if err := db.Model(&service).Updates(updated).Error; err != nil {
+		// 用 Select 精确指定可更新字段
+		if err := db.Model(&service).Select(
+			"service_code", "service_name", "display_name", "icon", "cover_image",
+			"description", "base_price", "currency", "unit",
+			"sort_order", "status", "is_hot", "form_schema",
+		).Updates(updated).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update service"})
 			return
 		}

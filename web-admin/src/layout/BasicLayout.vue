@@ -26,7 +26,7 @@ const isActive = (path) => route.path === path || route.path.startsWith(path + '
 const navItems = [
   { label: '数据看板', path: '/admin/dashboard' },
   { label: '订单中心', path: '/admin/orders' },
-  { label: '服务配置', path: '/admin/services' },
+  { label: '服务管理', path: '/admin/services' },
   { label: '资讯管理', path: '/admin/articles' },
   { label: '财务管理', path: '/admin/finance' },
   { label: '用户管理', path: '/admin/users' },

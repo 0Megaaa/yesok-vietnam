@@ -66,15 +66,15 @@ const normalizeArticle = (item) => ({
 const loadHomeData = async () => {
   loading.value = true
 
-  get('/v1/configs').then(res => {
+  get('/v1/client/configs').then(res => {
     configs.value = res.data?.configs || res.data || {}
   }).catch(e => console.error('加载配置失败:', e))
 
-  get('/v1/services').then(res => {
+  get('/v1/client/services').then(res => {
     services.value = (res.data?.list || res.data || []).map(normalizeService)
   }).catch(e => console.error('加载服务失败:', e))
 
-  get('/v1/articles', { params: { limit: 3 } }).then(res => {
+  get('/v1/client/articles', { params: { limit: 3 } }).then(res => {
     articles.value = (res.data?.list || res.data || []).map(normalizeArticle)
   }).catch(e => console.error('加载资讯失败:', e))
 
@@ -115,7 +115,7 @@ const submitOrder = async () => {
         source: 'C端首页服务咨询入口',
       },
     }
-    const res = await post('/v1/orders', payload)
+    const res = await post('/v1/client/orders', payload)
     client.addOrder?.(res.data.order)
     selectedService.value = null
     orderForm.value = { contact_name: '', contact_phone: '', hotel_address: '', remark: '' }

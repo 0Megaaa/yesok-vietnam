@@ -31,7 +31,7 @@ const showSafeToast = (title) => {
 const loadServices = async () => {
   loading.value = true
   try {
-    const res = await get('/v1/services')
+    const res = await get('/v1/client/services')
     services.value = (res.data.list || []).map((item) => ({ ...item, display_name: item.display_name || item.service_name, price_text: item.price || `${Math.round(item.base_price / 100)} ${item.currency}` }))
   } catch (error) {
     showSafeToast(error?.message || '服务加载失败')

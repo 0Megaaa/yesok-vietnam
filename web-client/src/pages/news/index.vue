@@ -54,7 +54,7 @@ const normalizeArticle = (item) => ({
 const loadArticles = async () => {
   loading.value = true
   try {
-    const res = await get('/v1/articles', { params: { limit: 20 } })
+    const res = await get('/v1/client/articles', { params: { limit: 20 } })
     articles.value = (res.data.list || []).map(normalizeArticle)
   } catch (error) {
     showSafeToast(error?.message || '资讯加载失败')
