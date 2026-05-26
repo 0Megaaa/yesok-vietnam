@@ -1,6 +1,6 @@
 <script setup>
-import { computed } from 'vue'
-import { useClientStore } from '@/store/client'
+import {computed} from 'vue'
+import {useClientStore} from '@/store/client'
 
 const client = useClientStore()
 const visible = computed(() => client.loginSheetVisible)
@@ -14,7 +14,7 @@ const visible = computed(() => client.loginSheetVisible)
 // 返回：无返回值，仅完成用户反馈。
 const showSafeToast = (title) => {
   if (typeof uni !== 'undefined' && uni?.showToast) {
-    uni.showToast({ title, icon: 'none' })
+    uni.showToast({title, icon: 'none'})
     return
   }
   console.info('[Yesok Auth]', title)
@@ -64,14 +64,15 @@ const handleTelegramPlaceholder = () => {
       <view class="auth-vip-mark">YESOK PASSPORT</view>
       <view class="auth-title">登录后{{ client.pendingActionText }}</view>
       <view class="auth-desc">
-        Yesok 将为你建立专属越南管家档案，用于订单进度、材料提醒与节点验收。当前演示版仅使用 Mock 数据，不会向真实后端提交个人信息。
+        Yesok 将为您建立专属越南管家档案，用于订单进度、材料提醒与节点验收。
+<!--        当前演示版仅使用 Mock 数据，不会向真实后端提交个人信息。-->
       </view>
 
       <!-- #ifdef MP-WEIXIN -->
       <button class="auth-primary" open-type="getPhoneNumber" @getphonenumber="handleWechatAuthorize">
         微信一键授权
       </button>
-      <button class="auth-secondary" @click="handleDemoLogin">使用演示身份继续</button>
+<!--      <button class="auth-secondary" @click="handleDemoLogin">使用演示身份继续</button>-->
       <!-- #endif -->
 
       <!-- #ifdef H5 -->
@@ -85,9 +86,9 @@ const handleTelegramPlaceholder = () => {
       <!-- #endif -->
       <!-- #endif -->
 
-      <view class="auth-tips">
-        <text>已隔离微信小程序、H5、Telegram Mini App 与未来 iOS/Android 登录入口。</text>
-      </view>
+<!--      <view class="auth-tips">-->
+<!--        <text>已隔离微信小程序、H5、Telegram Mini App 与未来 iOS/Android 登录入口。</text>-->
+<!--      </view>-->
     </view>
   </view>
 </template>
