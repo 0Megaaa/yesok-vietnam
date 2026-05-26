@@ -8,6 +8,13 @@ const route = useRoute()
 const router = useRouter()
 const adminStore = useAdminStore()
 
+// 路由切换前：强制清理所有 Element Plus Loading 遮罩层，防止残留导致白屏
+router.beforeEach(() => {
+  document.querySelectorAll('.el-loading-mask, .el-loading-spinner').forEach(el => el.remove())
+  const backdrop = document.querySelector('.el-message-box__wrapper, .el-overlay')
+  if (backdrop) backdrop.remove()
+})
+
 const sidebarCollapsed = ref(false)
 
 // 侧边栏折叠/展开
@@ -16,8 +23,29 @@ const toggleSidebar = () => {
 }
 
 // 路由跳转（替代原来的 selectPanel）
-const navigateTo = (path) => {
-  router.push(path)
+// 在 BasicLayout.vue 的 <script setup> 中更新 navigateTo
+const navigateTo = async (path) => {
+  console.log('点击导航，目标路径:', path)
+
+  // 如果已经是当前页面，直接返回
+  if (route.path === path) return
+
+  try {
+    // 强制跳转并等待完成
+    await router.push(path)
+    console.log('跳转成功，已导航至:', path)
+
+    // 如果系统管理子菜单的逻辑有问题，强制展开状态同步
+    if (path.startsWith('/admin/system')) {
+      isSystemOpen.value = true
+    }
+  } catch (err) {
+    console.error('路由跳转拦截/错误:', err)
+    // 关键补救：如果是 NavigationDuplicated 错误，忽略；否则提示
+    if (err.name !== 'NavigationDuplicated') {
+      ElMessage.error('页面切换失败，请刷新重试')
+    }
+  }
 }
 
 // 判断当前路由是否激活
@@ -140,9 +168,9 @@ onUnmounted(() => {
 
     <!-- 主内容区 -->
     <div class="workspace">
-      <router-view v-slot="{ Component }">
+      <router-view v-slot="{ Component, route }">
         <transition name="fade" mode="out-in">
-          <component :is="Component" />
+          <component :is="Component" :key="route.fullPath" />
         </transition>
       </router-view>
     </div>
@@ -151,10 +179,10 @@ onUnmounted(() => {
 
 <style scoped>
 .admin-shell {
+  min-height: 100vh;
   display: flex;
+  flex-direction: row;
   width: 100%;
-  height: 100vh;
-  overflow: hidden;
   background: #f2f6f5;
   color: #12312c;
 }
@@ -310,14 +338,12 @@ onUnmounted(() => {
 .workspace {
   box-sizing: border-box;
   flex: 1;
-  width: 100%;
-  height: 100vh;
   min-width: 0;
   margin-left: 218px;
-  overflow-x: auto;
-  overflow-y: auto;
+  overflow: auto;
   padding: 24px;
   transition: margin-left 0.24s ease;
+  background: #f0f2f5;
 }
 
 .admin-shell.collapsed .workspace {

@@ -12,6 +12,7 @@ const requireAuth = () => {
 const routes = [
   {
     path: '/',
+    name: 'Home',
     redirect: '/admin',
   },
   {
@@ -73,6 +74,7 @@ const routes = [
   },
   {
     path: '/:pathMatch(.*)*',
+    name: 'NotFound',
     redirect: '/admin/dashboard',
   },
 ]

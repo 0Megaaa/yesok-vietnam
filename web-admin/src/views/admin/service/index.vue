@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
 
@@ -200,6 +200,10 @@ const selectEmoji = (emoji) => { serviceForm.value.icon = emoji }
 onMounted(async () => {
   await loadCategoryDict()
   await loadServices()
+})
+
+onUnmounted(() => {
+  loading.value = false
 })
 </script>
 

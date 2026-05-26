@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
 
@@ -50,6 +50,10 @@ const statusClass = (status) => {
 onMounted(() => {
   console.log('[Finance] 组件挂载，调用 loadPayments')
   loadPayments()
+})
+
+onUnmounted(() => {
+  loading.value = false
 })
 </script>
 

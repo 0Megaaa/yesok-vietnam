@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
@@ -65,6 +65,10 @@ const applyWorkflowAction = async (node) => {
 onMounted(() => {
   if (route.params.id) orderId.value = route.params.id
   loadOrderDetail()
+})
+
+onUnmounted(() => {
+  loading.value = false
 })
 </script>
 

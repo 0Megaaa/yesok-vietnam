@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
 
@@ -173,6 +173,13 @@ const deleteDictData = async (item) => {
 onMounted(() => {
   loadDicts()
 })
+
+onUnmounted(() => {
+  loading.value = false
+  dataLoading.value = false
+})
+
+// 加载字典类型列表
 </script>
 
 <template>
@@ -282,34 +289,34 @@ onMounted(() => {
         </div>
       </div>
     </div>
-  </div>
 
-  <!-- 字典数据新增/编辑弹窗 -->
-  <el-dialog
-    v-model="dataDialogVisible"
-    :title="dictDataForm.id ? '编辑字典数据' : '新增字典数据'"
-    width="480px"
-    destroy-on-close
-  >
-    <el-form :model="dictDataForm" label-width="100px" label-position="right">
-      <el-form-item label="字典标签" required>
-        <el-input v-model="dictDataForm.dict_label" placeholder="如：出行交通" />
-      </el-form-item>
-      <el-form-item label="字典键值" required>
-        <el-input v-model="dictDataForm.dict_value" placeholder="如：travel" />
-      </el-form-item>
-      <el-form-item label="显示排序">
-        <el-input-number v-model="dictDataForm.sort_order" :min="0" style="width: 100%" />
-      </el-form-item>
-      <el-form-item label="备注描述">
-        <el-input v-model="dictDataForm.remark" type="textarea" :rows="2" placeholder="备注说明" />
-      </el-form-item>
-    </el-form>
-    <template #footer>
-      <el-button @click="dataDialogVisible = false">取消</el-button>
-      <el-button type="primary" @click="saveDictData">确定</el-button>
-    </template>
-  </el-dialog>
+    <!-- 字典数据新增/编辑弹窗 -->
+    <el-dialog
+      v-model="dataDialogVisible"
+      :title="dictDataForm.id ? '编辑字典数据' : '新增字典数据'"
+      width="480px"
+      destroy-on-close
+    >
+      <el-form :model="dictDataForm" label-width="100px" label-position="right">
+        <el-form-item label="字典标签" required>
+          <el-input v-model="dictDataForm.dict_label" placeholder="如：出行交通" />
+        </el-form-item>
+        <el-form-item label="字典键值" required>
+          <el-input v-model="dictDataForm.dict_value" placeholder="如：travel" />
+        </el-form-item>
+        <el-form-item label="显示排序">
+          <el-input-number v-model="dictDataForm.sort_order" :min="0" style="width: 100%" />
+        </el-form-item>
+        <el-form-item label="备注描述">
+          <el-input v-model="dictDataForm.remark" type="textarea" :rows="2" placeholder="备注说明" />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dataDialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveDictData">确定</el-button>
+      </template>
+    </el-dialog>
+  </div>
 </template>
 
 <style scoped>

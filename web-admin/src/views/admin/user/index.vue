@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
 
@@ -34,6 +34,10 @@ const loadUsers = async () => {
 onMounted(() => {
   console.log('[Users] 组件挂载，调用 loadUsers')
   loadUsers()
+})
+
+onUnmounted(() => {
+  loading.value = false
 })
 </script>
 

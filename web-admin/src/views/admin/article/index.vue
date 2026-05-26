@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
 
@@ -123,6 +123,10 @@ const uploadArticleCover = async (event) => {
 onMounted(() => {
   console.log('[Articles] 组件挂载，调用 loadData')
   loadData()
+})
+
+onUnmounted(() => {
+  loading.value = false
 })
 </script>
 

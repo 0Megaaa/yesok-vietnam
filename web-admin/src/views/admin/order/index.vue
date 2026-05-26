@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
@@ -108,6 +108,10 @@ const filteredOrders = computed(() =>
 onMounted(() => {
   console.log('[Orders] 组件挂载，调用 loadOrders')
   loadOrders()
+})
+
+onUnmounted(() => {
+  loading.value = false
 })
 </script>
 

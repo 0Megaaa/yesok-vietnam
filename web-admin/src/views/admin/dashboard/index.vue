@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
 
@@ -57,6 +57,10 @@ const filters = computed(() => [
 onMounted(() => {
   console.log('[Dashboard] 组件挂载，调用 loadStats')
   loadStats()
+})
+
+onUnmounted(() => {
+  loading.value = false
 })
 </script>
 
