@@ -45,14 +45,29 @@ const showSafeToast = (title) => {
   console.info('[Yesok Client]', title)
 }
 
-const normalizeService = (item) => ({
-  ...item,
-  display_name: item.display_name || item.service_name || item.name,
-  price_text: item.price || `${Math.round((item.base_price || 0) / 100)} ${item.currency || 'VND'}`,
-  cover_image: item.cover_image || bannerImage.value,
-  service_code: item.service_code || item.code,
-  icon: item.icon || '✨', // 显式映射图标标签
-})
+const normalizeService = (item) => {
+  // 优先提取后端已经格式化好的 price 字段，如 "650000 ₫"
+  let priceText = `${item.base_price}￥` || ''
+
+  // 如果后端没有提供格式化好的 price，则通过 base_price 和 currency 进行动态拼接兜底
+  if (!priceText && item.base_price !== undefined) {
+    // 华豪华接机等大额 VND 不需要除以 100，这里做个安全分币制或整型判断兜底
+    const rawPrice = item.currency === 'VND' || item.base_price > 10000
+        ? item.base_price
+        : Math.round(item.base_price / 100)
+    priceText = `${rawPrice} ${item.currency || 'VND'}`
+  }
+
+  return {
+    ...item,
+    display_name: item.display_name || item.service_name || item.name,
+    price_text: priceText,
+    cover_image: item.cover_image || bannerImage.value,
+    service_code: item.service_code || item.code,
+    icon: item.icon || '✨',
+    unit: item.unit || '次' // 确保绑定后端返回的 "天/单/项/次" 计价单位
+  }
+}
 
 const normalizeArticle = (item) => ({
   ...item,
@@ -166,7 +181,10 @@ onMounted(() => {
             </view>
             <text class="service-desc">{{ service.description }}</text>
             <view class="service-bottom">
-              <text class="service-price">{{ service.price_text }}<text class="service-unit">/{{ service.unit || '次' }}</text></text>
+              <text class="service-price">
+                {{ service.price_text }}
+                <text class="service-unit">/{{ service.unit || '次' }}</text>
+              </text>
               <view class="consult-btn" @click.stop="openOrderSheet(service)">去咨询</view>
             </view>
           </view>
