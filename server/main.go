@@ -103,11 +103,15 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 	// ==========================================================
 	publicGroup := r.Group("/api/v1")
 	{
-		publicGroup.GET("/state", handlers.GetState(db))
-		publicGroup.GET("/configs", handlers.ClientGetConfigs(db))
+		//B端管理后台路由
+		publicGroup.POST("/admin/auth/login", handlers.AuthAdmin(db))
+		publicGroup.POST("/admin/auth/logout", handlers.AuthLogout())
+
+		//C端客户端路由
+		//publicGroup.GET("/client/state", handlers.GetState(db))
+		publicGroup.GET("/client/configs", handlers.ClientGetConfigs(db))
 		publicGroup.GET("/client/services", handlers.ClientListServices(db))
 		publicGroup.GET("/client/articles", handlers.ClientListArticles(db))
-		publicGroup.POST("/auth/login", handlers.AuthAdmin(db))
 		publicGroup.POST("/client/auth/tg", handlers.AuthTG(db))
 	}
 

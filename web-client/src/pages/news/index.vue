@@ -79,11 +79,11 @@ onMounted(loadArticles)
     <view class="top-hero">
       <image class="hero-bg" src="/static/img.png" mode="aspectFill" />
       <view class="hero-mask"></view>
-      <view class="hero-content">
-        <text class="kicker">YESOK JOURNAL</text>
-        <text class="title">越南商务与热带生活灵感</text>
-        <text class="subtitle">由后台资讯表实时驱动，每一条内容都可在 B 端配置。</text>
-      </view>
+<!--      <view class="hero-content">-->
+<!--        <text class="kicker">YESOK JOURNAL</text>-->
+<!--        <text class="title">越南商务与热带生活灵感</text>-->
+<!--        <text class="subtitle">由后台资讯表实时驱动，每一条内容都可在 B 端配置。</text>-->
+<!--      </view>-->
     </view>
 
     <scroll-view scroll-x class="category-scroll" enable-flex="true">
