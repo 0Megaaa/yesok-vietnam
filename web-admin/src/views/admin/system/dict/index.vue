@@ -105,6 +105,7 @@ const deleteDictType = async (item) => {
 }
 
 // 字典数据操作
+const dataDialogVisible = ref(false)
 const dictDataForm = ref({
   id: null,
   dict_code: '',
@@ -127,8 +128,14 @@ const resetDictDataForm = () => {
   }
 }
 
+const handleAddData = () => {
+  resetDictDataForm()
+  dataDialogVisible.value = true
+}
+
 const editDictData = (item) => {
   dictDataForm.value = { ...item }
+  dataDialogVisible.value = true
 }
 
 const saveDictData = async () => {
@@ -147,6 +154,7 @@ const saveDictData = async () => {
     resetDictDataForm()
     showToast('字典数据已保存', 'success')
     await fetchDictData()
+    dataDialogVisible.value = false
   } catch (error) {
     showToast(error?.message || '字典数据保存失败', 'error')
   }
@@ -226,15 +234,14 @@ onMounted(() => {
           <span v-if="currentDictCode" class="data-hint">（当前类型：{{ currentDictCode }}）</span>
         </span>
 
-        <div class="service-form two-col">
-<!--          <el-input v-model="dictDataForm.dict_label" class="input" placeholder="标签" />-->
-<!--          <el-input v-model="dictDataForm.dict_value" class="input" placeholder="值" />-->
-<!--          <el-input v-model="dictDataForm.sort_order" class="input" type="number" placeholder="排序" />-->
-<!--          <el-input v-model="dictDataForm.remark" class="input span-2" placeholder="备注" />-->
-          <el-button class="primary-btn" type="default" @click="saveDictData">
-            {{ dictDataForm.id ? '更新数据' : '新增数据' }}
+        <div class="data-panel-action">
+          <el-button
+            class="primary-btn"
+            :disabled="!currentTypeId"
+            @click="handleAddData"
+          >
+            + 新增数据
           </el-button>
-<!--          <el-button class="ghost-btn" type="default" @click="resetDictDataForm">清空</el-button>-->
         </div>
 
         <div class="table-scroll">
@@ -243,19 +250,30 @@ onMounted(() => {
               请先在左侧选择一个字典类型
             </div>
             <div v-else-if="dataLoading" class="empty">数据加载中…</div>
+
+            <div v-if="currentTypeId && !dataLoading && dictData.length" class="table-row table-header">
+              <span class="dict-name">字典标签</span>
+              <span class="dict-value">字典键值</span>
+              <span class="dict-remark">备注</span>
+<!--              <span class="dict-status-head">状态</span>-->
+              <div class="type-actions-head">操作</div>
+            </div>
+
             <div
-              v-else
               v-for="item in dictData"
               :key="item.id"
               class="table-row"
             >
               <span class="dict-name">{{ item.dict_label }}</span>
               <span class="dict-value">{{ item.dict_value }}</span>
-              <span class="dict-status" :class="{ active: item.status === 1 }">
-                {{ item.status === 1 ? '启用' : '停用' }}
-              </span>
-              <el-button class="ghost-btn" type="default" @click="editDictData(item)">编辑</el-button>
-              <el-button class="danger-btn" type="default" @click="deleteDictData(item)">删除</el-button>
+              <span class="dict-remark">{{ item.remark || '—' }}</span>
+<!--              <span class="dict-status" :class="{ active: item.status === 1 }">-->
+<!--                {{ item.status === 1 ? '启用' : '停用' }}-->
+<!--              </span>-->
+              <div class="type-actions">
+                <el-button class="ghost-btn" type="default" @click="editDictData(item)">编辑</el-button>
+                <el-button class="danger-btn" type="default" @click="deleteDictData(item)">删除</el-button>
+              </div>
             </div>
             <div v-if="currentTypeId && !dataLoading && !dictData.length" class="empty">
               该类型暂无数据
@@ -265,6 +283,33 @@ onMounted(() => {
       </div>
     </div>
   </div>
+
+  <!-- 字典数据新增/编辑弹窗 -->
+  <el-dialog
+    v-model="dataDialogVisible"
+    :title="dictDataForm.id ? '编辑字典数据' : '新增字典数据'"
+    width="480px"
+    destroy-on-close
+  >
+    <el-form :model="dictDataForm" label-width="100px" label-position="right">
+      <el-form-item label="字典标签" required>
+        <el-input v-model="dictDataForm.dict_label" placeholder="如：出行交通" />
+      </el-form-item>
+      <el-form-item label="字典键值" required>
+        <el-input v-model="dictDataForm.dict_value" placeholder="如：travel" />
+      </el-form-item>
+      <el-form-item label="显示排序">
+        <el-input-number v-model="dictDataForm.sort_order" :min="0" style="width: 100%" />
+      </el-form-item>
+      <el-form-item label="备注描述">
+        <el-input v-model="dictDataForm.remark" type="textarea" :rows="2" placeholder="备注说明" />
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button @click="dataDialogVisible = false">取消</el-button>
+      <el-button type="primary" @click="saveDictData">确定</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <style scoped>
@@ -458,10 +503,20 @@ onMounted(() => {
 }
 
 .dict-name {
+  display: block;
+  min-width: 80px;
   font-size: 14px;
   font-weight: 600;
   color: #12312c;
   line-height: 1.3;
+}
+
+.dict-value {
+  display: block;
+  min-width: 80px;
+  font-size: 13px;
+  color: #6b7c78;
+  text-align: center;
 }
 
 .dict-code {
@@ -474,6 +529,8 @@ onMounted(() => {
   align-items: center;
   gap: 4px;
   flex-shrink: 0;
+  min-width: 120px;
+  justify-content: center;
 }
 
 .table-row {
@@ -496,16 +553,61 @@ onMounted(() => {
   background: rgba(0, 77, 64, 0.08);
 }
 
+.dict-status-head {
+  min-width: 50px;
+  text-align: center;
+  font-size: 13px;
+  color: #12312c;
+  font-weight: 700;
+}
+
+.dict-remark {
+  flex: 1;
+  font-size: 12px;
+  color: #6b7c78;
+  text-align: center;
+  padding: 0 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.type-actions-head {
+  min-width: 120px;
+  text-align: center;
+  font-size: 13px;
+  color: #12312c;
+  font-weight: 700;
+}
+
+.type-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 120px;
+  flex-shrink: 0;
+  justify-content: center;
+}
+
+.table-row.table-header {
+  font-weight: bold;
+  color: #12312c;
+  background: rgba(0, 77, 64, 0.04);
+  border-radius: 8px;
+  padding: 10px;
+  border-bottom: 2px solid rgba(0, 77, 64, 0.15);
+  margin-bottom: 4px;
+}
+
+.table-row.table-header .dict-name,
+.table-row.table-header .dict-value {
+  font-weight: 700;
+  font-size: 13px;
+}
+
 .dict-status.active {
   color: #004d40;
   background: rgba(0, 77, 64, 0.12);
-}
-
-.dict-value {
-  min-width: 60px;
-  color: #6b7c78;
-  font-size: 12px;
-  text-align: center;
 }
 
 .empty {
@@ -518,6 +620,10 @@ onMounted(() => {
 .empty.hint {
   color: #9ab;
   font-size: 14px;
+}
+
+.data-panel-action {
+  margin-bottom: 12px;
 }
 
 @media (max-width: 900px) {
