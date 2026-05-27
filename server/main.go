@@ -114,6 +114,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		//publicGroup.GET("/client/state", handlers.GetState(db))
 		publicGroup.GET("/client/configs", handlers.ClientGetConfigs(db))
 		publicGroup.GET("/client/services", handlers.ClientListServices(db))
+		publicGroup.GET("/client/services/:id", handlers.ClientGetService(db))
 		publicGroup.GET("/client/articles", handlers.ClientListArticles(db))
 		publicGroup.POST("/client/auth/tg", handlers.AuthTG(db))
 	}
@@ -130,6 +131,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		authGroup.GET("/admin/dashboard/stats", handlers.DashboardStats(db))
 		authGroup.GET("/admin/orders", handlers.AdminListOrders(db))
 		authGroup.GET("/admin/orders/:id", handlers.AdminGetOrder(db))
+		authGroup.GET("/admin/orders/:id/actions", handlers.AdminGetOrderActions(db))
 		authGroup.PUT("/admin/orders/:id", handlers.AdminUpdateOrder(db, orderEngine))
 		authGroup.GET("/admin/services", handlers.AdminListServices(db))
 		authGroup.POST("/admin/services", handlers.AdminSaveService(db))
@@ -161,6 +163,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		authGroup.GET("/client/user/me", handlers.GetMe(db))
 		authGroup.GET("/client/state", handlers.GetState(db))
 		authGroup.PUT("/client/state", handlers.UpdateState(db, orderEngine))
+		authGroup.POST("/client/orders", handlers.ClientCreateOrder(db, orderEngine))
 		authGroup.POST("/client/auth/logout", handlers.AuthLogout())
 	}
 }

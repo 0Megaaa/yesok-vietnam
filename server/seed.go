@@ -45,11 +45,53 @@ func seedSysUser(db *gorm.DB) {
 // 3.返回 -> code 到服务模型的映射，供流程节点绑定 service_id。
 func seedServices(db *gorm.DB) map[string]models.SysService {
 	serviceSeeds := []models.SysService{
-		{ServiceCode: "airport_transfer", ServiceName: "越南机场接送", DisplayName: "豪华接机", Icon: "✈️", CoverImage: "/static/img.png", Description: "双语管家举牌接机，商务车直达酒店。", BasePrice: 65000000, Currency: "VND", Unit: "次", SortOrder: 1, Status: 1, IsHot: true, FormSchema: makeFormSchema("flight_no", "arrival_time", "hotel_address")},
-		{ServiceCode: "visa", ServiceName: "越南签证加急", DisplayName: "签证加急", Icon: "🛂", CoverImage: "/static/img.png", Description: "商务、旅游、落地签资料审核与加急通道。", BasePrice: 120000000, Currency: "VND", Unit: "单", SortOrder: 2, Status: 1, IsHot: true, FormSchema: makeFormSchema("passport_name", "passport_no", "entry_date")},
-		{ServiceCode: "charter", ServiceName: "商务包车", DisplayName: "商务包车", Icon: "🚘", CoverImage: "/static/img.png", Description: "胡志明、河内、岘港商务包车与行程规划。", BasePrice: 180000000, Currency: "VND", Unit: "天", SortOrder: 3, Status: 1, IsHot: true, FormSchema: makeFormSchema("city", "use_date", "route")},
-		{ServiceCode: "translation", ServiceName: "商务翻译", DisplayName: "随行翻译", Icon: "🌐", CoverImage: "/static/img.png", Description: "中越英随行翻译、会议陪同与商务谈判支持。", BasePrice: 150000000, Currency: "VND", Unit: "天", SortOrder: 4, Status: 1, IsHot: false, FormSchema: makeFormSchema("language", "meeting_time", "scene")},
-		{ServiceCode: "business", ServiceName: "企业落地咨询", DisplayName: "企业落地", Icon: "🏢", CoverImage: "/static/img.png", Description: "公司注册、选址、财税和本地资源对接。", BasePrice: 350000000, Currency: "VND", Unit: "项", SortOrder: 5, Status: 1, IsHot: false, FormSchema: makeFormSchema("company_name", "industry", "need")},
+		{ServiceCode: "airport_transfer", ServiceName: "越南机场接送", DisplayName: "豪华接机", Icon: "✈️", CoverImage: "/static/img.png", Description: "双语管家举牌接机，商务车直达酒店。", BasePrice: 65000000, Currency: "VND", Unit: "次", SortOrder: 1, Status: 1, IsHot: true, FormSchema: makeFormSchema([]FieldSchema{
+			{Name: "flight_no", Label: "航班号", Type: "text", Required: true, Placeholder: "如 VN123 或 CA901"},
+			{Name: "arrival_date", Label: "到达日期", Type: "date", Required: true, Placeholder: "请选择到达日期"},
+			{Name: "arrival_time", Label: "到达时间", Type: "text", Required: true, Placeholder: "如 14:30"},
+			{Name: "hotel_address", Label: "酒店地址", Type: "textarea", Required: true, Placeholder: "请填写胡志明市区的酒店名称和地址"},
+			{Name: "passenger_count", Label: "乘客人数", Type: "select", Required: true, Options: []string{"1人", "2人", "3人", "4人及以上"}},
+			{Name: "luggage", Label: "行李件数", Type: "select", Required: false, Options: []string{"无行李", "1件", "2件", "3件及以上"}},
+			{Name: "remark", Label: "补充说明", Type: "textarea", Required: false, Placeholder: "其他需求（选填）"},
+		})},
+		{ServiceCode: "visa", ServiceName: "越南签证加急", DisplayName: "签证加急", Icon: "🛂", CoverImage: "/static/img.png", Description: "商务、旅游、落地签资料审核与加急通道。", BasePrice: 120000000, Currency: "VND", Unit: "单", SortOrder: 2, Status: 1, IsHot: true, FormSchema: makeFormSchema([]FieldSchema{
+			{Name: "passport_name", Label: "护照姓名（英文）", Type: "text", Required: true, Placeholder: "与护照一致的英文姓名"},
+			{Name: "passport_no", Label: "护照号码", Type: "text", Required: true, Placeholder: "护照上的号码"},
+			{Name: "nationality", Label: "国籍", Type: "select", Required: true, Options: []string{"中国", "其他国家"}},
+			{Name: "entry_date", Label: "预计入境日期", Type: "date", Required: true, Placeholder: "请选择"},
+			{Name: "visa_type", Label: "签证类型", Type: "select", Required: true, Options: []string{"旅游签", "商务签", "落地签", "贴纸签"}},
+			{Name: "stay_days", Label: "预计停留天数", Type: "select", Required: true, Options: []string{"15天", "30天", "90天"}},
+			{Name: "contact_phone", Label: "联系电话", Type: "phone", Required: true, Placeholder: "国内手机号"},
+			{Name: "remark", Label: "备注", Type: "textarea", Required: false, Placeholder: "特殊需求（选填）"},
+		})},
+		{ServiceCode: "charter", ServiceName: "商务包车", DisplayName: "商务包车", Icon: "🚘", CoverImage: "/static/img.png", Description: "胡志明、河内、岘港商务包车与行程规划。", BasePrice: 180000000, Currency: "VND", Unit: "天", SortOrder: 3, Status: 1, IsHot: true, FormSchema: makeFormSchema([]FieldSchema{
+			{Name: "city", Label: "目的地城市", Type: "select", Required: true, Options: []string{"胡志明市", "河内", "岘港", "芽庄", "其他"}},
+			{Name: "use_date", Label: "用车日期", Type: "date", Required: true, Placeholder: "请选择日期"},
+			{Name: "use_days", Label: "用车天数", Type: "select", Required: true, Options: []string{"1天", "2天", "3天", "4天及以上"}},
+			{Name: "route", Label: "行程路线", Type: "textarea", Required: true, Placeholder: "描述大致行程，如：胡志明市→美奈一日游"},
+			{Name: "passenger_count", Label: "乘客人数", Type: "select", Required: true, Options: []string{"1-3人", "4-6人", "7-12人", "13人以上"}},
+			{Name: "vehicle_type", Label: "车型偏好", Type: "select", Required: false, Options: []string{"轿车", "SUV", "商务车", "小巴", "无要求"}},
+			{Name: "remark", Label: "特殊要求", Type: "textarea", Required: false, Placeholder: "儿童座椅/行李规格等（选填）"},
+		})},
+		{ServiceCode: "translation", ServiceName: "商务翻译", DisplayName: "随行翻译", Icon: "🌐", CoverImage: "/static/img.png", Description: "中越英随行翻译、会议陪同与商务谈判支持。", BasePrice: 150000000, Currency: "VND", Unit: "天", SortOrder: 4, Status: 1, IsHot: false, FormSchema: makeFormSchema([]FieldSchema{
+			{Name: "language", Label: "翻译语言", Type: "select", Required: true, Options: []string{"中越", "中英", "中英越"}},
+			{Name: "scene", Label: "使用场景", Type: "select", Required: true, Options: []string{"会议陪同", "工厂参观", "商务谈判", "展会翻译", "旅行随行", "其他"}},
+			{Name: "meeting_date", Label: "翻译日期", Type: "date", Required: true, Placeholder: "请选择日期"},
+			{Name: "meeting_time", Label: "开始时间", Type: "text", Required: true, Placeholder: "如 09:00"},
+			{Name: "duration", Label: "预计时长", Type: "select", Required: true, Options: []string{"半天（4小时内）", "全天（8小时内）", "多天"}},
+			{Name: "address", Label: "服务地址", Type: "textarea", Required: true, Placeholder: "详细地址或会议地点"},
+			{Name: "topic", Label: "会议主题", Type: "textarea", Required: false, Placeholder: "简要描述会议内容（选填）"},
+		})},
+		{ServiceCode: "business", ServiceName: "企业落地咨询", DisplayName: "企业落地", Icon: "🏢", CoverImage: "/static/img.png", Description: "公司注册、选址、财税和本地资源对接。", BasePrice: 350000000, Currency: "VND", Unit: "项", SortOrder: 5, Status: 1, IsHot: false, FormSchema: makeFormSchema([]FieldSchema{
+			{Name: "company_name", Label: "公司名称（拟注册）", Type: "text", Required: true, Placeholder: "中英文名称"},
+			{Name: "industry", Label: "所属行业", Type: "select", Required: true, Options: []string{"科技/互联网", "贸易/进出口", "制造/工厂", "餐饮/食品", "教育/培训", "地产/建筑", "其他"}},
+			{Name: "registered_capital", Label: "注册资本", Type: "select", Required: true, Options: []string{"10万美元以下", "10-50万美元", "50-100万美元", "100万美元以上", "未定"}},
+			{Name: "investor_country", Label: "投资方国籍/地区", Type: "select", Required: true, Options: []string{"中国大陆", "香港", "台湾", "新加坡", "其他"}},
+			{Name: "need", Label: "需要哪些服务", Type: "select", Required: true, Options: []string{"注册公司", "工作签/投资签", "厂房/办公室选址", "财税代理", "法律顾问", "全托管"}},
+			{Name: "contact_name", Label: "联系人", Type: "text", Required: true, Placeholder: "您的姓名"},
+			{Name: "contact_phone", Label: "联系电话", Type: "phone", Required: true, Placeholder: "手机或微信"},
+			{Name: "remark", Label: "补充说明", Type: "textarea", Required: false, Placeholder: "预算、特殊要求等（选填）"},
+		})},
 	}
 	result := map[string]models.SysService{}
 	for _, seed := range serviceSeeds {
@@ -66,7 +108,19 @@ func seedServices(db *gorm.DB) map[string]models.SysService {
 	return result
 }
 
-func makeFormSchema(fields ...string) []byte {
+// FieldSchema 描述单个表单字段的元数据。
+type FieldSchema struct {
+	Name        string   `json:"name"`              // 表单字段名，对应 form_data 中的 key
+	Label       string   `json:"label"`             // 前端展示标签
+	Type        string   `json:"type"`              // 字段类型：text | select | textarea | date | phone
+	Required    bool     `json:"required"`          // 是否必填
+	Placeholder string   `json:"placeholder"`       // 输入框占位提示
+	Options     []string `json:"options,omitempty"` // select 类型的选项列表
+}
+
+// makeFormSchema 构造服务动态表单的 schema JSON。
+// 每个服务可自定义字段集合，前端根据 schema 动态渲染表单。
+func makeFormSchema(fields []FieldSchema) []byte {
 	b, _ := json.Marshal(map[string]interface{}{"fields": fields})
 	return b
 }

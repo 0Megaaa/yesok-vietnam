@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
 import { get, post } from '@/api/request'
@@ -7,9 +7,16 @@ import AuthPopup from '@/components/AuthPopup.vue'
 import { useGlobalShare } from '@/composables/useGlobalShare'
 
 const client = useClientStore()
-const serviceId = ref('company')
+const serviceId = ref('')
 const serviceData = ref(null)
 const loading = ref(true)
+const submitting = ref(false)
+
+// 动态表单相关
+const formSchema = ref({ fields: [] }) // {fields: [{name, label, type, required, placeholder, options}]}
+const formValues = ref({})              // 用户填写的表单数据
+const formErrors = ref({})              // 字段级错误信息
+const showForm = ref(false)            // 是否展示下单表单弹窗
 
 const includes = computed(() => [
   '需求沟通与方案确认',
@@ -20,7 +27,7 @@ const includes = computed(() => [
 ])
 
 const steps = computed(() => [
-  { no: '1', title: '提交需求', desc: '说明服务目标、时间计划与预算范围。' },
+  { no: '1', title: '填写需求', desc: '按服务类型填写专属表单，管家实时接收。' },
   { no: '2', title: '管家评估', desc: '专属管家确认可行性、材料清单与报价。' },
   { no: '3', title: '开始办理', desc: '进入动态工作流节点，按状态推进订单。' },
   { no: '4', title: '交付验收', desc: '完成服务后提交结果并同步后续注意事项。' },
@@ -29,25 +36,21 @@ const steps = computed(() => [
 useGlobalShare({ title: 'YesOK越南管家｜服务详情', path: '/pages/home/index' })
 
 onLoad((options) => {
-  serviceId.value = options.id || 'company'
+  serviceId.value = options.id || ''
   loadService(serviceId.value)
 })
 
-// loadService 加载服务详情。
-// 实现步骤：
-// 1. 读取路由中的服务 ID。
-// 2. 通过统一 request 访问 Mock 服务详情路由。
-// 3. 若 Mock 数据缺失则展示兜底服务，防止页面空白。
+// loadService 加载服务详情并解析 form_schema。
 const loadService = async (id) => {
   loading.value = true
   try {
     const res = await get(`/v1/client/services/${id}`)
     serviceData.value = res.data
-  } catch (error) {
+    parseFormSchema(res.data)
+  } catch {
     serviceData.value = {
       id: 'unknown',
       icon: '📋',
-      color: '#1565C0',
       bg: '#E3F0FF',
       name: '服务详情',
       price: '面议',
@@ -55,15 +58,93 @@ const loadService = async (id) => {
       tags: ['专属管家'],
       description: '该服务详情正在准备中，请联系管家获取更多信息。',
     }
+    formSchema.value = { fields: [] }
   } finally {
     loading.value = false
   }
 }
 
-// goBack 返回上一页。
-// 实现步骤：
-// 1. 优先调用 navigateBack。
-// 2. 若没有历史栈则回到首页，避免 H5 直达详情页无法返回。
+// parseFormSchema 从服务数据中解析出 form_schema。
+const parseFormSchema = (service) => {
+  try {
+    const raw = service.form_schema || service.formSchema
+    if (!raw) {
+      formSchema.value = { fields: [] }
+      return
+    }
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
+    formSchema.value = parsed
+    // 初始化 formValues
+    const values = {}
+    ;(parsed.fields || []).forEach((f) => { values[f.name] = '' })
+    formValues.value = values
+    formErrors.value = {}
+  } catch {
+    formSchema.value = { fields: [] }
+  }
+}
+
+// validateField 校验单个字段。
+const validateField = (field) => {
+  const val = (formValues.value[field.name] || '').toString().trim()
+  if (field.required && !val) {
+    formErrors.value[field.name] = `请填写 ${field.label}`
+    return false
+  }
+  delete formErrors.value[field.name]
+  return true
+}
+
+// validateAll 校验所有必填字段。
+// 返回 true 表示全部通过。
+const validateAll = () => {
+  let ok = true
+  ;(formSchema.value.fields || []).forEach((f) => {
+    if (!validateField(f)) ok = false
+  })
+  return ok
+}
+
+// openOrderForm 打开下单表单弹窗。
+const openOrderForm = () => {
+  const serviceName = serviceData.value?.name || '该服务'
+  if (!client.checkAuth(`预约「${serviceName}」`)) return
+  showForm.value = true
+}
+
+// closeForm 关闭下单表单弹窗。
+const closeForm = () => {
+  showForm.value = false
+  formErrors.value = {}
+}
+
+// submitOrder 提交订单。
+const submitOrder = async () => {
+  if (!validateAll()) return
+  submitting.value = true
+  try {
+    const payload = {
+      service_id: serviceData.value.id,
+      contact_name: formValues.value.contact_name || client.userInfo?.nickname || '微信客户',
+      contact_phone: formValues.value.contact_phone || '',
+      form_data: { ...formValues.value },
+    }
+    const res = await post('/v1/client/orders', payload)
+    client.addOrder(res.order)
+    showForm.value = false
+    safeToast('订单已提交，管家即将联系您', 'success')
+    // 重置表单
+    const values = {}
+    ;(formSchema.value.fields || []).forEach((f) => { values[f.name] = '' })
+    formValues.value = values
+    formErrors.value = {}
+  } catch (err) {
+    safeToast(err?.message || '订单提交失败', 'error')
+  } finally {
+    submitting.value = false
+  }
+}
+
 const goBack = () => {
   const pages = getCurrentPages()
   const uniApi = typeof uni !== 'undefined' ? uni : null
@@ -74,10 +155,6 @@ const goBack = () => {
   }
 }
 
-// contactManager 发起服务咨询。
-// 实现步骤：
-// 1. 先执行登录拦截，未登录时打开底部登录弹窗。
-// 2. 已登录后进入聊天页并带上服务名称。
 const contactManager = () => {
   const serviceName = serviceData.value?.name || '服务详情'
   if (!client.checkAuth(`咨询「${serviceName}」`)) return
@@ -85,55 +162,58 @@ const contactManager = () => {
   if (uniApi?.navigateTo) uniApi.navigateTo({ url: `/pages/chat/index?svc=${encodeURIComponent(serviceName)}` })
 }
 
-// createConsultOrder 创建演示咨询订单。
-// 实现步骤：
-// 1. 登录拦截，保证订单与用户身份绑定。
-// 2. 调用 Mock 下单接口生成订单。
-// 3. 写入 store 并提示用户后续可在首页查看订单动态。
-const createConsultOrder = async () => {
-  const serviceName = serviceData.value?.name || '服务详情'
-  if (!client.checkAuth(`预约「${serviceName}」`)) return
-  const res = await post('/v1/client/orders', { serviceId: serviceData.value?.id || serviceId.value })
-  client.addOrder(res.data)
+const safeToast = (title, icon = 'info') => {
   const uniApi = typeof uni !== 'undefined' ? uni : null
-  if (uniApi?.showToast) uniApi.showToast({ title: '已生成咨询订单', icon: 'success' })
+  if (uniApi?.showToast) {
+    uniApi.showToast({ title, icon })
+  } else {
+    console.info(`[Toast] ${title}`)
+  }
 }
 </script>
 
 <template>
   <view class="detail-page">
-    <view class="hero" :style="{ background: serviceData?.bg || '#E3F0FF' }">
+    <!-- Hero -->
+    <view class="hero" :style="{ background: serviceData?.bg || serviceData?.cover_image || '#E3F0FF' }">
       <view class="nav-back" @click="goBack">‹</view>
       <text class="hero-icon">{{ serviceData?.icon || '📋' }}</text>
     </view>
 
+    <!-- 服务信息 -->
     <view class="title-card">
       <view class="title-row">
-        <view class="service-icon" :style="{ background: serviceData?.bg || '#E3F0FF' }">{{ serviceData?.icon || '📋' }}</view>
+        <view class="service-icon-wrap" :style="{ background: serviceData?.bg || '#E3F0FF' }">
+          <text class="service-icon">{{ serviceData?.icon || '📋' }}</text>
+        </view>
         <view class="title-main">
-          <text class="service-title">{{ serviceData?.name || '服务详情' }}</text>
+          <text class="service-title">{{ serviceData?.name || serviceData?.display_name || '服务详情' }}</text>
           <view class="tag-row">
-            <text v-for="tag in serviceData?.tags || []" :key="tag" class="tag">{{ tag }}</text>
+            <text v-for="tag in (serviceData?.tags || [])" :key="tag" class="tag">{{ tag }}</text>
           </view>
         </view>
       </view>
       <view class="price-row">
-        <text class="price">{{ serviceData?.price || '面议' }}</text>
-        <text class="unit">{{ serviceData?.unit || '' }}</text>
+        <text class="price">
+          {{ serviceData?.base_price ? `${(Number(serviceData.base_price) / 100).toLocaleString('vi-VN')} ₫` : serviceData?.price || '面议' }}
+        </text>
+        <text class="unit">/{{ serviceData?.unit || '次' }}</text>
       </view>
       <text class="desc">{{ serviceData?.description || serviceData?.desc || '该服务由 YesOK 越南管家提供中文一站式协助。' }}</text>
     </view>
 
+    <!-- 包含服务 -->
     <view class="section-card">
-      <view class="section-title"><text class="section-bar"></text>包含服务</view>
+      <view class="section-title"><view class="section-bar"></view>包含服务</view>
       <view v-for="item in includes" :key="item" class="include-item">
         <text class="check">✓</text>
         <text>{{ item }}</text>
       </view>
     </view>
 
+    <!-- 办理流程 -->
     <view class="section-card">
-      <view class="section-title"><text class="section-bar"></text>办理流程</view>
+      <view class="section-title"><view class="section-bar"></view>办理流程</view>
       <view v-for="step in steps" :key="step.no" class="step-item">
         <view class="step-no">{{ step.no }}</view>
         <view class="step-content">
@@ -143,9 +223,87 @@ const createConsultOrder = async () => {
       </view>
     </view>
 
+    <!-- 底部操作栏 -->
     <view class="bottom-bar">
       <button class="ghost-btn" @click="contactManager">去咨询</button>
-      <button class="primary-btn" @click="createConsultOrder">立即预约</button>
+      <button class="primary-btn" @click="openOrderForm">立即预约</button>
+    </view>
+
+    <!-- 下单表单弹窗 -->
+    <view v-if="showForm" class="form-overlay" @click.self="closeForm">
+      <view class="form-sheet">
+        <!-- 弹窗头部 -->
+        <view class="form-header">
+          <text class="form-title">填写预约信息</text>
+          <view class="form-close" @click="closeForm">✕</view>
+        </view>
+
+        <!-- 动态表单字段 -->
+        <scroll-view scroll-y class="form-body">
+          <view v-for="field in formSchema.fields" :key="field.name" class="field-wrap">
+            <!-- 标签 -->
+            <view class="field-label">
+              <text>{{ field.label }}</text>
+              <text v-if="field.required" class="required-star">*</text>
+            </view>
+
+            <!-- text / phone -->
+            <input
+              v-if="field.type === 'text' || field.type === 'phone'"
+              v-model="formValues[field.name]"
+              :type="field.type === 'phone' ? 'number' : 'text'"
+              class="field-input"
+              :class="{ error: formErrors[field.name] }"
+              :placeholder="field.placeholder || `请输入${field.label}`"
+              @blur="validateField(field)"
+            />
+
+            <!-- date -->
+            <input
+              v-else-if="field.type === 'date'"
+              v-model="formValues[field.name]"
+              class="field-input"
+              :class="{ error: formErrors[field.name] }"
+              placeholder="格式：2025-01-15"
+              @blur="validateField(field)"
+            />
+
+            <!-- textarea -->
+            <textarea
+              v-else-if="field.type === 'textarea'"
+              v-model="formValues[field.name]"
+              class="field-textarea"
+              :class="{ error: formErrors[field.name] }"
+              :placeholder="field.placeholder || `请输入${field.label}`"
+              @blur="validateField(field)"
+            />
+
+            <!-- select -->
+            <picker
+              v-else-if="field.type === 'select'"
+              mode="selector"
+              :value="0"
+              :range="field.options || []"
+              @change="(e) => { formValues[field.name] = field.options[e.detail.value]; validateField(field) }"
+            >
+              <view class="field-picker" :class="{ error: formErrors[field.name], filled: formValues[field.name] }">
+                <text>{{ formValues[field.name] || field.placeholder || `请选择${field.label}` }}</text>
+                <text class="picker-arrow">›</text>
+              </view>
+            </picker>
+
+            <!-- 错误提示 -->
+            <text v-if="formErrors[field.name]" class="field-error">{{ formErrors[field.name] }}</text>
+          </view>
+        </scroll-view>
+
+        <!-- 提交按钮 -->
+        <view class="form-footer">
+          <button class="submit-btn" :disabled="submitting" @click="submitOrder">
+            {{ submitting ? '提交中...' : '确认提交' }}
+          </button>
+        </view>
+      </view>
     </view>
 
     <AuthPopup />
@@ -153,9 +311,6 @@ const createConsultOrder = async () => {
 </template>
 
 <style scoped>
-/* 意图：服务详情页同步 Yesok 2.0 薄荷灰青底色，保证从首页跳转后的品牌一致性。 */
-/* 步骤：保留原有结构，只替换背景色并预留底部安全区。 */
-/* 返回：视觉连续且不影响业务逻辑的详情页容器。 */
 .detail-page {
   min-height: 100vh;
   padding-bottom: 92px;
@@ -187,9 +342,7 @@ const createConsultOrder = async () => {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 
-.hero-icon {
-  font-size: 88px;
-}
+.hero-icon { font-size: 88px; }
 
 .title-card,
 .section-card {
@@ -200,13 +353,9 @@ const createConsultOrder = async () => {
   box-shadow: 0 1px 8px rgba(0, 0, 0, 0.05);
 }
 
-.title-row {
-  display: flex;
-  gap: 12px;
-  align-items: flex-start;
-}
+.title-row { display: flex; gap: 12px; align-items: flex-start; }
 
-.service-icon {
+.service-icon-wrap {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -217,29 +366,17 @@ const createConsultOrder = async () => {
   font-size: 24px;
 }
 
-.title-main {
-  flex: 1;
-}
-
-.service-title,
-.desc,
-.step-title,
-.step-desc {
-  display: block;
-}
+.title-main { flex: 1; }
 
 .service-title {
+  display: block;
   margin-bottom: 8px;
   color: #102a55;
   font-size: 19px;
   font-weight: 800;
 }
 
-.tag-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
+.tag-row { display: flex; flex-wrap: wrap; gap: 6px; }
 
 .tag {
   padding: 3px 8px;
@@ -263,12 +400,10 @@ const createConsultOrder = async () => {
   font-weight: 900;
 }
 
-.unit {
-  color: #9aa3b5;
-  font-size: 13px;
-}
+.unit { color: #9aa3b5; font-size: 13px; }
 
 .desc {
+  display: block;
   color: #4a5568;
   font-size: 13px;
   line-height: 1.8;
@@ -301,10 +436,7 @@ const createConsultOrder = async () => {
   font-size: 13px;
 }
 
-.check {
-  color: #2e7d32;
-  font-weight: 900;
-}
+.check { color: #2e7d32; font-weight: 900; }
 
 .step-item {
   display: flex;
@@ -327,23 +459,24 @@ const createConsultOrder = async () => {
   font-weight: 800;
 }
 
-.step-content {
-  flex: 1;
-}
+.step-content { flex: 1; }
 
 .step-title {
+  display: block;
   color: #102a55;
   font-size: 14px;
   font-weight: 800;
 }
 
 .step-desc {
+  display: block;
   margin-top: 4px;
   color: #6b7280;
   font-size: 12px;
   line-height: 1.6;
 }
 
+/* 底部操作栏 */
 .bottom-bar {
   position: fixed;
   right: 0;
@@ -376,5 +509,165 @@ const createConsultOrder = async () => {
 .primary-btn {
   color: #fff;
   background: linear-gradient(135deg, #004d40, #00695c);
+}
+
+/* 下单表单弹窗 */
+.form-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: flex-end;
+  background: rgba(0, 0, 0, 0.36);
+}
+
+.form-sheet {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-height: 88vh;
+  border-radius: 28px 28px 0 0;
+  background: #fff;
+  box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.18);
+}
+
+.form-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+  padding: 20px 20px 16px;
+  border-bottom: 1px solid rgba(0, 77, 64, 0.08);
+}
+
+.form-title {
+  color: #102a55;
+  font-size: 17px;
+  font-weight: 900;
+}
+
+.form-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #f2f6f5;
+  color: #6b7c78;
+  font-size: 14px;
+}
+
+.form-body {
+  flex: 1;
+  padding: 16px 18px;
+  max-height: 60vh;
+}
+
+/* 动态字段 */
+.field-wrap {
+  margin-bottom: 18px;
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+  color: #102a55;
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.required-star { color: #e53e3e; }
+
+.field-input {
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 1.5px solid rgba(0, 77, 64, 0.15);
+  border-radius: 14px;
+  background: #f8fbfa;
+  color: #102a55;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.field-input:focus { border-color: #004d40; }
+.field-input.error { border-color: #e53e3e; }
+
+.field-textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 80px;
+  padding: 10px 14px;
+  border: 1.5px solid rgba(0, 77, 64, 0.15);
+  border-radius: 14px;
+  background: #f8fbfa;
+  color: #102a55;
+  font-size: 14px;
+  outline: none;
+  resize: none;
+  transition: border-color 0.2s;
+}
+
+.field-textarea:focus { border-color: #004d40; }
+.field-textarea.error { border-color: #e53e3e; }
+
+.field-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  box-sizing: border-box;
+  width: 100%;
+  height: 44px;
+  padding: 0 14px;
+  border: 1.5px solid rgba(0, 77, 64, 0.15);
+  border-radius: 14px;
+  background: #f8fbfa;
+  color: #9aa3b5;
+  font-size: 14px;
+  transition: border-color 0.2s;
+}
+
+.field-picker.filled { color: #102a55; }
+.field-picker.error { border-color: #e53e3e; }
+
+.picker-arrow {
+  color: #9aa3b5;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.field-error {
+  display: block;
+  margin-top: 5px;
+  color: #e53e3e;
+  font-size: 11px;
+}
+
+/* 提交按钮 */
+.form-footer {
+  flex-shrink: 0;
+  padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
+  border-top: 1px solid rgba(0, 77, 64, 0.08);
+}
+
+.submit-btn {
+  width: 100%;
+  height: 46px;
+  border: none;
+  border-radius: 23px;
+  background: linear-gradient(135deg, #004d40, #00695c);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 900;
+  line-height: 46px;
+}
+
+.submit-btn[disabled] {
+  opacity: 0.6;
 }
 </style>

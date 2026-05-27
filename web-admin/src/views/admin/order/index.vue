@@ -31,13 +31,13 @@ const normalizeOrder = (order) => ({
   totalAmountText:
     order.price || `${Math.round((order.total_amount || 0) / 100)} ${order.currency || 'VND'}`,
   form_data: order.form_data || order.formData || {},
-  payment_status: order.status || order.pay_status || order.payStatus || 'pending',
+  payment_status: order.payment_status || order.pay_status || 'pending',
+  // actionNodes 字段映射：后端返回 buttonName→action_name, targetStatus→next_stage_code
   actionNodes: (order.actionNodes || []).map((node) => ({
-    ...node,
-    button_name: node.button_name || node.buttonName,
-    target_status: node.target_status || node.targetStatus,
-    trigger_payment: node.trigger_payment || node.triggerPayment,
-    required_material: node.required_material || node.requiredMaterial,
+    id: node.id,
+    action_name: node.button_name || node.action_name || '',
+    next_stage_code: node.target_status || node.targetStatus || '',
+    require_material: node.required_material || node.requiredMaterial || false,
   })),
 })
 
@@ -59,13 +59,13 @@ const loadOrders = async () => {
 const applyWorkflowAction = async (order, node) => {
   try {
     const res = await request.put(`/v1/admin/orders/${order.id}`, {
-      target_status: node.target_status,
-      remark: `${node.button_name}：由后台管家执行`,
+      action_name: node.action_name,
+      remark: `${node.action_name}：由后台管家执行`,
     })
     orders.value = orders.value.map((item) =>
       item.id === order.id ? normalizeOrder(res.data.order || res.data) : item
     )
-    showToast(`${node.button_name}已执行`, 'success')
+    showToast(`${node.action_name}已执行`, 'success')
   } catch (error) {
     showToast(error?.message || '流程推进失败', 'error')
   }
@@ -176,11 +176,11 @@ onUnmounted(() => {
             v-for="node in order.actionNodes"
             :key="node.id"
             class="action-btn"
-            :class="{ payment: node.trigger_payment }"
+            :class="{ payment: node.require_material }"
             type="default"
             @click="applyWorkflowAction(order, node)"
           >
-            {{ node.button_name }}
+            {{ node.action_name }}
           </el-button>
           <span v-if="!order.actionNodes.length" class="muted">暂无下一步动作</span>
           <el-button class="detail-btn" type="default" @click.stop="goToDetail(order.id)">

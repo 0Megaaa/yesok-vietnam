@@ -1,27 +1,49 @@
 <script setup>
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import request from '@/api/request'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { getOrderDetail, updateOrder, getOrderActions } from '@/api/admin/orders'
 
 const router = useRouter()
 const route = useRoute()
 
-const orderId = ref(route.params.id || 'YS20260515001')
+const orderId = ref(route.params.id || '')
 const loading = ref(true)
+const actionsLoading = ref(false)
 const order = ref(null)
+const actions = ref([])
 
-const statusMap = {
-  pending: '等待受理',
-  processing: '服务进行中',
-  supplementing: '待客户补充',
-  payment_pending: '待支付确认',
-  completed: '已完成',
+// 映射 macro_status (主状态码) -> 中文标签
+const statusLabel = (code) => {
+  const m = {
+    pending: '等待受理',
+    reviewing: '资料审核中',
+    quoted: '已报价',
+    paid: '已收款',
+    in_progress: '服务履约中',
+    completed: '已完成',
+    cancelled: '已取消',
+    refunded: '已退款',
+    failed: '异常',
+  }
+  return m[code] || code || '未知'
+}
+
+// 格式化金额，单位：分 -> 越南盾
+const formatMoney = (amount) => {
+  if (!amount && amount !== 0) return '—'
+  return `${(Number(amount) / 100).toLocaleString('vi-VN')} ₫`
+}
+
+// 时间格式化
+const formatTime = (t) => {
+  if (!t) return ''
+  return new Date(t).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })
 }
 
 const formEntries = computed(() => {
   if (!order.value?.formData) return []
-  return Object.entries(order.value.formData).map(([key, value]) => ({ key, value }))
+  return Object.entries(order.value.formData).map(([k, v]) => ({ key: k, value: v }))
 })
 
 const showToast = (title, type = 'info') => {
@@ -31,12 +53,57 @@ const showToast = (title, type = 'info') => {
 const loadOrderDetail = async () => {
   loading.value = true
   try {
-    const res = await request.get(`/v1/admin/orders/${orderId.value}`)
-    order.value = res.data
-  } catch (error) {
+    const res = await getOrderDetail(orderId.value)
+    order.value = res
+  } catch {
     showToast('订单详情加载失败', 'error')
   } finally {
     loading.value = false
+  }
+}
+
+const loadOrderActions = async () => {
+  if (!orderId.value) return
+  actionsLoading.value = true
+  try {
+    const res = await getOrderActions(orderId.value)
+    actions.value = res.actions || []
+  } catch {
+    // 动作加载失败不影响主流程
+    actions.value = []
+  } finally {
+    actionsLoading.value = false
+  }
+}
+
+const refresh = async () => {
+  await loadOrderDetail()
+  await loadOrderActions()
+}
+
+const applyWorkflowAction = async (action) => {
+  if (!order.value) return
+  try {
+    const { value: remark } = await ElMessageBox.prompt(
+      `执行动作「${action.action_name}」，请输入备注（可选）：`,
+      '确认操作',
+      {
+        confirmButtonText: '确认执行',
+        cancelButtonText: '取消',
+        inputPlaceholder: '备注信息（选填）',
+      }
+    )
+    const res = await updateOrder(order.value.id, {
+      action_name: action.action_name,
+      remark: remark || '',
+    })
+    order.value = res
+    await loadOrderActions()
+    showToast(`「${action.action_name}」已执行`, 'success')
+  } catch (err) {
+    if (err !== 'cancel') {
+      showToast('流程推进失败', 'error')
+    }
   }
 }
 
@@ -44,31 +111,18 @@ const goBack = () => {
   if (window.history.length > 1) {
     router.back()
   } else {
-    router.push('/admin')
+    router.push('/admin/order')
   }
 }
 
-const applyWorkflowAction = async (node) => {
-  if (!order.value) return
-  try {
-    const res = await request.put(`/v1/admin/orders/${order.value.id}`, {
-      targetStatus: node.targetStatus,
-      statusText: statusMap[node.targetStatus] || '状态已更新',
-    })
-    order.value = res.data
-    showToast(`${node.buttonName}已执行`, 'success')
-  } catch (error) {
-    showToast('流程推进失败', 'error')
-  }
-}
-
-onMounted(() => {
+onMounted(async () => {
   if (route.params.id) orderId.value = route.params.id
-  loadOrderDetail()
-})
-
-onUnmounted(() => {
-  loading.value = false
+  if (!orderId.value) {
+    loading.value = false
+    return
+  }
+  await loadOrderDetail()
+  await loadOrderActions()
 })
 </script>
 
@@ -84,87 +138,111 @@ onUnmounted(() => {
     </div>
 
     <div v-if="loading" class="info-card empty-card">正在加载订单详情...</div>
+
     <template v-else-if="order">
+      <!-- 摘要卡片 -->
       <div class="summary-card">
         <div class="summary-head">
-          <div class="service-icon">{{ order.icon }}</div>
+          <div class="service-icon">{{ order.icon || '📋' }}</div>
           <div class="summary-main">
-            <span class="service-name">{{ order.serviceName }}</span>
-            <span class="order-no">{{ order.orderNo }}</span>
+            <span class="service-name">{{ order.service_name || order.serviceName }}</span>
+            <span class="order-no">{{ order.order_no || order.orderNo }}</span>
           </div>
-          <div class="status-pill" :class="order.currentStatus">{{ statusMap[order.currentStatus] || order.statusText }}</div>
+          <div class="status-pill" :class="order.macro_status || order.currentStatus">
+            {{ statusLabel(order.macro_status || order.currentStatus) }}
+          </div>
         </div>
         <div class="summary-grid">
           <div>
             <span class="label">客户</span>
-            <span class="value">{{ order.appUserName }}</span>
+            <span class="value">{{ order.contact_name || order.appUserName || '—' }}</span>
           </div>
           <div>
             <span class="label">联系电话</span>
-            <span class="value">{{ order.appUserPhone }}</span>
+            <span class="value">{{ order.contact_phone || order.appUserPhone || '—' }}</span>
           </div>
           <div>
             <span class="label">金额</span>
-            <span class="value price">{{ order.totalAmountText }}</span>
+            <span class="value price">{{ formatMoney(order.total_amount || order.totalAmount) }}</span>
           </div>
           <div>
-            <span class="label">管家</span>
-            <span class="value">{{ order.managerName }}</span>
+            <span class="label">当前节点</span>
+            <span class="value">{{ order.current_stage || order.currentStatus || '—' }}</span>
           </div>
         </div>
       </div>
 
+      <!-- 业务表单详情 -->
       <div class="info-card">
-        <div class="section-title">业务 JSON 详情</div>
+        <div class="section-title">业务表单</div>
+        <div v-if="!formEntries.length" class="empty-line">暂无表单数据</div>
         <div v-for="entry in formEntries" :key="entry.key" class="json-row">
           <span class="json-key">{{ entry.key }}</span>
           <span class="json-value">{{ entry.value }}</span>
         </div>
       </div>
 
+      <!-- 状态轨迹 -->
       <div class="info-card">
         <div class="section-title">状态轨迹</div>
-        <div v-for="timeline in order.timelines" :key="timeline.id" class="timeline-row">
+        <div v-if="!order.timelines?.length" class="empty-line">暂无轨迹记录</div>
+        <div v-for="tl in order.timelines" :key="tl.id" class="timeline-row">
           <div class="timeline-dot"></div>
           <div class="timeline-body">
-            <span class="timeline-title">{{ timeline.label }}</span>
-            <span class="timeline-desc">{{ timeline.remark }}</span>
-            <span class="timeline-time">{{ timeline.operator }} · {{ timeline.createdAt }}</span>
+            <span class="timeline-title">
+              {{ tl.after_status || tl.label || '—' }}
+            </span>
+            <span v-if="tl.remark" class="timeline-desc">{{ tl.remark }}</span>
+            <span class="timeline-time">
+              {{ tl.operator || '系统' }} · {{ formatTime(tl.created_at || tl.createdAt) }}
+            </span>
           </div>
         </div>
       </div>
 
+      <!-- 财务对账 -->
       <div class="info-card">
         <div class="section-title">财务对账</div>
         <div v-if="!order.payments?.length" class="empty-line">当前订单暂无支付记录</div>
-        <div v-for="payment in order.payments" :key="payment.id" class="payment-row">
+        <div v-for="pay in order.payments" :key="pay.id" class="payment-row">
           <div>
-            <span class="payment-id">{{ payment.id }}</span>
-            <span class="payment-method">{{ payment.payMethod }} · {{ payment.thirdTradeNo }}</span>
+            <span class="payment-id">#{{ pay.id }}</span>
+            <span class="payment-method">{{ pay.pay_method || pay.payMethod }} · {{ pay.third_trade_no || pay.thirdTradeNo || '—' }}</span>
           </div>
           <div class="payment-right">
-            <span class="payment-amount">{{ payment.payAmountText }}</span>
-            <span class="payment-status">{{ payment.status }}</span>
+            <span class="payment-amount">{{ formatMoney(pay.pay_amount || pay.payAmount) }}</span>
+            <span class="payment-status" :class="pay.status">{{ pay.status }}</span>
           </div>
         </div>
       </div>
 
+      <!-- 下一步动作 -->
       <div class="info-card action-card">
         <div class="section-title">下一步动作</div>
-        <div class="workflow-actions">
+        <div v-if="actionsLoading" class="actions-skeleton">
+          <div class="skeleton-btn"></div>
+          <div class="skeleton-btn"></div>
+        </div>
+        <div v-else-if="!actions.length" class="empty-line">当前节点无操作动作</div>
+        <div v-else class="workflow-actions">
           <button
-            v-for="node in order.actionNodes"
-            :key="node.id"
+            v-for="action in actions"
+            :key="action.id"
             class="action-btn"
-            :class="{ payment: node.triggerPayment, material: node.requiredMaterial }"
-            @click="applyWorkflowAction(node)"
+            :class="{
+              'action-payment': action.require_material || action.notify_type === 'payment_reminder',
+              'action-material': action.require_material,
+            }"
+            :title="action.require_material ? '此操作需要上传资料' : action.action_name"
+            @click="applyWorkflowAction(action)"
           >
-            {{ node.buttonName }}
+            {{ action.action_name }}
           </button>
-          <button v-if="!order.actionNodes?.length" class="action-btn disabled" disabled>暂无下一步动作</button>
         </div>
       </div>
     </template>
+
+    <div v-else class="info-card empty-card">订单不存在或加载失败</div>
   </div>
 </template>
 
@@ -201,11 +279,8 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-.eyebrow, .hero-title, .hero-desc, .service-name, .order-no, .label, .value, .json-key, .json-value, .timeline-title, .timeline-desc, .timeline-time, .payment-id, .payment-method, .payment-amount, .payment-status, .empty-line, .section-title {
-  display: block;
-}
-
 .eyebrow {
+  display: block;
   margin-bottom: 8px;
   color: rgba(255, 255, 255, 0.72);
   font-size: 10px;
@@ -213,9 +288,14 @@ onUnmounted(() => {
   letter-spacing: 1.4px;
 }
 
-.hero-title { font-size: 24px; font-weight: 900; }
+.hero-title {
+  display: block;
+  font-size: 24px;
+  font-weight: 900;
+}
 
 .hero-desc {
+  display: block;
   max-width: 280px;
   margin-top: 8px;
   color: rgba(255, 255, 255, 0.82);
@@ -251,9 +331,9 @@ onUnmounted(() => {
 
 .summary-main { flex: 1; }
 
-.service-name { color: #12312c; font-size: 18px; font-weight: 900; }
+.service-name { display: block; color: #12312c; font-size: 18px; font-weight: 900; }
 
-.order-no { margin-top: 5px; color: #6b7c78; font-size: 11px; }
+.order-no { display: block; margin-top: 5px; color: #6b7c78; font-size: 11px; }
 
 .status-pill {
   padding: 6px 10px;
@@ -264,7 +344,12 @@ onUnmounted(() => {
   font-weight: 900;
 }
 
-.status-pill.payment_pending { color: #7a5a21; background: rgba(197, 160, 89, 0.2); }
+.status-pill.pending    { color: #7a5a21; background: rgba(197, 160, 89, 0.2); }
+.status-pill.reviewing  { color: #1a4a7a; background: rgba(70, 130, 180, 0.15); }
+.status-pill.quoted     { color: #1a6a2a; background: rgba(60, 160, 80, 0.15); }
+.status-pill.paid       { color: #5a3a10; background: rgba(197, 160, 89, 0.25); }
+.status-pill.in_progress { color: #2a3a8a; background: rgba(90, 100, 200, 0.15); }
+.status-pill.completed  { color: #004d40; background: rgba(0, 77, 64, 0.1); }
 
 .summary-grid {
   display: grid;
@@ -276,12 +361,12 @@ onUnmounted(() => {
   background: #f2f6f5;
 }
 
-.label { color: #87938f; font-size: 10px; }
-
-.value { margin-top: 4px; color: #12312c; font-size: 13px; font-weight: 800; }
+.label { display: block; color: #87938f; font-size: 10px; }
+.value { display: block; margin-top: 4px; color: #12312c; font-size: 13px; font-weight: 800; }
 .value.price { color: #e97832; }
 
 .section-title {
+  display: block;
   margin-bottom: 12px;
   color: #12312c;
   font-size: 16px;
@@ -324,11 +409,9 @@ onUnmounted(() => {
 
 .timeline-body { flex: 1; }
 
-.timeline-title { color: #12312c; font-size: 13px; font-weight: 900; }
-
-.timeline-desc { margin-top: 5px; color: #6b7c78; font-size: 12px; line-height: 1.6; }
-
-.timeline-time { margin-top: 6px; color: #a0aaa7; font-size: 10px; }
+.timeline-title { display: block; color: #12312c; font-size: 13px; font-weight: 900; }
+.timeline-desc { display: block; margin-top: 5px; color: #6b7c78; font-size: 12px; line-height: 1.6; }
+.timeline-time { display: block; margin-top: 6px; color: #a0aaa7; font-size: 10px; }
 
 .payment-row {
   display: flex;
@@ -337,24 +420,21 @@ onUnmounted(() => {
   padding: 12px;
   border-radius: 22px;
   background: rgba(197, 160, 89, 0.09);
+  margin-top: 8px;
 }
 
-.payment-id { color: #12312c; font-size: 13px; font-weight: 900; }
-.payment-method { margin-top: 5px; color: #6b7c78; font-size: 11px; }
+.payment-id { display: block; color: #12312c; font-size: 13px; font-weight: 900; }
+.payment-method { display: block; margin-top: 5px; color: #6b7c78; font-size: 11px; }
 .payment-right { text-align: right; }
-.payment-amount { color: #e97832; font-size: 15px; font-weight: 900; }
-
-.payment-status, .empty-line {
-  margin-top: 4px;
-  color: #7a5a21;
-  font-size: 11px;
-}
+.payment-amount { color: #e97832; font-size: 15px; font-weight: 900; display: block; }
+.payment-status { display: block; margin-top: 4px; color: #7a5a21; font-size: 11px; }
+.payment-status.success { color: #2a7a3a; }
 
 .workflow-actions { display: flex; flex-wrap: wrap; gap: 10px; }
 
+/* 操作按钮样式 */
 .action-btn {
   height: 36px;
-  margin: 0;
   padding: 0 16px;
   border: none;
   border-radius: 18px;
@@ -364,11 +444,34 @@ onUnmounted(() => {
   font-weight: 800;
   line-height: 36px;
   cursor: pointer;
+  transition: opacity 0.2s, transform 0.15s;
 }
 
-.action-btn.payment { color: #12312c; background: #c5a059; }
+.action-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+.action-btn:active { transform: translateY(0); }
 
-.action-btn.material { color: #004d40; background: rgba(0, 77, 64, 0.1); }
+.action-btn.action-payment { color: #12312c; background: #c5a059; }
+.action-btn.action-material { color: #004d40; background: rgba(0, 77, 64, 0.1); border: 1.5px solid rgba(0, 77, 64, 0.2); }
 
-.action-btn.disabled { color: #9aa3b5; background: #eef2f1; }
+/* 骨架屏占位 */
+.actions-skeleton { display: flex; gap: 10px; }
+.skeleton-btn {
+  width: 80px;
+  height: 36px;
+  border-radius: 18px;
+  background: linear-gradient(90deg, #e8eeed 25%, #f5f7f6 50%, #e8eeed 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.empty-line {
+  color: #9aa3b5;
+  font-size: 12px;
+  padding: 8px 0;
+}
 </style>

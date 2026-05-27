@@ -37,6 +37,37 @@ func ClientListServices(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// ClientGetService 返回单个服务的完整信息（包含 form_schema）。
+// 1.意图 -> 支撑服务详情页的动态表单渲染。
+// 2.步骤 -> 按 id 精确查询 sys_services 并转换为前端友好字段。
+// 3.返回 -> 单个服务对象，包含解析后的 form_schema。
+func ClientGetService(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		var service models.SysService
+		var err error
+		if idStr != "" {
+			var id uint
+			_, parseErr := fmt.Sscanf(idStr, "%d", &id)
+			if parseErr == nil {
+				err = db.Where("id = ? AND status = ?", id, 1).First(&service).Error
+			} else {
+				err = db.Where("service_code = ? AND status = ?", idStr, 1).First(&service).Error
+			}
+		}
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "service not found"})
+			return
+		}
+		payload := buildServicePayloads([]models.SysService{service})
+		if len(payload) == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "service not found"})
+			return
+		}
+		c.JSON(http.StatusOK, payload[0])
+	}
+}
+
 // ClientGetConfigs 输出 C 端公开全局配置。
 // 1.意图 -> 让 Banner、热线、主题色和全局文案由后台动态控制。
 // 2.步骤 -> 仅读取 is_public=true 的 sys_configs，并按 key 组装为对象。
@@ -164,15 +195,39 @@ func buildOrderPayload(db *gorm.DB, order models.Order) gin.H {
 	var nodes []models.SysWorkflowNode
 	db.Where("order_id = ?", order.ID).Order("created_at asc").Find(&timelines)
 	db.Where("order_id = ?", order.ID).Order("created_at desc").Find(&payments)
-	db.Where("service_id = ? AND stage_code = ?", order.ServiceID, order.MacroStatus).Order("sort_order asc, id asc").Find(&nodes)
+	db.Where("service_id = ? AND stage_code = ?", order.ServiceID, order.CurrentStage).Order("sort_order asc, id asc").Find(&nodes)
+
+	// 规范化节点字段，与 AdminGetOrderActions 保持一致
+	actionNodes := make([]gin.H, 0, len(nodes))
+	for _, n := range nodes {
+		actionNodes = append(actionNodes, gin.H{
+			"id":               n.ID,
+			"action_name":      n.ActionName,
+			"next_stage_code":  n.NextStageCode,
+			"stage_name":       n.StageName,
+			"require_material": n.RequireMaterial,
+			"notify_type":      n.NotifyType,
+			"sort_order":       n.SortOrder,
+			// 兼容旧字段名
+			"button_name":   n.ActionName,
+			"target_status": n.NextStageCode,
+		})
+	}
+
 	return gin.H{
 		"id": order.ID, "order_no": order.OrderNo, "orderNo": order.OrderNo, "app_user_id": order.AppUserID,
-		"service_id": order.ServiceID, "serviceId": order.ServiceID, "service_name": order.ServiceName, "serviceName": order.ServiceName,
-		"contact_name": order.ContactName, "contact_phone": order.ContactPhone, "total_amount": order.TotalAmount,
-		"amount": order.TotalAmount, "price": formatMoney(order.TotalAmount), "currency": order.Currency,
-		"current_status": order.MacroStatus, "currentStatus": order.MacroStatus, "payment_status": order.PaymentStatus,
-		"form_data": parseJSONString(string(order.FormData)), "formData": parseJSONString(string(order.FormData)), "remark": order.Remark,
-		"created_at": order.CreatedAt, "updated_at": order.UpdatedAt, "timelines": timelines, "payments": payments, "actionNodes": nodes,
+		"service_id": order.ServiceID, "serviceId": order.ServiceID,
+		"service_name": order.ServiceName, "serviceName": order.ServiceName,
+		"contact_name": order.ContactName, "contact_phone": order.ContactPhone,
+		"total_amount": order.TotalAmount, "amount": order.TotalAmount, "price": formatMoney(order.TotalAmount),
+		"currency":       order.Currency,
+		"current_stage":  order.CurrentStage,
+		"current_status": order.MacroStatus, "currentStatus": order.MacroStatus,
+		"payment_status": order.PaymentStatus,
+		"form_data":      parseJSONString(string(order.FormData)), "formData": parseJSONString(string(order.FormData)),
+		"remark":     order.Remark,
+		"created_at": order.CreatedAt, "updated_at": order.UpdatedAt,
+		"timelines": timelines, "payments": payments, "actionNodes": actionNodes,
 	}
 }
 
