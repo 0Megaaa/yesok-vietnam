@@ -7,41 +7,29 @@ const loading = ref(true)
 const services = ref([])
 const categoryDictOptions = ref([])
 
-// 快捷 Emoji 表情库
 const commonEmojis = ['🌴', '🎫', '🏦', '🏠', '✈️', '🚗', '📄', '💼', '🩺', '🎓', '🍜', '🌟']
 
-// --- ERP 查询参数 ---
-const queryParams = ref({
-  service_name: '',
-  status: '',
-  is_hot: ''
-})
+// --- 查询参数 ---
+const queryParams = ref({ service_name: '', status: '', is_hot: '' })
 
-// --- 弹窗控制与表单状态 ---
+// --- 弹窗与表单状态 ---
 const dialogVisible = ref(false)
-const dialogType = ref('add') // 'add' 或 'edit'
+const dialogType = ref('add')
 const currentId = ref(null)
+const submitting = ref(false)
 
-const serviceForm = ref({
-  service_code: '',
-  service_name: '',
-  display_name: '',
-  icon: '🌴',
-  cover_image: '',
-  description: '',
-  base_price: 0,
-  unit: '次',
-  status: 1,
-  is_hot: false,
+// Wizard 当前步骤（0=基础信息，1=工作流节点）
+const currentStep = ref(0)
+
+// 复合表单对象
+const form = ref({
+  service_info: blankServiceInfo(),
+  workflow_nodes: [],
 })
 
-const showToast = (title, type = 'info') => {
-  ElMessage({ message: title, type })
-}
-
-const resetForm = () => {
-  currentId.value = null
-  serviceForm.value = {
+function blankServiceInfo() {
+  return {
+    id: 0,
     service_code: '',
     service_name: '',
     display_name: '',
@@ -49,35 +37,49 @@ const resetForm = () => {
     cover_image: '',
     description: '',
     base_price: 0,
+    currency: 'VND',
     unit: '次',
+    sort_order: 0,
     status: 1,
     is_hot: false,
+    form_schema: '{"fields":[]}',
   }
 }
 
-// --- 加载服务分类字典 ---
+// --- 工具函数 ---
+const showToast = (title, type = 'info') => {
+  ElMessage({ message: title, type })
+}
+
+const resetForm = () => {
+  currentId.value = null
+  currentStep.value = 0
+  form.value = {
+    service_info: blankServiceInfo(),
+    workflow_nodes: [],
+  }
+}
+
+// --- 字典加载 ---
 const loadCategoryDict = async () => {
   try {
     const res = await request.get('/v1/admin/dict-data?dict_type=service_category')
-    // 自动解包: res 为 { code, data: [...], msg } 或直接返回 data
     const rawData = res?.data?.data ?? res?.data ?? res ?? []
     categoryDictOptions.value = Array.isArray(rawData) ? rawData : []
-  } catch (error) {
-    console.error('加载服务分类字典失败:', error)
+  } catch (e) {
+    console.error('加载服务分类字典失败', e)
   }
 }
 
-// --- 【核心安全重构】绝对不卡死，找不到就吐出原始编码 ---
 const getCategoryLabel = (row) => {
   if (!row) return '未分类'
-  // 优先看后端有没有直接传 category_name 类似的中文，没有的话再用 code 从字典里捞
   const code = row.service_code || ''
-  if (!categoryDictOptions.value || categoryDictOptions.value.length === 0) return code || '未分类'
-  const found = categoryDictOptions.value.find(item => item.dict_value === code)
+  if (!categoryDictOptions.value?.length) return code || '未分类'
+  const found = categoryDictOptions.value.find((item) => item.dict_value === code)
   return found ? found.dict_label : (code || '未分类')
 }
 
-// --- 加载服务列表 ---
+// --- 列表加载 ---
 const loadServices = async () => {
   loading.value = true
   try {
@@ -85,130 +87,231 @@ const loadServices = async () => {
     if (queryParams.value.service_name) params.service_name = queryParams.value.service_name
     if (queryParams.value.status !== '') params.status = queryParams.value.status
     if (queryParams.value.is_hot !== '') params.is_hot = queryParams.value.is_hot
-
     const res = await request.get('/v1/admin/services', { params })
-
-    // 自动解包各类包装格式
     let targetList = null
-    if (res && Array.isArray(res.data)) {
-      targetList = res.data
-    } else if (res && res.data && Array.isArray(res.data.list)) {
-      targetList = res.data.list
-    } else if (Array.isArray(res)) {
-      targetList = res
-    } else if (res && Array.isArray(res.list)) {
-      targetList = res.list
-    }
-
+    if (res && Array.isArray(res.data)) targetList = res.data
+    else if (res?.data?.list) targetList = res.data.list
+    else if (Array.isArray(res)) targetList = res
+    else if (res?.list) targetList = res.list
     services.value = targetList || []
-  } catch (error) {
-    showToast(error?.message || '服务列表加载失败', 'error')
+  } catch (e) {
+    showToast(e?.message || '服务列表加载失败', 'error')
   } finally {
     loading.value = false
   }
 }
 
-// --- 图片上传占位 ---
+// --- 图片上传 ---
 const handleImageUpload = async (fileOptions) => {
-  const formData = new FormData()
-  formData.append('file', fileOptions.file)
+  const fd = new FormData()
+  fd.append('file', fileOptions.file)
   try {
-    const res = await request.post('/v1/admin/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
-    })
+    const res = await request.post('/v1/admin/upload', fd, { headers: { 'Content-Type': 'multipart/form-data' } })
     const url = res.data?.url || res.url
-    if (url) {
-      serviceForm.value.cover_image = url
-      showToast('图片上传成功', 'success')
-    }
-  } catch (error) {
-    console.error('由于后端上传接口待打通，目前支持手动输入相对或绝对图片托管路径', error)
+    if (url) { form.value.service_info.cover_image = url; showToast('图片上传成功', 'success') }
+  } catch (e) {
+    showToast('图片上传失败', 'error')
   }
 }
 
-const handleQuery = () => { loadServices() }
-const resetQuery = () => {
-  queryParams.value = { service_name: '', status: '', is_hot: '' }
-  loadServices()
+// --- 工作流节点 CRUD ---
+const blankNode = () => ({
+  id: 0,
+  stage_code: '',
+  stage_name: '',
+  macro_status: '',
+  action_name: '',
+  next_stage_code: '',
+  is_manual: true,
+  require_material: false,
+  notify_type: '',
+  sort_order: 0,
+})
+
+const addNode = () => {
+  const node = blankNode()
+  node.sort_order = form.value.workflow_nodes.length + 1
+  form.value.workflow_nodes.push(node)
 }
 
+const removeNode = (index) => {
+  form.value.workflow_nodes.splice(index, 1)
+}
+
+// --- 提交前置校验 ---
+const validateWorkflowNodes = () => {
+  const nodes = form.value.workflow_nodes
+  for (let i = 0; i < nodes.length; i++) {
+    const n = nodes[i]
+    if (!n.stage_code?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「节点编码」不能为空` }
+    if (!n.stage_name?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「节点名称」不能为空` }
+    if (!n.macro_status?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「主状态」不能为空` }
+    if (!n.action_name?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「按钮名称」不能为空` }
+    if (!n.next_stage_code?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「目标节点」不能为空` }
+  }
+  return { ok: true }
+}
+
+// --- Wizard 导航 ---
+const nextStep = () => {
+  if (currentStep.value === 0) {
+    if (!form.value.service_info.service_name?.trim()) {
+      return showToast('服务名称不能为空', 'warning')
+    }
+    if (!form.value.service_info.service_code) {
+      return showToast('服务类型不能为空', 'warning')
+    }
+    currentStep.value = 1
+  }
+}
+
+const prevStep = () => {
+  if (currentStep.value > 0) currentStep.value--
+}
+
+// --- 打开新增弹窗 ---
 const openAddDialog = () => {
   dialogType.value = 'add'
   resetForm()
   dialogVisible.value = true
 }
 
-const openEditDialog = (row) => {
+// --- 打开编辑弹窗：调用聚合接口获取完整配置 ---
+const openEditDialog = async (row) => {
   dialogType.value = 'edit'
   currentId.value = row.id
-  serviceForm.value = JSON.parse(JSON.stringify(row))
-  dialogVisible.value = true
+  submitting.value = true
+  try {
+    // 单次调用聚合接口获取 service_info + workflow_nodes
+    const res = await request.get(`/v1/admin/services/${row.id}`)
+    const payload = res.data || res
+
+    const svc = payload.service_info || {}
+    const nodes = payload.workflow_nodes || []
+
+    form.value = {
+      service_info: {
+        id: svc.id || 0,
+        service_code: svc.service_code || '',
+        service_name: svc.service_name || '',
+        display_name: svc.display_name || '',
+        icon: svc.icon || '🌴',
+        cover_image: svc.cover_image || '',
+        description: svc.description || '',
+        base_price: svc.base_price || 0,
+        currency: svc.currency || 'VND',
+        unit: svc.unit || '次',
+        sort_order: svc.sort_order || 0,
+        status: svc.status ?? 1,
+        is_hot: svc.is_hot ?? false,
+        form_schema: typeof svc.form_schema === 'string' ? svc.form_schema : JSON.stringify(svc.form_schema || { fields: [] }),
+      },
+      workflow_nodes: nodes.map((n) => ({
+        id: n.id || 0,
+        stage_code: n.stage_code || '',
+        stage_name: n.stage_name || '',
+        macro_status: n.macro_status || '',
+        action_name: n.action_name || '',
+        next_stage_code: n.next_stage_code || '',
+        is_manual: n.is_manual ?? true,
+        require_material: n.require_material ?? false,
+        notify_type: n.notify_type || '',
+        sort_order: n.sort_order ?? 0,
+      })),
+    }
+    currentStep.value = 0
+    dialogVisible.value = true
+  } catch (e) {
+    showToast('加载服务详情失败', 'error')
+  } finally {
+    submitting.value = false
+  }
 }
 
+// --- 保存服务（含节点）：一条龙复合 Payload ---
 const saveService = async () => {
-  if (!serviceForm.value.service_name) {
-    return showToast('系统服务名称不能为空', 'warning')
-  }
+  // 工作流节点校验（空数组允许提交）
+  const v = validateWorkflowNodes()
+  if (!v.ok) return showToast(v.msg, 'warning')
+
+  submitting.value = true
   try {
     const payload = {
-      service_code: serviceForm.value.service_code,
-      service_name: serviceForm.value.service_name,
-      display_name: serviceForm.value.display_name,
-      icon: serviceForm.value.icon,
-      cover_image: serviceForm.value.cover_image,
-      description: serviceForm.value.description,
-      base_price: Number(serviceForm.value.base_price || 0),
-      unit: serviceForm.value.unit,
-      status: serviceForm.value.status,
-      is_hot: serviceForm.value.is_hot,
-      currency: 'CNY',
-      sort_order: 0,
-      form_schema: '{"fields":[]}'
+      service_info: {
+        ...form.value.service_info,
+        base_price: Number(form.value.service_info.base_price) || 0,
+      },
+      workflow_nodes: form.value.workflow_nodes,
     }
-
     if (dialogType.value === 'add') {
       await request.post('/v1/admin/services', payload)
-      showToast('新服务建立并上架成功', 'success')
     } else {
       await request.put(`/v1/admin/services/${currentId.value}`, payload)
-      showToast('服务配置更新成功', 'success')
     }
+    showToast(dialogType.value === 'add' ? '服务创建成功' : '服务更新成功', 'success')
     dialogVisible.value = false
     resetForm()
     await loadServices()
-  } catch (error) {
-    showToast(error?.message || '服务保存失败', 'error')
+  } catch (e) {
+    showToast(e?.message || '服务保存失败', 'error')
+  } finally {
+    submitting.value = false
   }
 }
 
+// --- 上下架 ---
 const toggleService = async (row) => {
   const targetStatus = row.status === 1 ? 0 : 1
   try {
     await request.put(`/v1/admin/services/${row.id}`, {
-      ...row,
-      status: targetStatus,
+      service_info: { ...row, status: targetStatus },
+      workflow_nodes: [],
     })
     showToast(`服务已${targetStatus === 1 ? '上架' : '下架'}`, 'success')
     await loadServices()
-  } catch (error) {
+  } catch (e) {
     showToast('更新服务状态失败', 'error')
   }
 }
 
-const selectEmoji = (emoji) => { serviceForm.value.icon = emoji }
+// 工作流节点字典数据
+const macroStatusOptions = ref([])
+const workflowNodeCodeOptions = ref([])
+const workflowActionOptions = ref([])
+
+const loadWorkflowDicts = async () => {
+  const [ms, nc, ac] = await Promise.all([
+    request.get('/v1/admin/dict-data?dict_type=macro_status_list').catch(() => null),
+    request.get('/v1/admin/dict-data?dict_type=workflow_node_code').catch(() => null),
+    request.get('/v1/admin/dict-data?dict_type=workflow_action').catch(() => null),
+  ])
+  const unwrap = (res) => {
+    const raw = res?.data?.data ?? res?.data ?? res ?? []
+    return Array.isArray(raw) ? raw : []
+  }
+  macroStatusOptions.value = unwrap(ms)
+  workflowNodeCodeOptions.value = unwrap(nc)
+  workflowActionOptions.value = unwrap(ac)
+}
+
+const selectEmoji = (emoji) => { form.value.service_info.icon = emoji }
+
+const handleQuery = () => loadServices()
+const resetQuery = () => {
+  queryParams.value = { service_name: '', status: '', is_hot: '' }
+  loadServices()
+}
 
 onMounted(async () => {
-  await loadCategoryDict()
-  await loadServices()
+  await Promise.all([loadCategoryDict(), loadWorkflowDicts(), loadServices()])
 })
 
-onUnmounted(() => {
-  loading.value = false
-})
+onUnmounted(() => { loading.value = false })
 </script>
 
 <template>
   <div class="services-page-container">
+    <!-- 筛选区 -->
     <div class="filter-wrapper card-layout">
       <el-form :inline="true" :model="queryParams">
         <el-form-item label="服务名称">
@@ -233,161 +336,287 @@ onUnmounted(() => {
       </el-form>
     </div>
 
+    <!-- 操作栏 -->
     <div class="action-bar-wrapper">
-      <el-button type="primary" class="erp-add-btn" @click="openAddDialog">
-        + 新增服务
-      </el-button>
+      <el-button type="primary" class="erp-add-btn" @click="openAddDialog">+ 新增服务</el-button>
     </div>
 
+    <!-- 表格 -->
     <div class="table-wrapper card-layout">
       <el-table v-loading="loading" :data="services" border stripe style="width: 100%">
         <el-table-column label="服务图标" width="90" align="center">
-          <template #default="scope">
-            <span class="service-icon-preview">{{ scope.row.icon || '🌴' }}</span>
+          <template #default="{ row }">
+            <span class="service-icon-preview">{{ row.icon || '🌴' }}</span>
           </template>
         </el-table-column>
-
         <el-table-column label="服务类型" width="160">
-          <template #default="scope">
-            <el-tag type="info" effect="plain">
-              {{ getCategoryLabel(scope.row) }}
-            </el-tag>
+          <template #default="{ row }">
+            <el-tag type="info" effect="plain">{{ getCategoryLabel(row) }}</el-tag>
           </template>
         </el-table-column>
-
         <el-table-column prop="service_name" label="服务名称" width="180" />
-<!--        <el-table-column prop="display_name" label="客户端展示名称" width="180" />-->
-
         <el-table-column label="价格" width="150" align="right">
-          <template #default="scope">
-            <span class="price-text">
-              ￥{{ scope.row.base_price.toLocaleString() }}
-            </span>
+          <template #default="{ row }">
+            <span class="price-text">￥{{ (Number(row.base_price) / 100).toLocaleString() }}</span>
           </template>
         </el-table-column>
         <el-table-column prop="unit" label="计价单位" width="100" align="center" />
-
         <el-table-column label="热门推荐" width="110" align="center">
-          <template #default="scope">
-            <el-tag :type="scope.row.is_hot ? 'danger' : 'info'" effect="light">
-              {{ scope.row.is_hot ? '🔥 热门' : '常规' }}
+          <template #default="{ row }">
+            <el-tag :type="row.is_hot ? 'danger' : 'info'" effect="light">
+              {{ row.is_hot ? '🔥 热门' : '常规' }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column label="服务状态" width="110" align="center">
-          <template #default="scope">
-            <el-tag :type="scope.row.status === 1 ? 'success' : 'info'" effect="dark">
-              {{ scope.row.status === 1 ? '上架中' : '已下架' }}
+          <template #default="{ row }">
+            <el-tag :type="row.status === 1 ? 'success' : 'info'" effect="dark">
+              {{ row.status === 1 ? '上架中' : '已下架' }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column prop="description" label="服务简介" show-overflow-tooltip min-width="240" />
-
         <el-table-column label="操作" width="180" fixed="right" align="center">
-          <template #default="scope">
-            <el-button link type="primary" size="small" @click="openEditDialog(scope.row)">
-              编辑服务
-            </el-button>
-            <el-button link :type="scope.row.status === 1 ? 'danger' : 'success'" size="small" @click="toggleService(scope.row)">
-              {{ scope.row.status === 1 ? '下架' : '上架' }}
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="openEditDialog(row)">编辑服务</el-button>
+            <el-button link :type="row.status === 1 ? 'danger' : 'success'" size="small" @click="toggleService(row)">
+              {{ row.status === 1 ? '下架' : '上架' }}
             </el-button>
           </template>
         </el-table-column>
       </el-table>
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="dialogType === 'add' ? '✨ 新增服务' : '编辑服务'" width="600px" destroy-on-close @closed="resetForm">
-      <el-form :model="serviceForm" label-width="110px" label-position="right">
+    <!-- 弹窗：向导式配置 -->
+    <el-dialog
+      v-model="dialogVisible"
+      :title="dialogType === 'add' ? '✨ 新增服务' : '⚙️ 编辑服务'"
+      width="760px"
+      destroy-on-close
+      :close-on-click-modal="false"
+      @closed="resetForm"
+    >
+      <!-- Wizard 步骤条 -->
+      <el-steps :active="currentStep" finish-status="success" style="margin-bottom: 20px">
+        <el-step title="基础信息" />
+        <el-step title="工作流节点" />
+      </el-steps>
 
-        <el-form-item label="服务类型" required>
-          <el-select
-            v-model="serviceForm.service_code"
-            placeholder="请选择服务类型"
-            style="width: 100%"
-            clearable
-          >
-            <el-option
-              v-for="item in categoryDictOptions"
-              :key="item.dict_value"
-              :label="item.dict_label"
-              :value="item.dict_value"
-            />
-          </el-select>
-          <div style="font-size: 11px; color: #909399; margin-top: 4px;">注：需保持与业务流程逻辑链一致</div>
-        </el-form-item>
+      <!-- 步骤 0：基础信息表单 -->
+      <div v-show="currentStep === 0">
+        <el-form :model="form.service_info" label-width="120px" label-position="right">
+          <el-form-item label="服务类型" required>
+            <el-select
+              v-model="form.service_info.service_code"
+              placeholder="请选择服务类型"
+              style="width: 100%"
+              clearable
+            >
+              <el-option
+                v-for="item in categoryDictOptions"
+                :key="item.dict_value"
+                :label="item.dict_label"
+                :value="item.dict_value"
+              />
+            </el-select>
+          </el-form-item>
 
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="服务名称" required>
-              <el-input v-model="serviceForm.service_name" placeholder="例: 越南商务签证" />
-            </el-form-item>
-          </el-col>
-<!--          <el-col :span="12">-->
-<!--            <el-form-item label="客户端展示名称">-->
-<!--              <el-input v-model="serviceForm.display_name" placeholder="前端呈现给客户的名字" />-->
-<!--            </el-form-item>-->
-<!--          </el-col>-->
-        </el-row>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="服务名称" required>
+                <el-input v-model="form.service_info.service_name" placeholder="例：越南商务签证" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="客户端展示名">
+                <el-input v-model="form.service_info.display_name" placeholder="前端呈现给客户的名字" />
+              </el-form-item>
+            </el-col>
+          </el-row>
 
-        <el-form-item label="系统图标">
-          <div class="emoji-picker-container">
-            <el-input v-model="serviceForm.icon" placeholder="选定系统图标" style="width: 160px; margin-bottom: 8px;" />
-            <div class="emoji-tray">
-              <span v-for="emoji in commonEmojis" :key="emoji" class="emoji-item" :class="{ selected: serviceForm.icon === emoji }" @click="selectEmoji(emoji)">
-                {{ emoji }}
-              </span>
+          <el-form-item label="系统图标">
+            <div class="emoji-picker-container">
+              <el-input v-model="form.service_info.icon" style="width: 140px; margin-bottom: 6px" readonly />
+              <div class="emoji-tray">
+                <span
+                  v-for="emoji in commonEmojis"
+                  :key="emoji"
+                  class="emoji-item"
+                  :class="{ selected: form.service_info.icon === emoji }"
+                  @click="selectEmoji(emoji)"
+                >{{ emoji }}</span>
+              </div>
             </div>
-          </div>
-        </el-form-item>
+          </el-form-item>
 
-        <el-form-item label="服务封面图">
-          <div class="upload-integration-box">
-            <el-upload action="" :http-request="handleImageUpload" :show-file-list="false">
-              <el-button size="small">点击异步上传文件</el-button>
-            </el-upload>
-            <el-input v-model="serviceForm.cover_image" placeholder="或直接输入托管的绝对图片 URL 路径" style="margin-top: 6px;" />
-          </div>
-        </el-form-item>
+          <el-form-item label="服务封面图">
+            <div>
+              <el-upload action="" :http-request="handleImageUpload" :show-file-list="false">
+                <el-button size="small">上传封面图</el-button>
+              </el-upload>
+              <el-input
+                v-model="form.service_info.cover_image"
+                placeholder="或直接输入图片 URL"
+                style="margin-top: 6px"
+              />
+            </div>
+          </el-form-item>
 
-        <el-row :gutter="20">
-          <el-col :span="14">
-            <el-form-item label="价格" required>
-              <el-input v-model="serviceForm.base_price" type="number" placeholder="单位：分">
-                <template #append>元 (￥)</template>
-              </el-input>
-            </el-form-item>
-          </el-col>
-          <el-col :span="10">
-            <el-form-item label="价格单位" required>
-              <el-input v-model="serviceForm.unit" placeholder="次 / 人 / 单" />
-            </el-form-item>
-          </el-col>
-        </el-row>
+          <el-row :gutter="20">
+            <el-col :span="14">
+              <el-form-item label="价格">
+                <el-input v-model="form.service_info.base_price" type="number" placeholder="单位：分">
+                  <template #append>元 (￥)</template>
+                </el-input>
+              </el-form-item>
+            </el-col>
+            <el-col :span="10">
+              <el-form-item label="价格单位">
+                <el-input v-model="form.service_info.unit" placeholder="次 / 人 / 单" />
+              </el-form-item>
+            </el-col>
+          </el-row>
 
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item label="是否热门推荐">
-              <el-switch v-model="serviceForm.is_hot" active-text="🔥 开启爆款标签" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item label="服务状态">
-              <el-radio-group v-model="serviceForm.status">
-                <el-radio :value="1">上架</el-radio>
-                <el-radio :value="0">下架</el-radio>
-              </el-radio-group>
-            </el-form-item>
-          </el-col>
-        </el-row>
+          <el-row :gutter="20">
+            <el-col :span="12">
+              <el-form-item label="热门推荐">
+                <el-switch v-model="form.service_info.is_hot" active-text="🔥 开启爆款" />
+              </el-form-item>
+            </el-col>
+            <el-col :span="12">
+              <el-form-item label="服务状态">
+                <el-radio-group v-model="form.service_info.status">
+                  <el-radio :value="1">上架</el-radio>
+                  <el-radio :value="0">下架</el-radio>
+                </el-radio-group>
+              </el-form-item>
+            </el-col>
+          </el-row>
 
-        <el-form-item label="服务简介">
-          <el-input v-model="serviceForm.description" type="textarea" :rows="3" maxlength="100" show-word-limit placeholder="简述该项业务包含的范畴与告知" />
-        </el-form-item>
-      </el-form>
+          <el-form-item label="服务简介">
+            <el-input
+              v-model="form.service_info.description"
+              type="textarea"
+              :rows="3"
+              maxlength="100"
+              show-word-limit
+              placeholder="简述业务包含的范畴"
+            />
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- 步骤 1：工作流节点配置 -->
+      <div v-show="currentStep === 1">
+        <div class="node-tip">
+          每个节点描述订单在某一阶段的状态及可执行的操作按钮。
+          工作流节点非必填，可留空后直接保存服务。
+        </div>
+        <div class="node-actions">
+          <el-button type="primary" size="small" @click="addNode">+ 添加节点</el-button>
+        </div>
+
+        <el-table
+          :data="form.workflow_nodes"
+          border
+          stripe
+          size="small"
+          style="margin-top: 10px"
+        >
+          <el-table-column label="排序" width="70" align="center">
+            <template #default="{ row }">
+              <el-input-number
+                v-model="row.sort_order"
+                :min="1"
+                :max="999"
+                size="small"
+                controls-position="right"
+                style="width: 60px"
+              />
+            </template>
+          </el-table-column>
+
+          <el-table-column label="节点编码 *" width="130">
+            <template #default="{ row }">
+              <el-select v-model="row.stage_code" placeholder="选择编码" size="small" style="width: 100%" clearable>
+                <el-option v-for="o in workflowNodeCodeOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
+              </el-select>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="节点名称 *" width="120">
+            <template #default="{ row }">
+              <el-input v-model="row.stage_name" placeholder="如 待受理" size="small" />
+            </template>
+          </el-table-column>
+
+          <el-table-column label="主状态 *" width="120">
+            <template #default="{ row }">
+              <el-select v-model="row.macro_status" placeholder="选择状态" size="small" style="width: 100%">
+                <el-option v-for="o in macroStatusOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
+              </el-select>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="按钮名称 *" width="120">
+            <template #default="{ row }">
+              <el-select v-model="row.action_name" placeholder="选择按钮" size="small" style="width: 100%" clearable>
+                <el-option v-for="o in workflowActionOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
+              </el-select>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="目标节点 *" width="130">
+            <template #default="{ row }">
+              <el-select v-model="row.next_stage_code" placeholder="选择目标" size="small" style="width: 100%" clearable>
+                <el-option v-for="o in workflowNodeCodeOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
+              </el-select>
+            </template>
+          </el-table-column>
+
+          <el-table-column label="人工触发" width="90" align="center">
+            <template #default="{ row }">
+              <el-switch v-model="row.is_manual" size="small" />
+            </template>
+          </el-table-column>
+
+          <el-table-column label="必传资料" width="90" align="center">
+            <template #default="{ row }">
+              <el-switch v-model="row.require_material" size="small" />
+            </template>
+          </el-table-column>
+
+          <el-table-column label="TG通知" width="100">
+            <template #default="{ row }">
+              <el-input v-model="row.notify_type" placeholder="类型" size="small" />
+            </template>
+          </el-table-column>
+
+          <el-table-column label="操作" width="70" align="center">
+            <template #default="{ $index }">
+              <el-button link type="danger" size="small" @click="removeNode($index)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+
+        <el-empty v-if="!form.workflow_nodes.length" description="暂无节点配置（允许空），可跳过直接保存服务" style="padding: 20px 0" />
+      </div>
+
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="dialogVisible = false">取消</el-button>
-          <el-button type="primary" @click="saveService">确认发布</el-button>
+          <!-- Wizard 导航按钮 -->
+          <template v-if="currentStep === 0">
+            <el-button @click="dialogVisible = false" :disabled="submitting">取消</el-button>
+            <el-button type="primary" :disabled="submitting" @click="nextStep">
+              下一步
+            </el-button>
+          </template>
+          <template v-else>
+            <el-button @click="prevStep" :disabled="submitting">上一步</el-button>
+            <el-button type="primary" :loading="submitting" @click="saveService">
+              {{ submitting ? '保存中...' : '保存服务' }}
+            </el-button>
+          </template>
         </span>
       </template>
     </el-dialog>
@@ -400,6 +629,7 @@ onUnmounted(() => {
   padding: 4px;
   box-sizing: border-box;
 }
+
 .card-layout {
   padding: 20px;
   border: 1px solid rgba(0, 77, 64, 0.06);
@@ -408,13 +638,52 @@ onUnmounted(() => {
   box-shadow: 0 4px 20px rgba(0, 50, 40, 0.02);
   margin-bottom: 16px;
 }
+
 .filter-wrapper .el-form-item { margin-bottom: 0; }
+
 .action-bar-wrapper { margin-bottom: 14px; }
-.erp-add-btn { background-color: #004d40 !important; border-color: #004d40 !important; font-weight: bold; }
+
+.erp-add-btn {
+  background-color: #004d40 !important;
+  border-color: #004d40 !important;
+  font-weight: bold;
+}
+
 .service-icon-preview { font-size: 20px; }
+
 .price-text { font-family: monospace; font-weight: bold; color: #e6a23c; }
-.emoji-tray { display: flex; gap: 8px; flex-wrap: wrap; padding: 8px; background: #f5f7fa; border-radius: 6px; border: 1px dashed #dcdfe6; }
+
+.emoji-tray {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 8px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  border: 1px dashed #dcdfe6;
+}
+
 .emoji-item { font-size: 20px; cursor: pointer; padding: 4px; border-radius: 4px; transition: all 0.2s; }
 .emoji-item:hover, .emoji-item.selected { background: #e0f2f1; transform: scale(1.2); }
+
 .dialog-footer { display: flex; justify-content: flex-end; gap: 10px; }
+
+/* 工作流节点样式 */
+.node-tip {
+  font-size: 12px;
+  color: #909399;
+  line-height: 1.6;
+  padding: 8px 12px;
+  background: #fafafa;
+  border-radius: 6px;
+  border-left: 3px solid #004d40;
+  margin-bottom: 10px;
+}
+
+.node-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  margin-bottom: 0;
+}
 </style>

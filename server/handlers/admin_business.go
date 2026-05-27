@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -17,7 +19,9 @@ type AdminUpdateOrderRequest struct {
 	Remark     string `json:"remark"`
 }
 
-type SaveServiceRequest struct {
+// ServiceInfoRequest 是服务基础信息的请求体。
+type ServiceInfoRequest struct {
+	ID          uint   `json:"id"`
 	ServiceCode string `json:"service_code"`
 	ServiceName string `json:"service_name"`
 	DisplayName string `json:"display_name"`
@@ -33,12 +37,54 @@ type SaveServiceRequest struct {
 	FormSchema  string `json:"form_schema"`
 }
 
+// SaveServiceRequest 合并服务基础信息与工作流节点配置。
+type SaveServiceRequest struct {
+	ServiceInfo   ServiceInfoRequest       `json:"service_info"`
+	WorkflowNodes []models.SysWorkflowNode `json:"workflow_nodes"`
+}
+
 type SaveSysUserRequest struct {
 	Username string `json:"username" binding:"required"`
 	Password string `json:"password"`
 	RealName string `json:"real_name"`
 	Role     string `json:"role"`
 	Status   int    `json:"status"`
+}
+
+// Error codes for unified frontend error display
+const (
+	ErrCodeInvalidRequest    = "INVALID_REQUEST"    // 参数校验失败
+	ErrCodeNotFound          = "NOT_FOUND"          // 资源不存在
+	ErrCodeTransactionFailed = "TRANSACTION_FAILED" // 事务执行失败
+	ErrCodeInternalError     = "INTERNAL_ERROR"     // 内部错误
+	ErrCodeUnauthorized      = "UNAUTHORIZED"       // 未授权
+)
+
+// userError 包装用户可见的业务错误。
+// 前端可通过 err.code 判断错误类型，err.message 显示给用户。
+type userError struct {
+	code    string
+	message string
+}
+
+func (e *userError) Error() string { return e.message }
+
+func newUserError(code, message string) *userError { return &userError{code: code, message: message} }
+
+// httpError 构造可直接写入 JSON 响应的 gin.H。
+// 前端统一通过 response.data?.error 或 response.message 获取错误信息。
+func httpError(c *gin.Context, status int, code, message string) {
+	c.JSON(status, gin.H{"error": message, "code": code})
+}
+
+// safeHTTPError 是带 recover 的安全包装，防止 panic 泄露。
+func safeHTTPError(c *gin.Context, status int, code, message string) {
+	defer func() {
+		if r := recover(); r != nil {
+			httpError(c, http.StatusInternalServerError, ErrCodeInternalError, "服务器内部异常，请稍后重试")
+		}
+	}()
+	httpError(c, status, code, message)
 }
 
 // AdminMe returns the current backend employee profile.
@@ -89,7 +135,7 @@ func AdminListOrders(db *gorm.DB) gin.HandlerFunc {
 		query.Count(&total)
 		var orders []models.Order
 		if err := query.Order("created_at desc").Find(&orders).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch orders"})
+			httpError(c, http.StatusInternalServerError, ErrCodeInternalError, "failed to fetch orders")
 			return
 		}
 		list := make([]gin.H, 0, len(orders))
@@ -105,12 +151,12 @@ func AdminGetOrder(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid order id"})
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid order id")
 			return
 		}
 		var order models.Order
 		if err := db.First(&order, id).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found")
 			return
 		}
 		c.JSON(http.StatusOK, buildOrderPayload(db, order))
@@ -122,18 +168,18 @@ func AdminGetOrderActions(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid order id"})
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid order id")
 			return
 		}
 		var order models.Order
 		if err := db.First(&order, id).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found")
 			return
 		}
 		var nodes []models.SysWorkflowNode
 		if err := db.Where("service_id = ? AND stage_code = ?", order.ServiceID, order.CurrentStage).
 			Order("sort_order asc, id asc").Find(&nodes).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to query actions"})
+			httpError(c, http.StatusInternalServerError, ErrCodeInternalError, "failed to query actions")
 			return
 		}
 		actions := make([]gin.H, 0, len(nodes))
@@ -159,25 +205,25 @@ func AdminUpdateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFunc
 	return func(c *gin.Context) {
 		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid order id"})
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid order id")
 			return
 		}
 		var req AdminUpdateOrderRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request body")
 			return
 		}
 		if req.ActionName == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "action_name is required"})
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "action_name is required")
 			return
 		}
 		if err := engine.AdvanceStage(uint(id), req.ActionName, "后台管家", req.Remark); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			httpError(c, http.StatusBadRequest, ErrCodeTransactionFailed, "流程推进失败: "+err.Error())
 			return
 		}
 		var order models.Order
 		if err := db.First(&order, id).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "order not found after advance"})
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found after advance")
 			return
 		}
 		c.JSON(http.StatusOK, buildOrderPayload(db, order))
@@ -193,61 +239,167 @@ func AdminListServices(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// AdminSaveService creates a new service configuration.
-func AdminSaveService(db *gorm.DB) gin.HandlerFunc {
+// AdminGetServiceDetail 返回服务基础信息与工作流节点列表的复合对象。
+// 前端单次调用即可获取完整配置，无需拆分请求。
+func AdminGetServiceDetail(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var req SaveServiceRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
-			return
-		}
-		service := serviceFromRequest(req)
-		if err := db.Create(&service).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create service"})
-			return
-		}
-		c.JSON(http.StatusOK, service)
-	}
-}
-
-// AdminUpdateService updates an existing service configuration.
-func AdminUpdateService(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
-		var req SaveServiceRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid service id")
 			return
 		}
 		var service models.SysService
 		if err := db.First(&service, id).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "service not found"})
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "service not found")
 			return
 		}
-		updated := serviceFromRequest(req)
-		updated.ID = service.ID
-		if updated.Currency == "" {
-			updated.Currency = service.Currency
-		}
-		if err := db.Model(&service).Select(
-			"service_code", "service_name", "display_name", "icon", "cover_image",
-			"description", "base_price", "currency", "unit",
-			"sort_order", "status", "is_hot", "form_schema",
-		).Updates(updated).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update service"})
-			return
-		}
-		db.First(&service, id)
-		c.JSON(http.StatusOK, service)
+		var nodes []models.SysWorkflowNode
+		db.Where("service_id = ?", id).Order("sort_order asc, id asc").Find(&nodes)
+		c.JSON(http.StatusOK, gin.H{
+			"service_info":   service,
+			"workflow_nodes": nodes,
+		})
 	}
 }
 
-func serviceFromRequest(req SaveServiceRequest) models.SysService {
+// AdminGetServiceWorkflow 返回指定服务的所有工作流节点，供编辑时回显。
+// 前端在打开编辑弹窗时会并行请求 GET /admin/services/:id/workflow。
+func AdminGetServiceWorkflow(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid service id")
+			return
+		}
+		var service models.SysService
+		if err := db.First(&service, id).Error; err != nil {
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "service not found")
+			return
+		}
+		var nodes []models.SysWorkflowNode
+		if err := db.Where("service_id = ?", id).Order("sort_order asc, id asc").Find(&nodes).Error; err != nil {
+			httpError(c, http.StatusInternalServerError, ErrCodeInternalError, "failed to query workflow nodes")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"workflow_nodes": nodes})
+	}
+}
+
+// AdminSaveService 在事务中同时保存服务基础信息与工作流节点配置。
+// 前端 payload：{service_info: {...}, workflow_nodes: [...]}
+// 事务保证：主表与从表同时成功或同时回滚。
+func AdminSaveService(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var req SaveServiceRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request: "+err.Error())
+			return
+		}
+		if req.ServiceInfo.ServiceCode == "" {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "service_code is required")
+			return
+		}
+
+		var service models.SysService
+		if req.ServiceInfo.ID > 0 {
+			if err := db.First(&service, req.ServiceInfo.ID).Error; err != nil {
+				httpError(c, http.StatusNotFound, ErrCodeNotFound, "service not found")
+				return
+			}
+		}
+
+		svc := buildServiceFromRequest(req.ServiceInfo)
+		if req.ServiceInfo.ID > 0 {
+			svc.ID = req.ServiceInfo.ID
+		}
+
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Save(&svc).Error; err != nil {
+				return fmt.Errorf("save service failed: %w", err)
+			}
+			if err := tx.Where("service_id = ?", svc.ID).Delete(&models.SysWorkflowNode{}).Error; err != nil {
+				return fmt.Errorf("clear workflow nodes failed: %w", err)
+			}
+			if len(req.WorkflowNodes) > 0 {
+				nodes := make([]models.SysWorkflowNode, len(req.WorkflowNodes))
+				for i := range req.WorkflowNodes {
+					nodes[i] = req.WorkflowNodes[i]
+					nodes[i].ID = 0
+					nodes[i].ServiceID = svc.ID
+				}
+				if err := tx.Create(&nodes).Error; err != nil {
+					return fmt.Errorf("create workflow nodes failed: %w", err)
+				}
+			}
+			return nil
+		}); err != nil {
+			httpError(c, http.StatusInternalServerError, ErrCodeTransactionFailed, "事务执行失败："+err.Error())
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{"service": svc, "message": "service saved with workflow nodes"})
+	}
+}
+
+// AdminUpdateService 在事务中同时更新服务基础信息与工作流节点配置。
+func AdminUpdateService(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+		if id == 0 {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid service id")
+			return
+		}
+		var req SaveServiceRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request: "+err.Error())
+			return
+		}
+
+		var service models.SysService
+		if err := db.First(&service, id).Error; err != nil {
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "service not found")
+			return
+		}
+
+		svc := buildServiceFromRequest(req.ServiceInfo)
+		svc.ID = uint(id)
+
+		if err := db.Transaction(func(tx *gorm.DB) error {
+			if err := tx.Save(&svc).Error; err != nil {
+				return fmt.Errorf("update service failed: %w", err)
+			}
+			if err := tx.Where("service_id = ?", svc.ID).Delete(&models.SysWorkflowNode{}).Error; err != nil {
+				return fmt.Errorf("clear workflow nodes failed: %w", err)
+			}
+			if len(req.WorkflowNodes) > 0 {
+				nodes := make([]models.SysWorkflowNode, len(req.WorkflowNodes))
+				for i := range req.WorkflowNodes {
+					nodes[i] = req.WorkflowNodes[i]
+					nodes[i].ID = 0
+					nodes[i].ServiceID = svc.ID
+				}
+				if err := tx.Create(&nodes).Error; err != nil {
+					return fmt.Errorf("create workflow nodes failed: %w", err)
+				}
+			}
+			return nil
+		}); err != nil {
+			httpError(c, http.StatusInternalServerError, ErrCodeTransactionFailed, "事务执行失败："+err.Error())
+			return
+		}
+
+		db.First(&service, id)
+		c.JSON(http.StatusOK, gin.H{"service": service, "message": "service updated with workflow nodes"})
+	}
+}
+
+// buildServiceFromRequest 从请求体构建 SysService 模型。
+func buildServiceFromRequest(req ServiceInfoRequest) models.SysService {
 	if req.Currency == "" {
 		req.Currency = models.DefaultCurrencyCode
 	}
-	formSchema := []byte{}
-	if req.FormSchema != "" {
+	formSchema := []byte("{}")
+	if req.FormSchema != "" && json.Valid([]byte(req.FormSchema)) {
 		formSchema = []byte(req.FormSchema)
 	}
 	return models.SysService{
@@ -291,7 +443,7 @@ func AdminCreateSysUser(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SaveSysUserRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request: "+err.Error())
 			return
 		}
 		if req.Password == "" {
@@ -306,7 +458,7 @@ func AdminCreateSysUser(db *gorm.DB) gin.HandlerFunc {
 		}
 		user := models.SysUser{Username: req.Username, PasswordHash: string(hash), RealName: req.RealName, Role: req.Role, Status: req.Status}
 		if err := db.Create(&user).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create sys user"})
+			httpError(c, http.StatusInternalServerError, ErrCodeInternalError, "failed to create sys user: "+err.Error())
 			return
 		}
 		c.JSON(http.StatusOK, user)
@@ -320,7 +472,7 @@ func AdminUpdateSysUser(db *gorm.DB) gin.HandlerFunc {
 		updates := map[string]interface{}{}
 		var req SaveSysUserRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request: "+err.Error())
 			return
 		}
 		if req.RealName != "" {
@@ -336,7 +488,7 @@ func AdminUpdateSysUser(db *gorm.DB) gin.HandlerFunc {
 		}
 		var user models.SysUser
 		if err := db.First(&user, id).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "sys user not found"})
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "sys user not found")
 			return
 		}
 		db.Model(&user).Updates(updates)
@@ -350,7 +502,7 @@ func AdminDeleteSysUser(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, _ := strconv.ParseUint(c.Param("id"), 10, 64)
 		if err := db.Delete(&models.SysUser{}, id).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete sys user"})
+			httpError(c, http.StatusInternalServerError, ErrCodeInternalError, "failed to delete sys user: "+err.Error())
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})
