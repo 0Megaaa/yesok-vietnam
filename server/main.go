@@ -17,6 +17,7 @@ import (
 	"yesok-vietnam/server/handlers"
 	"yesok-vietnam/server/middleware"
 	"yesok-vietnam/server/models"
+	"yesok-vietnam/server/pkg/workflow"
 )
 
 // main 是服务端启动入口，负责数据库连接、核心表迁移、种子数据、路由注册和 H5 静态资源托管。
@@ -26,6 +27,7 @@ func main() {
 	flag.Parse()
 
 	db := connectDatabase()
+	orderEngine := workflow.NewOrderEngine(db, nil)
 
 	// 2. 根据参数决定是否执行耗时的迁移操作
 	if *runMigrate {
@@ -44,11 +46,12 @@ func main() {
 	r.Use(middleware.CORS())
 
 	registerHealthRoute(r)
-	registerAPIRoutes(r, db, authMw)
+	registerAPIRoutes(r, db, authMw, orderEngine)
 	registerStaticRoutes(r)
 
 	addr := ":" + getEnv("SERVER_PORT", "7625")
 	log.Printf("YesokVietnam starting on %s", addr)
+	defer orderEngine.Close()
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
@@ -96,7 +99,7 @@ func registerHealthRoute(r *gin.Engine) {
 
 // registerAPIRoutes 注册 API 路由。
 // 彻底拆解父子嵌套关系：公开组与鉴权组完全并列，互不继承，终结 401 死锁。
-func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddleware) {
+func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddleware, orderEngine *workflow.OrderEngine) {
 	// ==========================================================
 	// 1. 全裸独立公开组 (免 Token，畅通小程序冷启动与健康检查)
 	// 注意：此组绝对不挂载任何 .Use()，由 r.Group("/api/v1") 直接派生，互不污染
@@ -127,7 +130,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		authGroup.GET("/admin/dashboard/stats", handlers.DashboardStats(db))
 		authGroup.GET("/admin/orders", handlers.AdminListOrders(db))
 		authGroup.GET("/admin/orders/:id", handlers.AdminGetOrder(db))
-		authGroup.PUT("/admin/orders/:id", handlers.AdminUpdateOrder(db))
+		authGroup.PUT("/admin/orders/:id", handlers.AdminUpdateOrder(db, orderEngine))
 		authGroup.GET("/admin/services", handlers.AdminListServices(db))
 		authGroup.POST("/admin/services", handlers.AdminSaveService(db))
 		authGroup.PUT("/admin/services/:id", handlers.AdminUpdateService(db))
@@ -157,7 +160,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		// C 端用户私有路由
 		authGroup.GET("/client/user/me", handlers.GetMe(db))
 		authGroup.GET("/client/state", handlers.GetState(db))
-		authGroup.PUT("/client/state", handlers.UpdateState(db))
+		authGroup.PUT("/client/state", handlers.UpdateState(db, orderEngine))
 		authGroup.POST("/client/auth/logout", handlers.AuthLogout())
 	}
 }

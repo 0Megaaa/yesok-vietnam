@@ -45,11 +45,11 @@ func seedSysUser(db *gorm.DB) {
 // 3.返回 -> code 到服务模型的映射，供流程节点绑定 service_id。
 func seedServices(db *gorm.DB) map[string]models.SysService {
 	serviceSeeds := []models.SysService{
-		{ServiceCode: "airport_transfer", ServiceName: "越南机场接送", DisplayName: "豪华接机", Icon: "✈️", CoverImage: "/static/img.png", Description: "双语管家举牌接机，商务车直达酒店。", BasePrice: 65000000, Currency: "VND", Unit: "次", SortOrder: 1, Status: 1, IsHot: true, FormSchema: formSchema("flight_no", "arrival_time", "hotel_address")},
-		{ServiceCode: "visa", ServiceName: "越南签证加急", DisplayName: "签证加急", Icon: "🛂", CoverImage: "/static/img.png", Description: "商务、旅游、落地签资料审核与加急通道。", BasePrice: 120000000, Currency: "VND", Unit: "单", SortOrder: 2, Status: 1, IsHot: true, FormSchema: formSchema("passport_name", "passport_no", "entry_date")},
-		{ServiceCode: "charter", ServiceName: "商务包车", DisplayName: "商务包车", Icon: "🚘", CoverImage: "/static/img.png", Description: "胡志明、河内、岘港商务包车与行程规划。", BasePrice: 180000000, Currency: "VND", Unit: "天", SortOrder: 3, Status: 1, IsHot: true, FormSchema: formSchema("city", "use_date", "route")},
-		{ServiceCode: "translation", ServiceName: "商务翻译", DisplayName: "随行翻译", Icon: "🌐", CoverImage: "/static/img.png", Description: "中越英随行翻译、会议陪同与商务谈判支持。", BasePrice: 150000000, Currency: "VND", Unit: "天", SortOrder: 4, Status: 1, IsHot: false, FormSchema: formSchema("language", "meeting_time", "scene")},
-		{ServiceCode: "business", ServiceName: "企业落地咨询", DisplayName: "企业落地", Icon: "🏢", CoverImage: "/static/img.png", Description: "公司注册、选址、财税和本地资源对接。", BasePrice: 350000000, Currency: "VND", Unit: "项", SortOrder: 5, Status: 1, IsHot: false, FormSchema: formSchema("company_name", "industry", "need")},
+		{ServiceCode: "airport_transfer", ServiceName: "越南机场接送", DisplayName: "豪华接机", Icon: "✈️", CoverImage: "/static/img.png", Description: "双语管家举牌接机，商务车直达酒店。", BasePrice: 65000000, Currency: "VND", Unit: "次", SortOrder: 1, Status: 1, IsHot: true, FormSchema: makeFormSchema("flight_no", "arrival_time", "hotel_address")},
+		{ServiceCode: "visa", ServiceName: "越南签证加急", DisplayName: "签证加急", Icon: "🛂", CoverImage: "/static/img.png", Description: "商务、旅游、落地签资料审核与加急通道。", BasePrice: 120000000, Currency: "VND", Unit: "单", SortOrder: 2, Status: 1, IsHot: true, FormSchema: makeFormSchema("passport_name", "passport_no", "entry_date")},
+		{ServiceCode: "charter", ServiceName: "商务包车", DisplayName: "商务包车", Icon: "🚘", CoverImage: "/static/img.png", Description: "胡志明、河内、岘港商务包车与行程规划。", BasePrice: 180000000, Currency: "VND", Unit: "天", SortOrder: 3, Status: 1, IsHot: true, FormSchema: makeFormSchema("city", "use_date", "route")},
+		{ServiceCode: "translation", ServiceName: "商务翻译", DisplayName: "随行翻译", Icon: "🌐", CoverImage: "/static/img.png", Description: "中越英随行翻译、会议陪同与商务谈判支持。", BasePrice: 150000000, Currency: "VND", Unit: "天", SortOrder: 4, Status: 1, IsHot: false, FormSchema: makeFormSchema("language", "meeting_time", "scene")},
+		{ServiceCode: "business", ServiceName: "企业落地咨询", DisplayName: "企业落地", Icon: "🏢", CoverImage: "/static/img.png", Description: "公司注册、选址、财税和本地资源对接。", BasePrice: 350000000, Currency: "VND", Unit: "项", SortOrder: 5, Status: 1, IsHot: false, FormSchema: makeFormSchema("company_name", "industry", "need")},
 	}
 	result := map[string]models.SysService{}
 	for _, seed := range serviceSeeds {
@@ -66,37 +66,96 @@ func seedServices(db *gorm.DB) map[string]models.SysService {
 	return result
 }
 
-func formSchema(fields ...string) string {
+func makeFormSchema(fields ...string) []byte {
 	b, _ := json.Marshal(map[string]interface{}{"fields": fields})
-	return string(b)
+	return b
 }
 
-// seedWorkflowNodes 注入流程大脑节点。
-// 1.意图 -> 让后台操作按钮由 sys_workflow_nodes 动态渲染。
-// 2.步骤 -> 为每个服务写入待处理、报价、收款、履约、完成等状态动作。
+// WorkflowNodeTemplate 描述单个流程节点的静态配置模板。
+type WorkflowNodeTemplate struct {
+	StageCode       string // 当前节点编码（触发入口）
+	StageName       string // 当前节点名称
+	MacroStatus     string // 映射主状态
+	ActionName      string // B 端操作按钮名称
+	NextStageCode   string // 流转到的目标节点编码
+	IsManual        bool   // 是否需要人工触发
+	RequireMaterial bool   // 流转到下一步是否必传资料
+	NotifyType      string // TG 通知类型，空则不发
+	SortOrder       int64  // 按钮排序
+}
+
+// workflowTemplates 按服务编码聚合流程节点模板。
+// 扩展方式：只需在此 map 中新增 key 或追加节点列表，无需修改注入逻辑。
+var workflowTemplates = map[string][]WorkflowNodeTemplate{
+	"airport_transfer": {
+		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "接单", NextStageCode: "quoted", IsManual: true, RequireMaterial: false, SortOrder: 1},
+		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "确认收款", NextStageCode: "paid", IsManual: true, RequireMaterial: false, SortOrder: 2},
+		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "开始履约", NextStageCode: "in_progress", IsManual: true, RequireMaterial: true, SortOrder: 3},
+		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "完成订单", NextStageCode: "completed", IsManual: true, RequireMaterial: false, SortOrder: 4},
+	},
+	"visa": {
+		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "接单", NextStageCode: "reviewing", IsManual: true, RequireMaterial: true, SortOrder: 1},
+		{StageCode: "reviewing", StageName: "资料审核中", MacroStatus: "reviewing", ActionName: "审核通过并报价", NextStageCode: "quoted", IsManual: true, RequireMaterial: false, SortOrder: 2},
+		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "确认收款", NextStageCode: "paid", IsManual: true, RequireMaterial: false, SortOrder: 3},
+		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "开始履约", NextStageCode: "in_progress", IsManual: true, RequireMaterial: true, SortOrder: 4},
+		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "完成订单", NextStageCode: "completed", IsManual: true, RequireMaterial: false, SortOrder: 5},
+	},
+	"charter": {
+		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "接单", NextStageCode: "quoted", IsManual: true, RequireMaterial: false, SortOrder: 1},
+		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "确认收款", NextStageCode: "paid", IsManual: true, RequireMaterial: false, SortOrder: 2},
+		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "开始履约", NextStageCode: "in_progress", IsManual: true, RequireMaterial: true, SortOrder: 3},
+		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "完成订单", NextStageCode: "completed", IsManual: true, RequireMaterial: false, SortOrder: 4},
+	},
+	"translation": {
+		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "接单", NextStageCode: "quoted", IsManual: true, RequireMaterial: false, SortOrder: 1},
+		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "确认收款", NextStageCode: "paid", IsManual: true, RequireMaterial: false, SortOrder: 2},
+		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "开始履约", NextStageCode: "in_progress", IsManual: true, RequireMaterial: false, SortOrder: 3},
+		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "完成订单", NextStageCode: "completed", IsManual: true, RequireMaterial: false, SortOrder: 4},
+	},
+	"business": {
+		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "接单", NextStageCode: "quoted", IsManual: true, RequireMaterial: true, SortOrder: 1},
+		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "确认收款", NextStageCode: "paid", IsManual: true, RequireMaterial: false, SortOrder: 2},
+		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "开始履约", NextStageCode: "in_progress", IsManual: true, RequireMaterial: true, SortOrder: 3},
+		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "完成订单", NextStageCode: "completed", IsManual: true, RequireMaterial: false, SortOrder: 4},
+	},
+}
+
+// seedWorkflowNodes 动态注入流程节点。
+// 1.意图 -> 让节点配置与代码解耦，新增服务只需扩展 workflowTemplates。
+// 2.步骤 -> 遍历已存在的服务，按 ServiceCode 匹配模板；先清理旧节点再幂等写入。
 // 3.返回 -> 无返回，失败写日志。
 func seedWorkflowNodes(db *gorm.DB, services map[string]models.SysService) {
-	buttons := []struct {
-		current, btn, target string
-		pay                  bool
-		material             bool
-	}{{"pending", "去报价", "quoted", true, false}, {"quoted", "确认收款", "paid", true, false}, {"paid", "开始履约", "in_progress", false, false}, {"in_progress", "完成订单", "completed", false, false}}
-	for _, service := range services {
-		for idx, btn := range buttons {
-			createNode(db, service.ID, btn.current, btn.btn, btn.target, btn.pay, btn.material, idx+1)
+	for code, service := range services {
+		templates, ok := workflowTemplates[code]
+		if !ok || len(templates) == 0 {
+			log.Printf("[seed] no workflow template for service_code=%s, skip", code)
+			continue
 		}
-		if service.ServiceCode == "visa" {
-			createNode(db, service.ID, "pending", "审核资料", "reviewing", false, true, 0)
-			createNode(db, service.ID, "reviewing", "资料通过并报价", "quoted", true, false, 1)
-		}
-	}
-}
 
-func createNode(db *gorm.DB, sid uint, current, button, target string, pay, material bool, sort int) {
-	var count int64
-	db.Model(&models.SysWorkflowNode{}).Where("service_id=? AND current_status=? AND target_status=?", sid, current, target).Count(&count)
-	if count == 0 {
-		db.Create(&models.SysWorkflowNode{ServiceID: sid, CurrentStatus: current, ButtonName: button, TargetStatus: target, TriggerPayment: pay, RequiredMaterial: material, SortOrder: sort, Remark: "系统种子流程"})
+		// 清理该服务已存在的节点，保证幂等
+		if err := db.Where("service_id = ?", service.ID).Delete(&models.SysWorkflowNode{}).Error; err != nil {
+			log.Printf("[seed] clear workflow nodes for service_id=%d failed: %v", service.ID, err)
+			continue
+		}
+
+		for _, tpl := range templates {
+			node := models.SysWorkflowNode{
+				ServiceID:       service.ID,
+				StageCode:       tpl.StageCode,
+				StageName:       tpl.StageName,
+				MacroStatus:     tpl.MacroStatus,
+				ActionName:      tpl.ActionName,
+				NextStageCode:   tpl.NextStageCode,
+				IsManual:        tpl.IsManual,
+				RequireMaterial: tpl.RequireMaterial,
+				NotifyType:      tpl.NotifyType,
+				SortOrder:       tpl.SortOrder,
+			}
+			if err := db.Create(&node).Error; err != nil {
+				log.Printf("[seed] create workflow node for service_id=%d stage=%s failed: %v", service.ID, tpl.StageCode, err)
+			}
+		}
+		log.Printf("[seed] workflow nodes seeded for service_code=%s (%d nodes)", code, len(templates))
 	}
 }
 

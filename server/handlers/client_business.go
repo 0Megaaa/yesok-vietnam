@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"yesok-vietnam/server/models"
+	"yesok-vietnam/server/pkg/workflow"
 )
 
 type CreateOrderRequest struct {
@@ -57,9 +58,9 @@ func ClientGetConfigs(db *gorm.DB) gin.HandlerFunc {
 
 // ClientCreateOrder 接收 C 端订单并将动态表单写入 orders.form_data。
 // 1.意图 -> 用统一订单表承接接机、签证、翻译等不同业务。
-// 2.步骤 -> 校验服务、创建演示客户、序列化 form_data、生成订单号和初始时间线。
+// 2.步骤 -> 校验服务、创建演示客户、查询服务首节点、序列化 form_data、生成订单号和初始时间线。
 // 3.返回 -> 新订单摘要，供 C 端立即展示订单状态。
-func ClientCreateOrder(db *gorm.DB) gin.HandlerFunc {
+func ClientCreateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req CreateOrderRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
@@ -82,9 +83,16 @@ func ClientCreateOrder(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// 查询服务对应的首个流程节点作为初始 stage
+		var firstNode models.SysWorkflowNode
+		if err := db.Where("service_id = ?", service.ID).Order("sort_order asc, id asc").First(&firstNode).Error; err != nil {
+			// 没有配置节点时使用默认值
+			firstNode.StageCode = "start"
+			firstNode.MacroStatus = string(models.OrderStatusPending)
+		}
+
 		appUser := ensureOrderAppUser(db, req)
 		formData := normalizeFormData(req.FormData, service)
-		formJSON, _ := json.Marshal(formData)
 		order := models.Order{
 			OrderNo:       fmt.Sprintf("YS%s%04d", time.Now().Format("20060102150405"), time.Now().UnixNano()%10000),
 			AppUserID:     appUser.ID,
@@ -94,9 +102,10 @@ func ClientCreateOrder(db *gorm.DB) gin.HandlerFunc {
 			ContactPhone:  req.ContactPhone,
 			TotalAmount:   service.BasePrice,
 			Currency:      service.Currency,
-			CurrentStatus: string(models.OrderStatusPending),
+			CurrentStage:  firstNode.StageCode,
+			MacroStatus:   firstNode.MacroStatus,
 			PaymentStatus: "unpaid",
-			FormData:      string(formJSON),
+			FormData:      marshalJSON(formData),
 		}
 		if order.ServiceName == "" {
 			order.ServiceName = service.ServiceName
@@ -106,7 +115,14 @@ func ClientCreateOrder(db *gorm.DB) gin.HandlerFunc {
 			if err := tx.Create(&order).Error; err != nil {
 				return err
 			}
-			return tx.Create(&models.OrderTimeline{OrderID: order.ID, AfterStatus: order.CurrentStatus, Operator: "C端客户", Remark: "客户提交订单，等待管家处理"}).Error
+			return tx.Create(&models.OrderTimeline{
+				OrderID:      order.ID,
+				BeforeStatus: "",
+				AfterStatus:  order.CurrentStage,
+				Operator:     "C端客户",
+				Remark:       "客户提交订单，等待管家处理",
+				ActionCode:   "客户下单",
+			}).Error
 		}); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create order"})
 			return
@@ -132,7 +148,7 @@ func buildServicePayloads(services []models.SysService) []gin.H {
 			"service_name": item.ServiceName, "icon": item.Icon, "cover_image": item.CoverImage,
 			"description": item.Description, "base_price": item.BasePrice, "price": formatMoney(item.BasePrice),
 			"currency": item.Currency, "unit": item.Unit, "is_hot": item.IsHot, "sort_order": item.SortOrder,
-			"form_schema": parseJSONString(item.FormSchema),
+			"form_schema": parseJSONString(string(item.FormSchema)),
 		})
 	}
 	return items
@@ -148,14 +164,14 @@ func buildOrderPayload(db *gorm.DB, order models.Order) gin.H {
 	var nodes []models.SysWorkflowNode
 	db.Where("order_id = ?", order.ID).Order("created_at asc").Find(&timelines)
 	db.Where("order_id = ?", order.ID).Order("created_at desc").Find(&payments)
-	db.Where("service_id = ? AND current_status = ?", order.ServiceID, order.CurrentStatus).Order("sort_order asc, id asc").Find(&nodes)
+	db.Where("service_id = ? AND stage_code = ?", order.ServiceID, order.MacroStatus).Order("sort_order asc, id asc").Find(&nodes)
 	return gin.H{
 		"id": order.ID, "order_no": order.OrderNo, "orderNo": order.OrderNo, "app_user_id": order.AppUserID,
 		"service_id": order.ServiceID, "serviceId": order.ServiceID, "service_name": order.ServiceName, "serviceName": order.ServiceName,
 		"contact_name": order.ContactName, "contact_phone": order.ContactPhone, "total_amount": order.TotalAmount,
 		"amount": order.TotalAmount, "price": formatMoney(order.TotalAmount), "currency": order.Currency,
-		"current_status": order.CurrentStatus, "currentStatus": order.CurrentStatus, "payment_status": order.PaymentStatus,
-		"form_data": parseJSONString(order.FormData), "formData": parseJSONString(order.FormData), "remark": order.Remark,
+		"current_status": order.MacroStatus, "currentStatus": order.MacroStatus, "payment_status": order.PaymentStatus,
+		"form_data": parseJSONString(string(order.FormData)), "formData": parseJSONString(string(order.FormData)), "remark": order.Remark,
 		"created_at": order.CreatedAt, "updated_at": order.UpdatedAt, "timelines": timelines, "payments": payments, "actionNodes": nodes,
 	}
 }
@@ -212,6 +228,11 @@ func parseJSONString(raw string) interface{} {
 		return gin.H{}
 	}
 	return payload
+}
+
+func marshalJSON(v any) []byte {
+	data, _ := json.Marshal(v)
+	return data
 }
 
 // formatMoney 将分单位金额转换为越南盾展示文案。

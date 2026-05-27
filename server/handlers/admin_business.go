@@ -1,23 +1,20 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 	"yesok-vietnam/server/models"
+	"yesok-vietnam/server/pkg/workflow"
 )
 
 type AdminUpdateOrderRequest struct {
-	TargetStatus      string `json:"targetStatus"`
-	TargetStatusSnake string `json:"target_status"`
-	CurrentStatus     string `json:"current_status"`
-	Remark            string `json:"remark"`
+	ActionName string `json:"action_name"` // 动作名称，与 workflow node.action_name 对应
+	Remark     string `json:"remark"`      // 操作备注
 }
 
 type SaveServiceRequest struct {
@@ -71,7 +68,7 @@ func DashboardStats(db *gorm.DB) gin.HandlerFunc {
 		var totalUsers, totalOrders, pendingOrders, todayOrders int64
 		db.Model(&models.AppUser{}).Count(&totalUsers)
 		db.Model(&models.Order{}).Count(&totalOrders)
-		db.Model(&models.Order{}).Where("current_status IN ?", []string{"pending", "reviewing", "quoted"}).Count(&pendingOrders)
+		db.Model(&models.Order{}).Where("macro_status IN ?", []string{"pending", "reviewing", "quoted"}).Count(&pendingOrders)
 		todayStart := time.Now().Format("2006-01-02") + " 00:00:00"
 		db.Model(&models.Order{}).Where("created_at >= ?", todayStart).Count(&todayOrders)
 		var revenue struct{ Total int64 }
@@ -80,7 +77,7 @@ func DashboardStats(db *gorm.DB) gin.HandlerFunc {
 		db.Order("created_at desc").Limit(5).Find(&latest)
 		activities := make([]gin.H, 0, len(latest))
 		for _, order := range latest {
-			activities = append(activities, gin.H{"order_no": order.OrderNo, "service_name": order.ServiceName, "status": order.CurrentStatus, "amount": order.TotalAmount, "created_at": order.CreatedAt})
+			activities = append(activities, gin.H{"order_no": order.OrderNo, "service_name": order.ServiceName, "status": order.MacroStatus, "amount": order.TotalAmount, "created_at": order.CreatedAt})
 		}
 		c.JSON(http.StatusOK, gin.H{"total_users": totalUsers, "total_orders": totalOrders, "pending_orders": pendingOrders, "today_orders": todayOrders, "total_revenue": revenue.Total, "today_activities": activities})
 	}
@@ -95,7 +92,7 @@ func AdminListOrders(db *gorm.DB) gin.HandlerFunc {
 		status := c.Query("status")
 		query := db.Model(&models.Order{})
 		if status != "" && status != "all" {
-			query = query.Where("current_status = ?", status)
+			query = query.Where("macro_status = ?", status)
 		}
 		var total int64
 		query.Count(&total)
@@ -136,7 +133,7 @@ func AdminGetOrder(db *gorm.DB) gin.HandlerFunc {
 // 1.意图 -> 跑通“后台改状态 -> 时间线 -> 财务流水”的履约闭环。
 // 2.步骤 -> 校验目标状态、写入 orders、追加 order_timelines，并在 trigger_payment 时创建 payment_records。
 // 3.返回 -> 更新后的订单聚合对象。
-func AdminUpdateOrder(db *gorm.DB) gin.HandlerFunc {
+func AdminUpdateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
 		if err != nil {
@@ -148,65 +145,23 @@ func AdminUpdateOrder(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
-		target := strings.TrimSpace(req.TargetStatus)
-		if target == "" {
-			target = strings.TrimSpace(req.TargetStatusSnake)
-		}
-		if target == "" {
-			target = strings.TrimSpace(req.CurrentStatus)
-		}
-		if target == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "targetStatus is required"})
+		if req.ActionName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "action_name is required"})
 			return
 		}
+
+		if err := engine.AdvanceStage(uint(id), req.ActionName, "后台管家", req.Remark); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
 		var order models.Order
 		if err := db.First(&order, id).Error; err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "order not found"})
+			c.JSON(http.StatusNotFound, gin.H{"error": "order not found after advance"})
 			return
 		}
-		before := order.CurrentStatus
-		var node models.SysWorkflowNode
-		db.Where("service_id = ? AND current_status = ? AND target_status = ?", order.ServiceID, before, target).First(&node)
-		err = db.Transaction(func(tx *gorm.DB) error {
-			updates := map[string]interface{}{"current_status": target}
-			if target == "paid" {
-				updates["payment_status"] = "paid"
-			}
-			if req.Remark != "" {
-				updates["remark"] = req.Remark
-			}
-			if err := tx.Model(&order).Updates(updates).Error; err != nil {
-				return err
-			}
-			if err := tx.Create(&models.OrderTimeline{OrderID: order.ID, BeforeStatus: before, AfterStatus: target, Operator: "后台管家", Remark: defaultRemark(req.Remark, node.ButtonName)}).Error; err != nil {
-				return err
-			}
-			if node.TriggerPayment || target == "paid" || target == "payment_pending" {
-				payStatus := "pending"
-				if target == "paid" {
-					payStatus = "success"
-				}
-				return tx.Create(&models.PaymentRecord{OrderID: order.ID, AppUserID: order.AppUserID, PayerName: order.ContactName, PayAmount: order.TotalAmount, PayMethod: "bank_transfer", Status: payStatus, ThirdTradeNo: fmt.Sprintf("YS-PAY-%d", time.Now().UnixNano())}).Error
-			}
-			return nil
-		})
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update order"})
-			return
-		}
-		db.First(&order, id)
 		c.JSON(http.StatusOK, buildOrderPayload(db, order))
 	}
-}
-
-func defaultRemark(remark, button string) string {
-	if remark != "" {
-		return remark
-	}
-	if button != "" {
-		return "执行动作：" + button
-	}
-	return "后台管家更新订单状态"
 }
 
 // AdminListServices 返回后台服务配置列表。
@@ -282,7 +237,17 @@ func serviceFromRequest(req SaveServiceRequest) models.SysService {
 	if req.Currency == "" {
 		req.Currency = models.DefaultCurrencyCode
 	}
-	return models.SysService{ServiceCode: req.ServiceCode, ServiceName: req.ServiceName, DisplayName: req.DisplayName, Icon: req.Icon, CoverImage: req.CoverImage, Description: req.Description, BasePrice: req.BasePrice, Currency: req.Currency, Unit: req.Unit, SortOrder: req.SortOrder, Status: req.Status, IsHot: req.IsHot, FormSchema: req.FormSchema}
+	formSchema := []byte{}
+	if req.FormSchema != "" {
+		formSchema = []byte(req.FormSchema)
+	}
+	return models.SysService{
+		ServiceCode: req.ServiceCode, ServiceName: req.ServiceName, DisplayName: req.DisplayName,
+		Icon: req.Icon, CoverImage: req.CoverImage, Description: req.Description,
+		BasePrice: req.BasePrice, Currency: req.Currency, Unit: req.Unit,
+		SortOrder: int64(req.SortOrder), Status: req.Status, IsHot: req.IsHot,
+		FormSchema: formSchema,
+	}
 }
 
 // AdminListPayments 返回财务流水列表。

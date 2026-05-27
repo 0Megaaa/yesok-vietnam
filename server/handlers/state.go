@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 	"yesok-vietnam/server/models"
+	"yesok-vietnam/server/pkg/workflow"
 )
 
 // loadUserFromContext extracts the user from context (set by middleware) or
@@ -98,7 +99,7 @@ func GetState(db *gorm.DB) gin.HandlerFunc {
 // It accepts a JSON body describing one or more order mutations:
 //   - Create: { "action": "create", "order": { ...fields } }
 //   - Update: { "action": "update", "id": 123, "fields": { ...patch } }
-func UpdateState(db *gorm.DB) gin.HandlerFunc {
+func UpdateState(db *gorm.DB, orderEngine *workflow.OrderEngine) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		currentUser, err := loadUserFromContext(c, db)
 		if err != nil || currentUser == nil {
@@ -119,7 +120,7 @@ func UpdateState(db *gorm.DB) gin.HandlerFunc {
 			case "create":
 				res = handleCreateOrder(db, currentUser, mut.Order)
 			case "update":
-				res = handleUpdateOrder(db, currentUser, mut.ID, mut.Fields)
+				res = handleUpdateOrder(db, orderEngine, currentUser, mut.ID, mut.Fields)
 			default:
 				res = MutationResult{Success: false, Message: fmt.Sprintf("unknown action: %s", mut.Action)}
 			}
@@ -155,11 +156,26 @@ func handleCreateOrder(db *gorm.DB, user *models.User, raw json.RawMessage) Muta
 	order.UserID = user.ID
 
 	// Set defaults.
-	if order.Status == "" {
-		order.Status = models.OrderStatusPending
-	}
 	if order.Currency == "" {
 		order.Currency = "VND"
+	}
+
+	// 查询服务对应的首个流程节点作为初始 stage
+	if order.CurrentStage == "" {
+		if order.ServiceID > 0 {
+			var firstNode models.SysWorkflowNode
+			if err := db.Where("service_id = ?", order.ServiceID).Order("sort_order asc, id asc").First(&firstNode).Error; err == nil {
+				order.CurrentStage = firstNode.StageCode
+				order.MacroStatus = firstNode.MacroStatus
+			}
+		}
+		// 兜底：仍未设置则使用默认值
+		if order.CurrentStage == "" {
+			order.CurrentStage = "start"
+			if order.MacroStatus == "" {
+				order.MacroStatus = string(models.OrderStatusPending)
+			}
+		}
 	}
 
 	if err := db.Create(&order).Error; err != nil {
@@ -174,7 +190,7 @@ func handleCreateOrder(db *gorm.DB, user *models.User, raw json.RawMessage) Muta
 	}
 }
 
-func handleUpdateOrder(db *gorm.DB, user *models.User, orderID uint, raw json.RawMessage) MutationResult {
+func handleUpdateOrder(db *gorm.DB, orderEngine *workflow.OrderEngine, user *models.User, orderID uint, raw json.RawMessage) MutationResult {
 	var order models.Order
 	if err := db.First(&order, orderID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -188,23 +204,24 @@ func handleUpdateOrder(db *gorm.DB, user *models.User, orderID uint, raw json.Ra
 		return MutationResult{Success: false, Message: "forbidden"}
 	}
 
-	// Parse optional field patch.
-	if raw != nil {
-		var patch map[string]interface{}
-		if err := json.Unmarshal(raw, &patch); err != nil {
-			return MutationResult{Success: false, Message: "malformed patch: " + err.Error()}
-		}
-		// Remove read-only fields from patch.
-		delete(patch, "id")
-		delete(patch, "user_id")
-		delete(patch, "order_no")
-		delete(patch, "created_at")
-		delete(patch, "updated_at")
+	if raw == nil {
+		return MutationResult{Success: true, Message: "updated", OrderID: order.ID, OrderNo: order.OrderNo}
+	}
 
-		if len(patch) > 0 {
-			if err := db.Model(&order).Updates(patch).Error; err != nil {
-				return MutationResult{Success: false, Message: "update failed: " + err.Error()}
-			}
+	var patch map[string]interface{}
+	if err := json.Unmarshal(raw, &patch); err != nil {
+		return MutationResult{Success: false, Message: "malformed patch: " + err.Error()}
+	}
+
+	// 摘出只读字段和状态字段
+	for _, k := range []string{"id", "user_id", "order_no", "created_at", "updated_at", "current_stage", "macro_status", "payment_status"} {
+		delete(patch, k)
+	}
+
+	// 非状态字段直接更新
+	if len(patch) > 0 {
+		if err := db.Model(&order).Updates(patch).Error; err != nil {
+			return MutationResult{Success: false, Message: "update fields failed: " + err.Error()}
 		}
 	}
 
