@@ -4,7 +4,8 @@
     { "path": "pages/news/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/services/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } },
-    { "path": "pages/service-detail/index", "style": { "navigationBarTitleText": "服务详情" } }
+    { "path": "pages/service-detail/index", "style": { "navigationBarTitleText": "服务详情" } },
+    { "path": "pages/order-detail/index", "style": { "navigationBarTitleText": "订单详情" } }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "white",

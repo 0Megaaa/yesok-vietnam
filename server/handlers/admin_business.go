@@ -185,7 +185,27 @@ func AdminGetOrderActions(db *gorm.DB) gin.HandlerFunc {
 			httpError(c, http.StatusInternalServerError, ErrCodeInternalError, "failed to query actions")
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"actions": nodes})
+
+		// 规范化返回字段
+		actions := make([]gin.H, 0, len(nodes))
+		for _, n := range nodes {
+			actions = append(actions, gin.H{
+				"id":            n.ID,
+				"action_name":   n.ActionName,
+				"button_label":  n.ButtonLabel,
+				"action_type":   n.ActionType,
+				"form_fields":   n.FormFields,
+				"target_status": n.TargetStatus,
+				"macro_status":  n.MacroStatus,
+				"notify_type":   n.NotifyType,
+				"need_audit":    n.NeedAudit,
+				"sort_order":    n.SortOrder,
+				"stage_code":    n.StageCode,
+				"stage_name":    n.StageName,
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{"actions": actions})
 	}
 }
 

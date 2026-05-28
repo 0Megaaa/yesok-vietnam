@@ -18,7 +18,7 @@ type OrderTimeline struct {
 	Remark       string     `json:"remark" gorm:"size:1000;comment:'备注或对客留言'"`
 	CreatedAt    *time.Time `json:"created_at" gorm:"datetime(3);comment:'创建时间'"`
 	UpdatedAt    *time.Time `json:"updated_at" gorm:"datetime(3);comment:'更新时间'"`
-	ActionCode   string     `json:"action_code" gorm:"size:64;comment:'触发该记录的操作动作代码'"`
+	ActionName   string     `json:"action_name" gorm:"column:action_code;size:64;comment:'触发该记录的操作动作名称'"`
 	Payload      []byte     `json:"payload" gorm:"type:json;comment:'form_input 节点提交的数据 JSON'"`
 	AuditStatus  string     `json:"audit_status" gorm:"size:32;default:approved;comment:'审核状态：pending/approved/rejected'"`
 }

@@ -15,23 +15,34 @@ const showToast = (title, type = 'info') => {
 
 const statusMap = {
   pending: '待受理',
+  reviewing: '资料审核中',
   quoted: '已报价',
   paid: '已收款',
   in_progress: '履约中',
+  processing: '服务中',
   completed: '已完成',
   cancelled: '已取消',
+  refunded: '已退款',
+}
+
+const paymentStatusMap = {
+  unpaid: '未支付',
+  paid: '已支付',
+  refunded: '已退款',
 }
 
 const normalizeOrder = (order) => ({
   ...order,
   order_no: order.order_no || order.orderNo,
   service_name: order.service_name || order.serviceName,
-  current_status: order.current_status || order.currentStatus,
+  current_status: order.macro_status || order.current_status || order.currentStatus,
+  current_stage: order.current_stage || '',
   total_amount: order.total_amount || order.amount || 0,
   totalAmountText:
     order.price || `${Math.round((order.total_amount || 0) / 100)} ${order.currency || 'VND'}`,
   form_data: order.form_data || order.formData || {},
   payment_status: order.payment_status || order.pay_status || 'pending',
+  macro_status: order.macro_status || order.current_status || order.currentStatus,
   // actionNodes 字段映射：后端返回 button_label → 按钮文案, target_status → 目标状态
   actionNodes: (order.actionNodes || []).map((node) => ({
     id: node.id,
@@ -84,6 +95,11 @@ const filters = computed(() => [
     count: orders.value.filter((o) => o.current_status === 'pending').length,
   },
   {
+    key: 'reviewing',
+    label: '资料审核',
+    count: orders.value.filter((o) => o.current_status === 'reviewing').length,
+  },
+  {
     key: 'quoted',
     label: '已报价',
     count: orders.value.filter((o) => o.current_status === 'quoted').length,
@@ -94,9 +110,14 @@ const filters = computed(() => [
     count: orders.value.filter((o) => o.current_status === 'paid').length,
   },
   {
-    key: 'in_progress',
-    label: '履约中',
-    count: orders.value.filter((o) => o.current_status === 'in_progress').length,
+    key: 'processing',
+    label: '服务中',
+    count: orders.value.filter((o) => o.current_status === 'processing' || o.current_status === 'in_progress').length,
+  },
+  {
+    key: 'completed',
+    label: '已完成',
+    count: orders.value.filter((o) => o.current_status === 'completed').length,
   },
 ])
 
@@ -157,7 +178,11 @@ onUnmounted(() => {
               {{ order.contact_phone }}
             </span>
           </div>
-          <span class="status">{{ statusMap[order.current_status] || order.current_status }}</span>
+          <div class="status-badges">
+            <span class="status">{{ statusMap[order.current_status] || order.current_status }}</span>
+            <span v-if="order.current_stage && order.current_stage !== order.current_status" class="stage-tag">{{ order.current_stage }}</span>
+            <span class="payment-tag" :class="order.payment_status">{{ paymentStatusMap[order.payment_status] || order.payment_status }}</span>
+          </div>
         </div>
 
         <div class="order-meta">
@@ -301,6 +326,39 @@ onUnmounted(() => {
   background: rgba(0, 77, 64, 0.08);
   font-size: 12px;
   font-weight: 900;
+}
+
+.status-badges {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.stage-tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  color: #7a5a21;
+  background: rgba(197, 160, 89, 0.15);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.payment-tag {
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.payment-tag.paid {
+  color: #2a7a3a;
+  background: rgba(60, 160, 80, 0.15);
+}
+
+.payment-tag.unpaid {
+  color: #7a2a2a;
+  background: rgba(200, 80, 80, 0.15);
 }
 
 .order-meta {

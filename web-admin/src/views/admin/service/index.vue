@@ -119,14 +119,15 @@ const blankNode = () => ({
   id: 0,
   stage_code: '',
   stage_name: '',
-  macro_status: '',
+  executor_role: 'admin',
   action_name: '',
   button_label: '',
-  executor_role: 'admin',
   action_type: 'button_click',
   form_fields: [],
-  need_audit: false,
   target_status: '',
+  macro_status: '',
+  notify_type: '',
+  need_audit: false,
   sort_order: 0,
 })
 
@@ -168,12 +169,15 @@ const removeFieldRow = (fieldIndex) => {
 }
 
 const fieldTypeOptions = [
-  { label: '文本输入', value: 'input' },
+  { label: '文本输入', value: 'text' },
   { label: '多行文本', value: 'textarea' },
   { label: '数字', value: 'number' },
   { label: '日期', value: 'date' },
+  { label: '日期时间', value: 'datetime' },
   { label: '下拉选择', value: 'select' },
   { label: '图片上传', value: 'image' },
+  { label: '文件上传', value: 'file' },
+  { label: '手机号', value: 'phone' },
 ]
 
 const openFieldOptionsDialog = (field, fieldIndex) => {
@@ -190,14 +194,47 @@ const openFieldOptionsDialog = (field, fieldIndex) => {
 // --- 提交前置校验 ---
 const validateWorkflowNodes = () => {
   const nodes = form.value.workflow_nodes
+  // 检查重复：同一 service_id + stage_code + executor_role + action_name 不允许重复
+  const seen = new Map()
   for (let i = 0; i < nodes.length; i++) {
     const n = nodes[i]
-    if (!n.stage_code?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「节点编码」不能为空` }
+    // 基础必填校验
+    if (!n.stage_code?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「当前节点」不能为空` }
     if (!n.stage_name?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「节点名称」不能为空` }
-    if (!n.macro_status?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「主状态」不能为空` }
-    if (!n.action_name?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「动作标识」不能为空` }
-    if (!n.button_label?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「按钮名称」不能为空` }
-    if (!n.target_status?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「目标状态」不能为空` }
+    if (!n.executor_role?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「执行角色」不能为空` }
+    if (!n.action_name?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「动作名称」不能为空` }
+    if (!n.button_label?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「按钮文案」不能为空` }
+    if (!n.action_type?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「动作类型」不能为空` }
+    if (!n.target_status?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「下一节点」不能为空` }
+    if (!n.macro_status?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「执行后主状态」不能为空` }
+
+    // form_input 类型的 form_fields 校验
+    if (n.action_type === 'form_input') {
+      if (!n.form_fields || n.form_fields.length === 0) {
+        return { ok: false, index: i, msg: `第 ${i + 1} 行「form_input」类型必须有表单字段` }
+      }
+      for (let j = 0; j < n.form_fields.length; j++) {
+        const f = n.form_fields[j]
+        if (!f.key?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行第 ${j + 1} 个字段「key」不能为空` }
+        if (!f.label?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行第 ${j + 1} 个字段「label」不能为空` }
+        if (!f.type?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行第 ${j + 1} 个字段「type」不能为空` }
+      }
+    } else {
+      // 非 form_input 类型，form_fields 置空
+      n.form_fields = []
+    }
+
+    // notify_type 默认为 none
+    if (!n.notify_type?.trim()) {
+      n.notify_type = 'none'
+    }
+
+    // 重复检查
+    const key = `${n.stage_code}_${n.executor_role}_${n.action_name}`
+    if (seen.has(key)) {
+      return { ok: false, index: i, msg: `第 ${i + 1} 行与第 ${seen.get(key) + 1} 行：同一节点同一角色下动作重复，请调整` }
+    }
+    seen.set(key, i)
   }
   return { ok: true }
 }
@@ -260,14 +297,15 @@ const openEditDialog = async (row) => {
         id: n.id || 0,
         stage_code: n.stage_code || '',
         stage_name: n.stage_name || '',
-        macro_status: n.macro_status || '',
+        executor_role: n.executor_role || 'admin',
         action_name: n.action_name || '',
         button_label: n.button_label || '',
-        executor_role: n.executor_role || 'admin',
         action_type: n.action_type || 'button_click',
         form_fields: n.form_fields || [],
-        need_audit: n.need_audit ?? false,
         target_status: n.target_status || '',
+        macro_status: n.macro_status || '',
+        notify_type: n.notify_type || '',
+        need_audit: n.need_audit ?? false,
         sort_order: n.sort_order ?? 0,
       })),
     }
@@ -328,22 +366,32 @@ const toggleService = async (row) => {
 
 // 工作流节点字典数据
 const macroStatusOptions = ref([])
-const workflowNodeCodeOptions = ref([])
+const nodeStageOptions = ref([])
 const workflowActionOptions = ref([])
+const actionTypeOptions = ref([])
+const executorRoleOptions = ref([])
+const notifyTypeOptions = ref([])
 
 const loadWorkflowDicts = async () => {
-  const [ms, nc, ac] = await Promise.all([
-    request.get('/v1/admin/dict-data?dict_type=macro_status_list').catch(() => null),
-    request.get('/v1/admin/dict-data?dict_type=workflow_node_code').catch(() => null),
+  const [ms, ns, ac, at, er, nt] = await Promise.all([
+    request.get('/v1/admin/dict-data?dict_type=macro_status').catch(() => null),
+    request.get('/v1/admin/dict-data?dict_type=node_stage').catch(() => null),
     request.get('/v1/admin/dict-data?dict_type=workflow_action').catch(() => null),
+    request.get('/v1/admin/dict-data?dict_type=action_type').catch(() => null),
+    request.get('/v1/admin/dict-data?dict_type=executor_role').catch(() => null),
+    request.get('/v1/admin/dict-data?dict_type=notify_type').catch(() => null),
   ])
   const unwrap = (res) => {
     const raw = res?.data?.data ?? res?.data ?? res ?? []
     return Array.isArray(raw) ? raw : []
   }
+  // 过滤掉 page_jump 类型
   macroStatusOptions.value = unwrap(ms)
-  workflowNodeCodeOptions.value = unwrap(nc)
-  workflowActionOptions.value = unwrap(ac)
+  nodeStageOptions.value = unwrap(ns)
+  workflowActionOptions.value = unwrap(ac).filter(o => o.dict_value !== 'page_jump')
+  actionTypeOptions.value = unwrap(at).filter(o => ['button_click', 'form_input', 'wx_pay'].includes(o.dict_value))
+  executorRoleOptions.value = unwrap(er)
+  notifyTypeOptions.value = unwrap(nt)
 }
 
 const selectEmoji = (emoji) => { form.value.service_info.icon = emoji }
@@ -588,46 +636,49 @@ onUnmounted(() => { loading.value = false })
             </template>
           </el-table-column>
 
-          <!-- 节点名称（字典 label 显示，value 绑定 stage_code） -->
-          <el-table-column label="节点名称 *" min-width="140">
+          <!-- 当前节点 -->
+          <el-table-column label="当前节点 *" min-width="140">
             <template #default="{ row }">
-              <el-select v-model="row.stage_code" placeholder="选择节点" size="small" style="width: 100%" clearable>
-                <el-option v-for="o in workflowNodeCodeOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
+              <el-select v-model="row.stage_code" placeholder="选择节点" size="small" style="width: 100%" clearable allow-create filterable @change="(v) => { if(!row.stage_name && v) row.stage_name = nodeStageOptions.find(o => o.dict_value === v)?.dict_label || v }">
+                <el-option v-for="o in nodeStageOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
               </el-select>
+            </template>
+          </el-table-column>
+
+          <!-- 节点名称 -->
+          <el-table-column label="节点名称 *" min-width="120">
+            <template #default="{ row }">
+              <el-input v-model="row.stage_name" placeholder="如 提交资料" size="small" />
             </template>
           </el-table-column>
 
           <!-- 执行角色 -->
-          <el-table-column label="执行角色" width="100" align="center">
+          <el-table-column label="执行角色 *" width="110" align="center">
             <template #default="{ row }">
               <el-select v-model="row.executor_role" size="small" style="width: 100%">
-                <el-option label="管理员" value="admin" />
-                <el-option label="客户" value="client" />
-                <el-option label="两者" value="both" />
+                <el-option v-for="o in executorRoleOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
               </el-select>
             </template>
           </el-table-column>
 
-          <!-- 动作行为（action_name 下拉 + button_label 输入） -->
-          <el-table-column label="动作行为 *" min-width="200">
+          <!-- 动作名称 -->
+          <el-table-column label="动作名称 *" min-width="180">
             <template #default="{ row }">
               <div style="display: flex; flex-direction: column; gap: 4px">
                 <el-select v-model="row.action_name" placeholder="选择动作" size="small" clearable filterable allow-create>
                   <el-option v-for="o in workflowActionOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
                 </el-select>
-                <el-input v-model="row.button_label" placeholder="自定义按钮名称，如 接单" size="small" />
+                <el-input v-model="row.button_label" placeholder="按钮文案，如 提交资料" size="small" />
               </div>
             </template>
           </el-table-column>
 
-          <!-- ActionType + 表单字段编辑入口 -->
-          <el-table-column label="动作类型" width="150">
+          <!-- 动作类型 -->
+          <el-table-column label="动作类型 *" width="150">
             <template #default="{ row, $index }">
               <div style="display: flex; flex-direction: column; gap: 4px">
                 <el-select v-model="row.action_type" size="small" style="width: 100%" @change="() => { if(row.action_type !== 'form_input') row.form_fields = [] }">
-                  <el-option label="按钮点击" value="button_click" />
-                  <el-option label="表单输入" value="form_input" />
-                  <el-option label="微信支付" value="wx_pay" />
+                  <el-option v-for="o in actionTypeOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
                 </el-select>
                 <template v-if="row.action_type === 'form_input'">
                   <el-button size="mini" type="primary" plain @click="openFieldEditor($index)">
@@ -638,15 +689,17 @@ onUnmounted(() => { loading.value = false })
             </template>
           </el-table-column>
 
-          <!-- 需人工审核 -->
-          <el-table-column label="需人工审核" width="100" align="center">
+          <!-- 下一节点 -->
+          <el-table-column label="下一节点 *" width="120">
             <template #default="{ row }">
-              <el-switch v-model="row.need_audit" size="small" :disabled="row.action_type === 'wx_pay'" />
+              <el-select v-model="row.target_status" placeholder="选择目标" size="small" style="width: 100%" clearable allow-create filterable>
+                <el-option v-for="o in nodeStageOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
+              </el-select>
             </template>
           </el-table-column>
 
-          <!-- 主状态 -->
-          <el-table-column label="主状态 *" width="110">
+          <!-- 执行后主状态 -->
+          <el-table-column label="执行后主状态 *" width="130">
             <template #default="{ row }">
               <el-select v-model="row.macro_status" placeholder="选择状态" size="small" style="width: 100%">
                 <el-option v-for="o in macroStatusOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
@@ -654,12 +707,21 @@ onUnmounted(() => { loading.value = false })
             </template>
           </el-table-column>
 
-          <!-- 下一步状态（目标状态） -->
-          <el-table-column label="下一步状态 *" width="120">
+          <!-- 通知类型 -->
+          <el-table-column label="通知类型" width="120">
             <template #default="{ row }">
-              <el-select v-model="row.target_status" placeholder="选择目标" size="small" style="width: 100%" clearable>
-                <el-option v-for="o in workflowNodeCodeOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
+              <el-select v-model="row.notify_type" placeholder="无通知" size="small" style="width: 100%" clearable>
+                <el-option v-for="o in notifyTypeOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
               </el-select>
+            </template>
+          </el-table-column>
+
+          <!-- 需人工审核 -->
+          <el-table-column label="需审核" width="70" align="center">
+            <template #default="{ row }">
+              <el-tooltip content="需人工审核后才推进" placement="top">
+                <el-switch v-model="row.need_audit" size="small" :disabled="row.action_type === 'wx_pay'" />
+              </el-tooltip>
             </template>
           </el-table-column>
 

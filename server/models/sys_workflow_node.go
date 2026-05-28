@@ -6,10 +6,11 @@ import (
 )
 
 // FormFieldDef 描述动态表单中的单个字段。
+// 支持的 type：text|textarea|number|date|datetime|select|image|file|phone
 type FormFieldDef struct {
 	Key      string `json:"key"`      // 字段标识
 	Label    string `json:"label"`    // 前端显示标签
-	Type     string `json:"type"`     // text|textarea|number|date|select|image
+	Type     string `json:"type"`     // text|textarea|number|date|datetime|select|image|file|phone
 	Required bool   `json:"required"` // 是否必填
 	Options  []struct {
 		Label string `json:"label"`
@@ -60,6 +61,7 @@ type SysWorkflowNode struct {
 	ActionType   string     `json:"action_type" gorm:"size:32;not null;default:button_click;comment:'button_click/form_input/wx_pay'"`
 	FormFields   FormFields `json:"form_fields" gorm:"type:json;comment:'JSON: [{key,label,type,required,options}]'"`
 	NeedAudit    bool       `json:"need_audit" gorm:"default:false;comment:'提交后是否需人工审核确认才推进'"`
+	NotifyType   string     `json:"notify_type" gorm:"size:32;comment:'触发通知类型，对应 notify_type 字典'"`
 	TargetStatus string     `json:"target_status" gorm:"size:64;not null;comment:'流转目标状态'"`
 	SortOrder    int64      `json:"sort_order" gorm:"default:0;comment:'排序'"`
 	CreatedAt    *time.Time `json:"created_at" gorm:"datetime(3);"`

@@ -81,8 +81,9 @@ const parseFormSchema = (formRes) => {
   const values = {}
   const errors = {}
   fields.forEach((f) => {
-    values[f.key || f.name] = ''
-    errors[f.key || f.name] = ''
+    const key = f.key || f.name || ''
+    values[key] = ''
+    errors[key] = ''
   })
   formValues.value = values
   formErrors.value = errors
@@ -138,9 +139,17 @@ const submitOrder = async () => {
     client.addOrder(res.order)
     showForm.value = false
     safeToast('订单已提交，管家即将联系您', 'success')
+    // 跳转到订单详情页
+    const uniApi = typeof uni !== 'undefined' ? uni : null
+    const orderId = res.order?.id || res.order?.order_no
+    if (uniApi?.navigateTo && orderId) {
+      setTimeout(() => {
+        uniApi.navigateTo({ url: `/pages/order-detail/index?id=${orderId}` })
+      }, 1500)
+    }
     // 重置表单
     const values = {}
-    ;(formSchema.value.fields || []).forEach((f) => { values[f.name] = '' })
+    ;(formSchema.value.fields || []).forEach((f) => { values[f.name || f.key] = '' })
     formValues.value = values
     formErrors.value = {}
   } catch (err) {
@@ -252,11 +261,20 @@ const safeToast = (title, icon = 'info') => {
               <text v-if="field.required" class="required-star">*</text>
             </view>
 
-            <!-- text / phone -->
+            <!-- text / phone / number -->
             <input
               v-if="field.type === 'text' || field.type === 'phone'"
               v-model="formValues[field.key || field.name]"
               :type="field.type === 'phone' ? 'number' : 'text'"
+              class="field-input"
+              :class="{ error: formErrors[field.key || field.name] }"
+              :placeholder="field.placeholder || `请输入${field.label}`"
+              @blur="validateField(field)"
+            />
+            <input
+              v-else-if="field.type === 'number'"
+              v-model="formValues[field.key || field.name]"
+              type="digit"
               class="field-input"
               :class="{ error: formErrors[field.key || field.name] }"
               :placeholder="field.placeholder || `请输入${field.label}`"
@@ -270,6 +288,16 @@ const safeToast = (title, icon = 'info') => {
               class="field-input"
               :class="{ error: formErrors[field.key || field.name] }"
               placeholder="格式：2025-01-15"
+              @blur="validateField(field)"
+            />
+
+            <!-- datetime -->
+            <input
+              v-else-if="field.type === 'datetime'"
+              v-model="formValues[field.key || field.name]"
+              class="field-input"
+              :class="{ error: formErrors[field.key || field.name] }"
+              placeholder="格式：2025-01-15 14:30"
               @blur="validateField(field)"
             />
 
@@ -289,13 +317,26 @@ const safeToast = (title, icon = 'info') => {
               mode="selector"
               :value="0"
               :range="field.options || []"
-              @change="(e) => { formValues[field.key || field.name] = field.options[e.detail.value]; validateField(field) }"
+              :range-key="'label'"
+              @change="(e) => {
+                const selected = field.options[e.detail.value]
+                formValues[field.key || field.name] = selected?.value ?? selected ?? ''
+                validateField(field)
+              }"
             >
               <view class="field-picker" :class="{ error: formErrors[field.key || field.name], filled: formValues[field.key || field.name] }">
                 <text>{{ formValues[field.key || field.name] || field.placeholder || `请选择${field.label}` }}</text>
                 <text class="picker-arrow">›</text>
               </view>
             </picker>
+
+            <!-- file (simple display) -->
+            <view
+              v-else-if="field.type === 'file'"
+              class="field-file"
+            >
+              <text class="file-placeholder">文件上传暂不支持，请在PC端操作</text>
+            </view>
 
             <!-- 错误提示 -->
             <text v-if="formErrors[field.key || field.name]" class="field-error">{{ formErrors[field.key || field.name] }}</text>
@@ -639,6 +680,18 @@ const safeToast = (title, icon = 'info') => {
 
 .field-picker.filled { color: #102a55; }
 .field-picker.error { border-color: #e53e3e; }
+
+.field-file {
+  padding: 12px;
+  border: 1.5px dashed rgba(0, 77, 64, 0.2);
+  border-radius: 14px;
+  background: #f8fbfa;
+}
+
+.file-placeholder {
+  color: #9aa3b5;
+  font-size: 12px;
+}
 
 .picker-arrow {
   color: #9aa3b5;

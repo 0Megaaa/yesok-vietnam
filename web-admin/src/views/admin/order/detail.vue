@@ -2,8 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getOrderDetail, performOrderAction } from '@/api/admin/orders'
-import { getServiceActions } from '@/api/admin/services'
+import { getOrderDetail, getOrderActions, performOrderAction } from '@/api/admin/orders'
 import DynamicForm from '@/components/DynamicForm.vue'
 
 const router = useRouter()
@@ -73,10 +72,10 @@ const loadOrderDetail = async () => {
 }
 
 const loadOrderActions = async () => {
-  if (!order.value?.service_id || !order.value?.current_stage) return
+  if (!order.value?.id) return
   actionsLoading.value = true
   try {
-    const res = await getServiceActions(order.value.service_id, order.value.current_stage, 'admin')
+    const res = await getOrderActions(order.value.id)
     actions.value = res.actions || []
   } catch {
     actions.value = []

@@ -69,9 +69,8 @@ func ClientGetService(db *gorm.DB) gin.HandlerFunc {
 }
 
 // ClientGetServiceInitForm 返回指定服务的下单初始化表单。
-// 数据来源：读取该服务 stage_code='start' 且 executor_role 含 'client' 的工作流节点，
-// 取其 form_fields 作为下单表单配置。
-// 若无节点配置，则回退到 sys_services.form_schema。
+// 数据来源：优先读取 stage_code='start' 且 action_name='submit_request' 的工作流节点，
+// 取其 form_fields 作为下单表单配置。若无节点配置，则回退到 sys_services.form_schema。
 func ClientGetServiceInitForm(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		idStr := c.Param("id")
@@ -90,19 +89,25 @@ func ClientGetServiceInitForm(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// 优先取 start 节点的 form_fields
+		// 优先取 start 节点 + submit_request 的 form_fields
 		var startNode models.SysWorkflowNode
 		found := db.Where(
-			"service_id = ? AND stage_code = 'start' AND (executor_role = 'client' OR executor_role = 'both')",
+			"service_id = ? AND stage_code = 'start' AND action_name = 'submit_request' AND action_type = 'form_input' AND (executor_role = 'client' OR executor_role = 'both')",
 			service.ID,
-		).Order("sort_order asc").First(&startNode).Error == nil
+		).First(&startNode).Error == nil
 
 		if found && len(startNode.FormFields) > 0 {
 			c.JSON(http.StatusOK, gin.H{
-				"service_id":   service.ID,
-				"service_name": service.ServiceName,
-				"form_fields":  startNode.FormFields,
-				"source":       "workflow_node",
+				"service_id":    service.ID,
+				"service_name":  service.ServiceName,
+				"action_name":   startNode.ActionName,
+				"button_label":  startNode.ButtonLabel,
+				"action_type":   startNode.ActionType,
+				"form_fields":   startNode.FormFields,
+				"target_status": startNode.TargetStatus,
+				"macro_status":  startNode.MacroStatus,
+				"notify_type":   startNode.NotifyType,
+				"source":        "workflow_node",
 			})
 			return
 		}
@@ -142,7 +147,7 @@ func ClientGetConfigs(db *gorm.DB) gin.HandlerFunc {
 
 // ClientCreateOrder 接收 C 端订单并将动态表单写入 orders.form_data。
 // 1.意图 -> 用统一订单表承接接机、签证、翻译等不同业务。
-// 2.步骤 -> 校验服务、创建演示客户、查询服务首节点、序列化 form_data、生成订单号和初始时间线。
+// 2.步骤 -> 校验服务、创建演示客户、查询 start+submit_request 节点、序列化 form_data、生成订单号和初始时间线。
 // 3.返回 -> 新订单摘要，供 C 端立即展示订单状态。
 func ClientCreateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -167,12 +172,25 @@ func ClientCreateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFun
 			return
 		}
 
-		// 查询服务对应的首个流程节点作为初始 stage
-		var firstNode models.SysWorkflowNode
-		if err := db.Where("service_id = ?", service.ID).Order("sort_order asc, id asc").First(&firstNode).Error; err != nil {
-			// 没有配置节点时使用默认值
-			firstNode.StageCode = "start"
-			firstNode.MacroStatus = string(models.OrderStatusPending)
+		// 查询服务对应的 start + submit_request 节点作为初始状态
+		var startNode models.SysWorkflowNode
+		if err := db.Where(
+			"service_id = ? AND stage_code = 'start' AND action_name = 'submit_request' AND action_type = 'form_input' AND (executor_role = 'client' OR executor_role = 'both')",
+			service.ID,
+		).First(&startNode).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "当前服务未配置下单工作流，请联系管理员"})
+			return
+		}
+
+		// 校验 form_fields 必填字段
+		for _, field := range startNode.FormFields {
+			if field.Required {
+				val, ok := req.FormData[field.Key]
+				if !ok || val == nil || val == "" {
+					c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("缺少必填字段：%s", field.Label)})
+					return
+				}
+			}
 		}
 
 		appUser := ensureOrderAppUser(db, req)
@@ -186,8 +204,8 @@ func ClientCreateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFun
 			ContactPhone:  req.ContactPhone,
 			TotalAmount:   service.BasePrice,
 			Currency:      service.Currency,
-			CurrentStage:  firstNode.StageCode,
-			MacroStatus:   firstNode.MacroStatus,
+			CurrentStage:  startNode.TargetStatus,
+			MacroStatus:   startNode.MacroStatus,
 			PaymentStatus: "unpaid",
 			FormData:      marshalJSON(formData),
 		}
@@ -201,11 +219,11 @@ func ClientCreateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFun
 			}
 			return tx.Create(&models.OrderTimeline{
 				OrderID:      order.ID,
-				BeforeStatus: "",
+				BeforeStatus: "start",
 				AfterStatus:  order.CurrentStage,
 				Operator:     "C端客户",
-				Remark:       "客户提交订单，等待管家处理",
-				ActionCode:   "客户下单",
+				Remark:       "客户提交资料",
+				ActionName:   "submit_request",
 			}).Error
 		}); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create order"})
@@ -245,24 +263,31 @@ func buildServicePayloads(services []models.SysService) []gin.H {
 func buildOrderPayload(db *gorm.DB, order models.Order) gin.H {
 	var timelines []models.OrderTimeline
 	var payments []models.PaymentRecord
-	var nodes []models.SysWorkflowNode
 	db.Where("order_id = ?", order.ID).Order("created_at asc").Find(&timelines)
 	db.Where("order_id = ?", order.ID).Order("created_at desc").Find(&payments)
-	db.Where("service_id = ? AND stage_code = ?", order.ServiceID, order.CurrentStage).Order("sort_order asc, id asc").Find(&nodes)
 
-	// 规范化节点字段，与 AdminGetOrderActions 保持一致
+	// 只返回 client 或 both 角色的动作节点
+	var nodes []models.SysWorkflowNode
+	db.Where(
+		"service_id = ? AND stage_code = ? AND (executor_role = 'client' OR executor_role = 'both')",
+		order.ServiceID, order.CurrentStage,
+	).Order("sort_order asc, id asc").Find(&nodes)
+
 	actionNodes := make([]gin.H, 0, len(nodes))
 	for _, n := range nodes {
 		actionNodes = append(actionNodes, gin.H{
 			"id":            n.ID,
 			"action_name":   n.ActionName,
 			"button_label":  n.ButtonLabel,
-			"target_status": n.TargetStatus,
-			"stage_name":    n.StageName,
 			"action_type":   n.ActionType,
 			"form_fields":   n.FormFields,
+			"target_status": n.TargetStatus,
+			"macro_status":  n.MacroStatus,
+			"notify_type":   n.NotifyType,
 			"need_audit":    n.NeedAudit,
 			"sort_order":    n.SortOrder,
+			"stage_code":    n.StageCode,
+			"stage_name":    n.StageName,
 		})
 	}
 
@@ -275,6 +300,7 @@ func buildOrderPayload(db *gorm.DB, order models.Order) gin.H {
 		"currency":       order.Currency,
 		"current_stage":  order.CurrentStage,
 		"current_status": order.MacroStatus, "currentStatus": order.MacroStatus,
+		"macro_status":   order.MacroStatus,
 		"payment_status": order.PaymentStatus,
 		"form_data":      parseJSONString(string(order.FormData)), "formData": parseJSONString(string(order.FormData)),
 		"remark":     order.Remark,
@@ -378,7 +404,26 @@ func GetClientOrderActions(db *gorm.DB) gin.HandlerFunc {
 			order.ServiceID, order.CurrentStage, "client",
 		).Order("sort_order asc").Find(&nodes)
 
-		c.JSON(http.StatusOK, gin.H{"actions": nodes})
+		// 规范化返回字段
+		actions := make([]gin.H, 0, len(nodes))
+		for _, n := range nodes {
+			actions = append(actions, gin.H{
+				"id":            n.ID,
+				"action_name":   n.ActionName,
+				"button_label":  n.ButtonLabel,
+				"action_type":   n.ActionType,
+				"form_fields":   n.FormFields,
+				"target_status": n.TargetStatus,
+				"macro_status":  n.MacroStatus,
+				"notify_type":   n.NotifyType,
+				"need_audit":    n.NeedAudit,
+				"sort_order":    n.SortOrder,
+				"stage_code":    n.StageCode,
+				"stage_name":    n.StageName,
+			})
+		}
+
+		c.JSON(http.StatusOK, gin.H{"actions": actions})
 	}
 }
 
