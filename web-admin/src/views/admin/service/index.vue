@@ -374,12 +374,12 @@ const notifyTypeOptions = ref([])
 
 const loadWorkflowDicts = async () => {
   const [ms, ns, ac, at, er, nt] = await Promise.all([
-    request.get('/v1/admin/dict-data?dict_type=macro_status').catch(() => null),
-    request.get('/v1/admin/dict-data?dict_type=node_stage').catch(() => null),
-    request.get('/v1/admin/dict-data?dict_type=workflow_action').catch(() => null),
-    request.get('/v1/admin/dict-data?dict_type=action_type').catch(() => null),
-    request.get('/v1/admin/dict-data?dict_type=executor_role').catch(() => null),
-    request.get('/v1/admin/dict-data?dict_type=notify_type').catch(() => null),
+    request.get('/v1/admin/dict-data?dict_type=macro_status&status=1&pageSize=200').catch(() => null),
+    request.get('/v1/admin/dict-data?dict_type=node_stage&status=1&pageSize=200').catch(() => null),
+    request.get('/v1/admin/dict-data?dict_type=workflow_action&status=1&pageSize=200').catch(() => null),
+    request.get('/v1/admin/dict-data?dict_type=action_type&status=1&pageSize=200').catch(() => null),
+    request.get('/v1/admin/dict-data?dict_type=executor_role&status=1&pageSize=200').catch(() => null),
+    request.get('/v1/admin/dict-data?dict_type=notify_type&status=1&pageSize=200').catch(() => null),
   ])
   const unwrap = (res) => {
     const raw = res?.data?.data ?? res?.data ?? res ?? []

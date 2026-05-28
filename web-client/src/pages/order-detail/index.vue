@@ -361,7 +361,8 @@ onMounted(async () => {
               mode="selector"
               :value="0"
               :range="field.options || []"
-              @change="(e) => { formData[field.key] = field.options[e.detail.value]?.value || field.options[e.detail.value] }"
+              :range-key="'label'"
+              @change="(e) => { formData[field.key] = field.options[e.detail.value]?.value ?? field.options[e.detail.value] ?? '' }"
             >
               <view class="field-picker">
                 <text>{{ formData[field.key] || `请选择${field.label}` }}</text>

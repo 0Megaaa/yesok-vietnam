@@ -509,7 +509,9 @@ func validateWorkflowNodes(nodes []models.SysWorkflowNode) error {
 	// 同一服务内不允许 stage_code + executor_role + action_name 重复
 	seen := make(map[string]bool)
 
-	for i, n := range nodes {
+	for i := range nodes {
+		n := &nodes[i] // 使用指针以便修改原切片
+
 		// 基础必填校验
 		if strings.TrimSpace(n.StageCode) == "" {
 			return fmt.Errorf("第 %d 个节点：stage_code 不能为空", i+1)
@@ -550,7 +552,8 @@ func validateWorkflowNodes(nodes []models.SysWorkflowNode) error {
 		}
 
 		// form_fields 字段类型校验
-		for j, f := range n.FormFields {
+		for j := range n.FormFields {
+			f := &n.FormFields[j]
 			if !validFieldTypes[f.Type] {
 				return fmt.Errorf("第 %d 个节点第 %d 个字段：type '%s' 不合法", i+1, j+1, f.Type)
 			}

@@ -589,6 +589,85 @@ func seedDictTypes(db *gorm.DB) {
 			db.Model(&item).Updates(seed)
 		}
 	}
+
+	// 标准化旧字典，禁用废弃值
+	normalizeWorkflowDictData(db)
+}
+
+// normalizeWorkflowDictData 清理旧字典数据，只保留标准白名单值。
+// 禁用废弃的 dict_code 和不在白名单内的 dict_value。
+func normalizeWorkflowDictData(db *gorm.DB) {
+	// 1. 禁用旧字典体系
+	db.Exec(`UPDATE sys_dict_data SET status = 0 WHERE dict_code IN ('macro_status_list', 'workflow_node_code')`)
+
+	// 2. 定义各字典的白名单
+	whitelist := map[string]map[string]bool{
+		"service_category": {
+			"airport_transfer": true,
+			"visa":             true,
+			"charter":          true,
+			"translation":      true,
+			"business":         true,
+		},
+		"macro_status": {
+			"pending":     true,
+			"quoted":      true,
+			"paid":        true,
+			"in_progress": true,
+			"completed":   true,
+			"cancelled":   true,
+		},
+		"node_stage": {
+			"start":         true,
+			"wait_quote":    true,
+			"wait_pay":      true,
+			"paid":          true,
+			"dispatching":   true,
+			"in_progress":   true,
+			"completed":     true,
+			"wait_material": true,
+			"reviewing":     true,
+		},
+		"workflow_action": {
+			"submit_request":    true,
+			"send_quote":        true,
+			"pay_order":         true,
+			"dispatch_driver":   true,
+			"start_service":     true,
+			"complete_order":    true,
+			"upload_material":   true,
+			"material_received": true,
+			"approve":           true,
+		},
+		"action_type": {
+			"button_click": true,
+			"form_input":   true,
+			"wx_pay":       true,
+		},
+		"executor_role": {
+			"admin":  true,
+			"client": true,
+			"both":   true,
+		},
+		"notify_type": {
+			"none":            true,
+			"client_to_admin": true,
+			"admin_to_client": true,
+			"system":          true,
+		},
+	}
+
+	// 3. 遍历白名单，禁用不在白名单内的值
+	for dictCode, allowedValues := range whitelist {
+		var items []models.SysDictData
+		db.Where("dict_code = ? AND status = 1", dictCode).Find(&items)
+		for _, item := range items {
+			if !allowedValues[item.DictValue] {
+				db.Model(&item).Update("status", 0)
+				log.Printf("[normalize] disabled dict_data: %s.%s (not in whitelist)", dictCode, item.DictValue)
+			}
+		}
+	}
 }
 
 // seedArticles 注入 C 端首页和资讯 Tab 演示内容。

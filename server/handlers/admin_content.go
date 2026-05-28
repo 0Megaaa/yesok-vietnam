@@ -177,16 +177,19 @@ func AdminListDictData(db *gorm.DB) gin.HandlerFunc {
 			tx = tx.Where("dict_code = ?", strings.TrimSpace(dictType))
 		}
 
-		// 状态过滤（前端有传则生效）
-		if status := strings.TrimSpace(c.Query("status")); status != "" {
+		// 状态过滤（默认只看启用状态）
+		status := strings.TrimSpace(c.Query("status"))
+		if status == "" {
+			tx = tx.Where("status = ?", 1)
+		} else {
 			tx = tx.Where("status = ?", status)
 		}
 
 		// 排序（sort_order 升序）
 		tx = tx.Order("sort_order ASC, id ASC")
 
-		// 分页（默认 pageSize=10）
-		pageSize := 10
+		// 分页（默认 pageSize=200，确保工作流字典完整返回）
+		pageSize := 200
 		if ps := c.Query("pageSize"); ps != "" {
 			if v, err := strconv.Atoi(ps); err == nil && v > 0 {
 				pageSize = v

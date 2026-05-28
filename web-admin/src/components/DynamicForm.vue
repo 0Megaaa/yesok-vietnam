@@ -34,9 +34,16 @@ const fieldTypeComponents = {
   number: ElInput,
   phone: ElInput,
   date: ElDatePicker,
+  datetime: ElDatePicker,
   select: ElSelect,
-  image: null, // image 使用 el-upload 独立处理
+  file: null, // file 使用 el-input URL 输入独立处理
 }
+
+// 判断是否为 DatePicker 类型
+const isDatePicker = (field) => field.type === 'date' || field.type === 'datetime'
+
+// 判断是否为 File 类型
+const isFile = (field) => field.type === 'file'
 
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
@@ -127,6 +134,29 @@ defineExpose({ validateAll })
           <el-icon class="upload-icon"><Plus /></el-icon>
         </el-upload>
         <div class="upload-hint">支持 JPG/PNG，最多 {{ field.multiple === false ? 1 : 10 }} 张</div>
+      </template>
+
+      <!-- file 使用 el-input URL 输入 -->
+      <template v-else-if="isFile(field)">
+        <el-input
+          v-model="localValue[field.key]"
+          placeholder="请输入文件URL，或联系管理员上传"
+          clearable
+        />
+      </template>
+
+      <!-- date / datetime 使用 el-date-picker -->
+      <template v-else-if="isDatePicker(field)">
+        <el-date-picker
+          v-model="localValue[field.key]"
+          :type="field.type === 'datetime' ? 'datetime' : 'date'"
+          :placeholder="field.type === 'datetime' ? '请选择日期时间' : '请选择日期'"
+          :format="field.type === 'datetime' ? 'YYYY-MM-DD HH:mm' : 'YYYY-MM-DD'"
+          :value-format="field.type === 'datetime' ? 'YYYY-MM-DD HH:mm' : 'YYYY-MM-DD'"
+          style="width: 100%"
+          @blur="validateOnChange && validateField(field)"
+          @change="validateOnChange && validateField(field)"
+        />
       </template>
 
       <!-- 其他类型通过 component :is 动态渲染 -->

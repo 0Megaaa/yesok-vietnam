@@ -73,7 +73,7 @@ func (e *OrderEngine) AdvanceStage(
 
 		// Step 3: form_input 必填项校验
 		if node.ActionType == models.ActionTypeFormInput {
-			if err := validateFormInput(node.FormFields, inputData); err != nil {
+			if err := validateRequiredFields(node.FormFields, inputData); err != nil {
 				return err
 			}
 		}
@@ -83,6 +83,24 @@ func (e *OrderEngine) AdvanceStage(
 
 		// Step 4a: NeedAudit=true → 停在当前节点，标记待审核
 		if node.NeedAudit && operatorRole == "client" {
+			// 合并 inputData 到 form_data，并添加上下文信息
+			extra := map[string]interface{}{
+				"_last_action_name":   actionName,
+				"_last_notify_type":   node.NotifyType,
+				"_last_operator_role": operatorRole,
+				"_last_submitted_at":  time.Now().Format(time.RFC3339),
+			}
+			var updates map[string]interface{}
+			if node.ActionType == models.ActionTypeFormInput && inputData != nil {
+				updates = map[string]interface{}{
+					"form_data": mergeJSONMap(order.FormData, inputData, extra),
+				}
+			} else {
+				updates = map[string]interface{}{
+					"form_data": mergeJSONMap(order.FormData, nil, extra),
+				}
+			}
+
 			timeline := models.OrderTimeline{
 				OrderID:      order.ID,
 				BeforeStatus: beforeStage,
@@ -95,10 +113,6 @@ func (e *OrderEngine) AdvanceStage(
 			}
 			if err := tx.Create(&timeline).Error; err != nil {
 				return fmt.Errorf("写入时间线记录失败: %w", err)
-			}
-			// 审核状态只更新 macro_status 为 pending_review，不推进 current_stage
-			updates := map[string]interface{}{
-				"macro_status": models.OrderStatusReviewing,
 			}
 			if err := tx.Model(&order).Updates(updates).Error; err != nil {
 				return fmt.Errorf("更新订单状态失败: %w", err)
@@ -146,38 +160,33 @@ func (e *OrderEngine) AdvanceStage(
 			}
 		}
 
-		// 从 inputData 中提取金额字段并写入 order.TotalAmount
+		// 从 inputData 中提取金额字段并写入 order.TotalAmount 和 order.Amount
 		if inputData != nil {
-			if amount, ok := inputData["quote_amount"]; ok {
-				if f, err := toFloat64(amount); err == nil && f > 0 {
-					updates["total_amount"] = int64(f)
-				}
-			}
+			var finalAmount int64
 			if amount, ok := inputData["amount"]; ok {
 				if f, err := toFloat64(amount); err == nil && f > 0 {
-					updates["total_amount"] = int64(f)
+					finalAmount = int64(f)
 				}
+			} else if amount, ok := inputData["quote_amount"]; ok {
+				if f, err := toFloat64(amount); err == nil && f > 0 {
+					finalAmount = int64(f)
+				}
+			}
+			if finalAmount > 0 {
+				updates["total_amount"] = finalAmount
+				updates["amount"] = float64(finalAmount)
 			}
 		}
 
-		// form_input 时将用户提交的表单数据合并写入 order.form_data
+		// 使用 mergeJSONMap 合并 inputData 到 form_data，并添加上下文信息
+		extra := map[string]interface{}{
+			"_last_action_name":   actionName,
+			"_last_notify_type":   node.NotifyType,
+			"_last_operator_role": operatorRole,
+			"_last_submitted_at":  time.Now().Format(time.RFC3339),
+		}
 		if node.ActionType == models.ActionTypeFormInput && inputData != nil {
-			var existingFormData map[string]interface{}
-			if order.FormData != nil {
-				json.Unmarshal(order.FormData, &existingFormData)
-			}
-			if existingFormData == nil {
-				existingFormData = make(map[string]interface{})
-			}
-			for k, v := range inputData {
-				existingFormData[k] = v
-			}
-			// 将 notify_type 记录到 form_data 中（不丢失）
-			if node.NotifyType != "" {
-				existingFormData["_notify_type"] = node.NotifyType
-			}
-			merged, _ := json.Marshal(existingFormData)
-			updates["form_data"] = merged
+			updates["form_data"] = mergeJSONMap(order.FormData, inputData, extra)
 		}
 
 		if err := tx.Model(&order).Updates(updates).Error; err != nil {
@@ -207,23 +216,6 @@ func (e *OrderEngine) AdvanceStage(
 	})
 
 	return err
-}
-
-// validateFormInput 校验 form_input 类型的必填字段。
-// 使用数据库中该节点真实配置的 FormFields 进行校验。
-func validateFormInput(fields models.FormFields, inputData map[string]interface{}) error {
-	if fields == nil || len(fields) == 0 {
-		return nil
-	}
-	for _, f := range fields {
-		if f.Required {
-			val, ok := inputData[f.Key]
-			if !ok || val == nil || val == "" {
-				return fmt.Errorf("缺少必填字段：%s（%s）", f.Label, f.Key)
-			}
-		}
-	}
-	return nil
 }
 
 // toFloat64 将任意数值类型转为 float64。
@@ -345,14 +337,18 @@ func mergeJSONMap(old []byte, input map[string]interface{}, extra map[string]int
 		json.Unmarshal(old, &result)
 	}
 
-	// 合并 input
-	for k, v := range input {
-		result[k] = v
+	// 合并 input（兼容 nil）
+	if input != nil {
+		for k, v := range input {
+			result[k] = v
+		}
 	}
 
-	// 合并 extra
-	for k, v := range extra {
-		result[k] = v
+	// 合并 extra（兼容 nil）
+	if extra != nil {
+		for k, v := range extra {
+			result[k] = v
+		}
 	}
 
 	out, _ := json.Marshal(result)
