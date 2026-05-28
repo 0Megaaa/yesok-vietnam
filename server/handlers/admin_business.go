@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -141,7 +142,7 @@ func AdminListOrders(db *gorm.DB) gin.HandlerFunc {
 		}
 		list := make([]gin.H, 0, len(orders))
 		for _, order := range orders {
-			list = append(list, buildOrderPayload(db, order))
+			list = append(list, buildOrderPayloadForRole(db, order, "admin"))
 		}
 		c.JSON(http.StatusOK, gin.H{"list": list, "orders": list, "total": total})
 	}
@@ -160,7 +161,7 @@ func AdminGetOrder(db *gorm.DB) gin.HandlerFunc {
 			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found")
 			return
 		}
-		c.JSON(http.StatusOK, buildOrderPayload(db, order))
+		c.JSON(http.StatusOK, buildOrderPayloadForRole(db, order, "admin"))
 	}
 }
 
@@ -235,7 +236,7 @@ func AdminUpdateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFunc
 			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found after advance")
 			return
 		}
-		c.JSON(http.StatusOK, buildOrderPayload(db, order))
+		c.JSON(http.StatusOK, buildOrderPayloadForRole(db, order, "admin"))
 	}
 }
 
@@ -275,7 +276,7 @@ func AdminPostOrderAction(db *gorm.DB, engine *workflow.OrderEngine) gin.Handler
 			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found after advance")
 			return
 		}
-		c.JSON(http.StatusOK, buildOrderPayload(db, order))
+		c.JSON(http.StatusOK, buildOrderPayloadForRole(db, order, "admin"))
 	}
 }
 
@@ -369,6 +370,12 @@ func AdminSaveService(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// 后端工作流节点校验
+		if err := validateWorkflowNodes(req.WorkflowNodes); err != nil {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, err.Error())
+			return
+		}
+
 		var service models.SysService
 		if req.ServiceInfo.ID > 0 {
 			if err := db.First(&service, req.ServiceInfo.ID).Error; err != nil {
@@ -421,6 +428,12 @@ func AdminUpdateService(db *gorm.DB) gin.HandlerFunc {
 		var req SaveServiceRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request: "+err.Error())
+			return
+		}
+
+		// 后端工作流节点校验
+		if err := validateWorkflowNodes(req.WorkflowNodes); err != nil {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, err.Error())
 			return
 		}
 
@@ -478,6 +491,80 @@ func buildServiceFromRequest(req ServiceInfoRequest) models.SysService {
 		SortOrder: int64(req.SortOrder), Status: req.Status, IsHot: req.IsHot,
 		FormSchema: formSchema,
 	}
+}
+
+// validateWorkflowNodes 校验工作流节点的必填字段和合法性。
+func validateWorkflowNodes(nodes []models.SysWorkflowNode) error {
+	// 合法的字段类型
+	validFieldTypes := map[string]bool{
+		"text": true, "textarea": true, "number": true,
+		"date": true, "datetime": true, "select": true,
+		"image": true, "file": true, "phone": true,
+	}
+	// 合法的执行角色
+	validExecutorRoles := map[string]bool{"admin": true, "client": true, "both": true}
+	// 合法的动作类型
+	validActionTypes := map[string]bool{"button_click": true, "form_input": true, "wx_pay": true}
+
+	// 同一服务内不允许 stage_code + executor_role + action_name 重复
+	seen := make(map[string]bool)
+
+	for i, n := range nodes {
+		// 基础必填校验
+		if strings.TrimSpace(n.StageCode) == "" {
+			return fmt.Errorf("第 %d 个节点：stage_code 不能为空", i+1)
+		}
+		if strings.TrimSpace(n.StageName) == "" {
+			return fmt.Errorf("第 %d 个节点：stage_name 不能为空", i+1)
+		}
+		if strings.TrimSpace(n.ActionName) == "" {
+			return fmt.Errorf("第 %d 个节点：action_name 不能为空", i+1)
+		}
+		if strings.TrimSpace(n.ButtonLabel) == "" {
+			return fmt.Errorf("第 %d 个节点：button_label 不能为空", i+1)
+		}
+
+		// executor_role 校验
+		if !validExecutorRoles[n.ExecutorRole] {
+			return fmt.Errorf("第 %d 个节点：executor_role 必须是 admin/client/both", i+1)
+		}
+
+		// action_type 校验
+		if !validActionTypes[n.ActionType] {
+			return fmt.Errorf("第 %d 个节点：action_type 必须是 button_click/form_input/wx_pay", i+1)
+		}
+
+		// target_status 校验
+		if strings.TrimSpace(n.TargetStatus) == "" {
+			return fmt.Errorf("第 %d 个节点：target_status 不能为空", i+1)
+		}
+
+		// macro_status 校验
+		if strings.TrimSpace(n.MacroStatus) == "" {
+			return fmt.Errorf("第 %d 个节点：macro_status 不能为空", i+1)
+		}
+
+		// notify_type 为空时自动设为 none
+		if strings.TrimSpace(n.NotifyType) == "" {
+			n.NotifyType = "none"
+		}
+
+		// form_fields 字段类型校验
+		for j, f := range n.FormFields {
+			if !validFieldTypes[f.Type] {
+				return fmt.Errorf("第 %d 个节点第 %d 个字段：type '%s' 不合法", i+1, j+1, f.Type)
+			}
+		}
+
+		// 重复校验
+		uniqueKey := fmt.Sprintf("%s_%s_%s", n.StageCode, n.ExecutorRole, n.ActionName)
+		if seen[uniqueKey] {
+			return fmt.Errorf("工作流动作重复：stage_code=%s + executor_role=%s + action_name=%s 不允许重复", n.StageCode, n.ExecutorRole, n.ActionName)
+		}
+		seen[uniqueKey] = true
+	}
+
+	return nil
 }
 
 // AdminListPayments returns the financial ledger list.

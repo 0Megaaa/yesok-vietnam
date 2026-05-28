@@ -136,51 +136,319 @@ type WorkflowNodeTemplate struct {
 	FormFields   []models.FormFieldDef // form_input 时的字段定义
 	NeedAudit    bool                  // 提交后是否需人工审核确认才推进
 	TargetStatus string                // 流转目标状态
+	NotifyType   string                // 触发通知类型
 	SortOrder    int64                 // 按钮排序
 }
 
 // workflowTemplates 按服务编码聚合流程节点模板。
 var workflowTemplates = map[string][]WorkflowNodeTemplate{
 	"airport_transfer": {
-		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "accept", ButtonLabel: "接单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "quoted", SortOrder: 1},
-		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "confirm_pay", ButtonLabel: "确认收款", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "paid", SortOrder: 2},
-		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "start_service", ButtonLabel: "开始履约", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "in_progress", SortOrder: 3},
-		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "complete", ButtonLabel: "完成订单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "completed", SortOrder: 4},
+		// C 端提交需求 → wait_quote
+		{
+			StageCode: "start", StageName: "开始", MacroStatus: "pending",
+			ActionName: "submit_request", ButtonLabel: "提交需求",
+			ExecutorRole: "client", ActionType: "form_input",
+			TargetStatus: "wait_quote", NotifyType: "client_to_admin",
+			FormFields: []models.FormFieldDef{
+				{Key: "contact_name", Label: "联系人", Type: "text", Required: true},
+				{Key: "contact_phone", Label: "联系电话", Type: "phone", Required: true},
+				{Key: "flight_no", Label: "航班号", Type: "text", Required: true},
+				{Key: "arrival_datetime", Label: "到达时间", Type: "datetime", Required: true},
+				{Key: "hotel_address", Label: "酒店地址", Type: "textarea", Required: true},
+				{Key: "passenger_count", Label: "乘客人数", Type: "number", Required: true},
+				{Key: "remark", Label: "补充说明", Type: "textarea", Required: false},
+			},
+			SortOrder: 1,
+		},
+		// B 端发送报价 → wait_pay
+		{
+			StageCode: "wait_quote", StageName: "待报价", MacroStatus: "quoted",
+			ActionName: "send_quote", ButtonLabel: "发送报价",
+			ExecutorRole: "admin", ActionType: "form_input",
+			TargetStatus: "wait_pay", NotifyType: "admin_to_client",
+			FormFields: []models.FormFieldDef{
+				{Key: "quote_amount", Label: "报价金额", Type: "number", Required: true},
+				{Key: "quote_remark", Label: "报价说明", Type: "textarea", Required: false},
+			},
+			SortOrder: 2,
+		},
+		// C 端支付 → paid
+		{
+			StageCode: "wait_pay", StageName: "待支付", MacroStatus: "paid",
+			ActionName: "pay_order", ButtonLabel: "立即支付",
+			ExecutorRole: "client", ActionType: "wx_pay",
+			TargetStatus: "paid", NotifyType: "client_to_admin",
+			SortOrder: 3,
+		},
+		// B 端派车 → dispatching
+		{
+			StageCode: "paid", StageName: "已支付", MacroStatus: "paid",
+			ActionName: "dispatch_driver", ButtonLabel: "安排司机",
+			ExecutorRole: "admin", ActionType: "button_click",
+			TargetStatus: "dispatching", NotifyType: "admin_to_client",
+			SortOrder: 4,
+		},
+		// B 端开始服务 → in_progress
+		{
+			StageCode: "dispatching", StageName: "派车中", MacroStatus: "in_progress",
+			ActionName: "start_service", ButtonLabel: "开始服务",
+			ExecutorRole: "admin", ActionType: "button_click",
+			TargetStatus: "in_progress", NotifyType: "admin_to_client",
+			SortOrder: 5,
+		},
+		// B 端完成订单 → completed
+		{
+			StageCode: "in_progress", StageName: "服务中", MacroStatus: "completed",
+			ActionName: "complete_order", ButtonLabel: "完成订单",
+			ExecutorRole: "admin", ActionType: "button_click",
+			TargetStatus: "completed", NotifyType: "admin_to_client",
+			SortOrder: 6,
+		},
 	},
 	"visa": {
-		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "accept", ButtonLabel: "接单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "wait_material", SortOrder: 1},
-		// NeedAudit=true：客户上传材料后停在 wait_material，待管理员审核后推进
-		{StageCode: "wait_material", StageName: "待收资料", MacroStatus: "pending", ActionName: "upload_material", ButtonLabel: "上传签证材料", ExecutorRole: "client", ActionType: "form_input", NeedAudit: true, TargetStatus: "reviewing",
+		// C 端提交需求 → wait_material
+		{
+			StageCode: "start", StageName: "开始", MacroStatus: "pending",
+			ActionName: "submit_request", ButtonLabel: "提交需求",
+			ExecutorRole: "client", ActionType: "form_input",
+			TargetStatus: "wait_material", NotifyType: "client_to_admin",
 			FormFields: []models.FormFieldDef{
-				{Key: "passport", Label: "护照首页", Type: "image", Required: true},
-				{Key: "visa_page", Label: "当前签证页", Type: "image", Required: true},
-				{Key: "entry_date", Label: "预计入境日期", Type: "date", Required: false},
+				{Key: "passport_name", Label: "护照姓名", Type: "text", Required: true},
+				{Key: "passport_no", Label: "护照号码", Type: "text", Required: true},
+				{Key: "entry_date", Label: "预计入境日期", Type: "date", Required: true},
+				{Key: "visa_type", Label: "签证类型", Type: "select", Required: true,
+					Options: []struct {
+						Label string `json:"label"`
+						Value string `json:"value"`
+					}{
+						{Label: "旅游签", Value: "tourist"},
+						{Label: "商务签", Value: "business"},
+					}},
+			},
+			SortOrder: 1,
+		},
+		// C 端上传材料 → reviewing (需审核)
+		{
+			StageCode: "wait_material", StageName: "待收资料", MacroStatus: "pending",
+			ActionName: "upload_material", ButtonLabel: "上传签证材料",
+			ExecutorRole: "client", ActionType: "form_input", NeedAudit: true,
+			TargetStatus: "reviewing", NotifyType: "client_to_admin",
+			FormFields: []models.FormFieldDef{
+				{Key: "passport_img", Label: "护照首页", Type: "image", Required: true},
 				{Key: "notes", Label: "备注说明", Type: "textarea", Required: false},
 			},
-			SortOrder: 2},
-		{StageCode: "wait_material", StageName: "待收资料", MacroStatus: "pending", ActionName: "material_received", ButtonLabel: "确认收齐", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "reviewing", SortOrder: 3},
-		{StageCode: "reviewing", StageName: "资料审核中", MacroStatus: "reviewing", ActionName: "approve", ButtonLabel: "审核通过并报价", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "quoted", SortOrder: 4},
-		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "confirm_pay", ButtonLabel: "确认收款", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "paid", SortOrder: 5},
-		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "start_service", ButtonLabel: "开始履约", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "in_progress", SortOrder: 6},
-		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "complete", ButtonLabel: "完成订单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "completed", SortOrder: 7},
+			SortOrder: 2,
+		},
+		// B 端确认收齐 → reviewing
+		{
+			StageCode: "wait_material", StageName: "待收资料", MacroStatus: "pending",
+			ActionName: "material_received", ButtonLabel: "确认收齐",
+			ExecutorRole: "admin", ActionType: "button_click",
+			TargetStatus: "reviewing", NotifyType: "admin_to_client",
+			SortOrder: 3,
+		},
+		// B 端审核通过并报价 → quoted
+		{
+			StageCode: "reviewing", StageName: "资料审核中", MacroStatus: "quoted",
+			ActionName: "approve", ButtonLabel: "审核通过并报价",
+			ExecutorRole: "admin", ActionType: "form_input",
+			TargetStatus: "quoted", NotifyType: "admin_to_client",
+			FormFields: []models.FormFieldDef{
+				{Key: "quote_amount", Label: "报价金额", Type: "number", Required: true},
+				{Key: "quote_remark", Label: "报价说明", Type: "textarea", Required: false},
+			},
+			SortOrder: 4,
+		},
+		// C 端支付 → paid
+		{
+			StageCode: "quoted", StageName: "已报价", MacroStatus: "paid",
+			ActionName: "pay_order", ButtonLabel: "立即支付",
+			ExecutorRole: "client", ActionType: "wx_pay",
+			TargetStatus: "paid", NotifyType: "client_to_admin",
+			SortOrder: 5,
+		},
+		// B 端开始履约 → in_progress
+		{
+			StageCode: "paid", StageName: "已支付", MacroStatus: "in_progress",
+			ActionName: "start_service", ButtonLabel: "开始履约",
+			ExecutorRole: "admin", ActionType: "button_click",
+			TargetStatus: "in_progress", NotifyType: "admin_to_client",
+			SortOrder: 6,
+		},
+		// B 端完成订单 → completed
+		{
+			StageCode: "in_progress", StageName: "服务中", MacroStatus: "completed",
+			ActionName: "complete_order", ButtonLabel: "完成订单",
+			ExecutorRole: "admin", ActionType: "button_click",
+			TargetStatus: "completed", NotifyType: "admin_to_client",
+			SortOrder: 7,
+		},
 	},
 	"charter": {
-		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "accept", ButtonLabel: "接单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "quoted", SortOrder: 1},
-		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "confirm_pay", ButtonLabel: "确认收款", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "paid", SortOrder: 2},
-		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "start_service", ButtonLabel: "开始履约", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "in_progress", SortOrder: 3},
-		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "complete", ButtonLabel: "完成订单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "completed", SortOrder: 4},
+		// C 端提交需求 → wait_quote
+		{
+			StageCode: "start", StageName: "开始", MacroStatus: "pending",
+			ActionName: "submit_request", ButtonLabel: "提交需求",
+			ExecutorRole: "client", ActionType: "form_input",
+			TargetStatus: "wait_quote", NotifyType: "client_to_admin",
+			FormFields: []models.FormFieldDef{
+				{Key: "contact_name", Label: "联系人", Type: "text", Required: true},
+				{Key: "contact_phone", Label: "联系电话", Type: "phone", Required: true},
+				{Key: "city", Label: "目的地城市", Type: "text", Required: true},
+				{Key: "use_date", Label: "用车日期", Type: "date", Required: true},
+				{Key: "passenger_count", Label: "乘客人数", Type: "number", Required: true},
+				{Key: "remark", Label: "补充说明", Type: "textarea", Required: false},
+			},
+			SortOrder: 1,
+		},
+		// B 端发送报价 → wait_pay
+		{
+			StageCode: "wait_quote", StageName: "待报价", MacroStatus: "quoted",
+			ActionName: "send_quote", ButtonLabel: "发送报价",
+			ExecutorRole: "admin", ActionType: "form_input",
+			TargetStatus: "wait_pay", NotifyType: "admin_to_client",
+			FormFields: []models.FormFieldDef{
+				{Key: "quote_amount", Label: "报价金额", Type: "number", Required: true},
+				{Key: "quote_remark", Label: "报价说明", Type: "textarea", Required: false},
+			},
+			SortOrder: 2,
+		},
+		// C 端支付 → paid
+		{
+			StageCode: "wait_pay", StageName: "待支付", MacroStatus: "paid",
+			ActionName: "pay_order", ButtonLabel: "立即支付",
+			ExecutorRole: "client", ActionType: "wx_pay",
+			TargetStatus: "paid", NotifyType: "client_to_admin",
+			SortOrder: 3,
+		},
+		// B 端开始服务 → in_progress
+		{
+			StageCode: "paid", StageName: "已支付", MacroStatus: "in_progress",
+			ActionName: "start_service", ButtonLabel: "开始服务",
+			ExecutorRole: "admin", ActionType: "button_click",
+			TargetStatus: "in_progress", NotifyType: "admin_to_client",
+			SortOrder: 4,
+		},
+		// B 端完成订单 → completed
+		{
+			StageCode: "in_progress", StageName: "服务中", MacroStatus: "completed",
+			ActionName: "complete_order", ButtonLabel: "完成订单",
+			ExecutorRole: "admin", ActionType: "button_click",
+			TargetStatus: "completed", NotifyType: "admin_to_client",
+			SortOrder: 5,
+		},
 	},
 	"translation": {
-		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "accept", ButtonLabel: "接单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "quoted", SortOrder: 1},
-		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "confirm_pay", ButtonLabel: "确认收款", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "paid", SortOrder: 2},
-		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "start_service", ButtonLabel: "开始履约", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "in_progress", SortOrder: 3},
-		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "complete", ButtonLabel: "完成订单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "completed", SortOrder: 4},
+		// C 端提交需求 → wait_quote
+		{
+			StageCode: "start", StageName: "开始", MacroStatus: "pending",
+			ActionName: "submit_request", ButtonLabel: "提交需求",
+			ExecutorRole: "client", ActionType: "form_input",
+			TargetStatus: "wait_quote", NotifyType: "client_to_admin",
+			FormFields: []models.FormFieldDef{
+				{Key: "contact_name", Label: "联系人", Type: "text", Required: true},
+				{Key: "contact_phone", Label: "联系电话", Type: "phone", Required: true},
+				{Key: "scene", Label: "使用场景", Type: "select", Required: true, Options: []struct {
+					Label string `json:"label"`
+					Value string `json:"value"`
+				}{
+					{Label: "会议陪同", Value: "meeting"},
+					{Label: "商务谈判", Value: "negotiation"},
+				}},
+				{Key: "service_date", Label: "服务日期", Type: "date", Required: true},
+				{Key: "remark", Label: "补充说明", Type: "textarea", Required: false},
+			},
+			SortOrder: 1,
+		},
+		// B 端发送报价 → wait_pay
+		{
+			StageCode: "wait_quote", StageName: "待报价", MacroStatus: "quoted",
+			ActionName: "send_quote", ButtonLabel: "发送报价",
+			ExecutorRole: "admin", ActionType: "form_input",
+			TargetStatus: "wait_pay", NotifyType: "admin_to_client",
+			FormFields: []models.FormFieldDef{
+				{Key: "quote_amount", Label: "报价金额", Type: "number", Required: true},
+				{Key: "quote_remark", Label: "报价说明", Type: "textarea", Required: false},
+			},
+			SortOrder: 2,
+		},
+		// C 端支付 → paid
+		{
+			StageCode: "wait_pay", StageName: "待支付", MacroStatus: "paid",
+			ActionName: "pay_order", ButtonLabel: "立即支付",
+			ExecutorRole: "client", ActionType: "wx_pay",
+			TargetStatus: "paid", NotifyType: "client_to_admin",
+			SortOrder: 3,
+		},
+		// B 端开始服务 → in_progress
+		{
+			StageCode: "paid", StageName: "已支付", MacroStatus: "in_progress",
+			ActionName: "start_service", ButtonLabel: "开始服务",
+			ExecutorRole: "admin", ActionType: "button_click",
+			TargetStatus: "in_progress", NotifyType: "admin_to_client",
+			SortOrder: 4,
+		},
+		// B 端完成订单 → completed
+		{
+			StageCode: "in_progress", StageName: "服务中", MacroStatus: "completed",
+			ActionName: "complete_order", ButtonLabel: "完成订单",
+			ExecutorRole: "admin", ActionType: "button_click",
+			TargetStatus: "completed", NotifyType: "admin_to_client",
+			SortOrder: 5,
+		},
 	},
 	"business": {
-		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "accept", ButtonLabel: "接单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "quoted", SortOrder: 1},
-		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "confirm_pay", ButtonLabel: "确认收款", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "paid", SortOrder: 2},
-		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "start_service", ButtonLabel: "开始履约", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "in_progress", SortOrder: 3},
-		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "complete", ButtonLabel: "完成订单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "completed", SortOrder: 4},
+		// C 端提交需求 → wait_quote
+		{
+			StageCode: "start", StageName: "开始", MacroStatus: "pending",
+			ActionName: "submit_request", ButtonLabel: "提交需求",
+			ExecutorRole: "client", ActionType: "form_input",
+			TargetStatus: "wait_quote", NotifyType: "client_to_admin",
+			FormFields: []models.FormFieldDef{
+				{Key: "contact_name", Label: "联系人", Type: "text", Required: true},
+				{Key: "contact_phone", Label: "联系电话", Type: "phone", Required: true},
+				{Key: "company_name", Label: "公司名称", Type: "text", Required: true},
+				{Key: "need_service", Label: "需要的服务", Type: "text", Required: true},
+				{Key: "remark", Label: "补充说明", Type: "textarea", Required: false},
+			},
+			SortOrder: 1,
+		},
+		// B 端发送报价 → wait_pay
+		{
+			StageCode: "wait_quote", StageName: "待报价", MacroStatus: "quoted",
+			ActionName: "send_quote", ButtonLabel: "发送报价",
+			ExecutorRole: "admin", ActionType: "form_input",
+			TargetStatus: "wait_pay", NotifyType: "admin_to_client",
+			FormFields: []models.FormFieldDef{
+				{Key: "quote_amount", Label: "报价金额", Type: "number", Required: true},
+				{Key: "quote_remark", Label: "报价说明", Type: "textarea", Required: false},
+			},
+			SortOrder: 2,
+		},
+		// C 端支付 → paid
+		{
+			StageCode: "wait_pay", StageName: "待支付", MacroStatus: "paid",
+			ActionName: "pay_order", ButtonLabel: "立即支付",
+			ExecutorRole: "client", ActionType: "wx_pay",
+			TargetStatus: "paid", NotifyType: "client_to_admin",
+			SortOrder: 3,
+		},
+		// B 端开始服务 → in_progress
+		{
+			StageCode: "paid", StageName: "已支付", MacroStatus: "in_progress",
+			ActionName: "start_service", ButtonLabel: "开始服务",
+			ExecutorRole: "admin", ActionType: "button_click",
+			TargetStatus: "in_progress", NotifyType: "admin_to_client",
+			SortOrder: 4,
+		},
+		// B 端完成订单 → completed
+		{
+			StageCode: "in_progress", StageName: "服务中", MacroStatus: "completed",
+			ActionName: "complete_order", ButtonLabel: "完成订单",
+			ExecutorRole: "admin", ActionType: "button_click",
+			TargetStatus: "completed", NotifyType: "admin_to_client",
+			SortOrder: 5,
+		},
 	},
 }
 
@@ -211,6 +479,7 @@ func seedWorkflowNodes(db *gorm.DB, services map[string]models.SysService) {
 				FormFields:   tpl.FormFields,
 				NeedAudit:    tpl.NeedAudit,
 				TargetStatus: tpl.TargetStatus,
+				NotifyType:   tpl.NotifyType,
 				SortOrder:    tpl.SortOrder,
 			}
 			if err := db.Create(&node).Error; err != nil {
@@ -247,6 +516,12 @@ func seedDictTypes(db *gorm.DB) {
 		{DictName: "服务分类", DictCode: "service_category", Remark: "C 端服务入口分类", Status: 1},
 		{DictName: "资讯分类", DictCode: "article_category", Remark: "C 端资讯频道分类", Status: 1},
 		{DictName: "订单状态", DictCode: "order_status", Remark: "订单履约流程状态", Status: 1},
+		{DictName: "主状态", DictCode: "macro_status", Remark: "订单主状态", Status: 1},
+		{DictName: "节点阶段", DictCode: "node_stage", Remark: "工作流节点阶段", Status: 1},
+		{DictName: "工作流动作", DictCode: "workflow_action", Remark: "工作流动作名称", Status: 1},
+		{DictName: "动作类型", DictCode: "action_type", Remark: "工作流动作类型", Status: 1},
+		{DictName: "执行角色", DictCode: "executor_role", Remark: "工作流执行角色", Status: 1},
+		{DictName: "通知类型", DictCode: "notify_type", Remark: "工作流通知类型", Status: 1},
 	}
 	for _, seed := range types {
 		var item models.SysDictType
@@ -268,6 +543,43 @@ func seedDictTypes(db *gorm.DB) {
 		{DictCode: "order_status", DictLabel: "已收款", DictValue: "paid", SortOrder: 3, Status: 1, Remark: "客户付款完成"},
 		{DictCode: "order_status", DictLabel: "履约中", DictValue: "in_progress", SortOrder: 4, Status: 1, Remark: "服务正在履约"},
 		{DictCode: "order_status", DictLabel: "已完成", DictValue: "completed", SortOrder: 5, Status: 1, Remark: "订单履约结束"},
+		// macro_status 字典数据
+		{DictCode: "macro_status", DictLabel: "待处理", DictValue: "pending", SortOrder: 1, Status: 1, Remark: "待处理"},
+		{DictCode: "macro_status", DictLabel: "已报价", DictValue: "quoted", SortOrder: 2, Status: 1, Remark: "已报价"},
+		{DictCode: "macro_status", DictLabel: "已支付", DictValue: "paid", SortOrder: 3, Status: 1, Remark: "已支付"},
+		{DictCode: "macro_status", DictLabel: "服务中", DictValue: "in_progress", SortOrder: 4, Status: 1, Remark: "服务中"},
+		{DictCode: "macro_status", DictLabel: "已完成", DictValue: "completed", SortOrder: 5, Status: 1, Remark: "已完成"},
+		{DictCode: "macro_status", DictLabel: "已取消", DictValue: "cancelled", SortOrder: 6, Status: 1, Remark: "已取消"},
+		// node_stage 字典数据
+		{DictCode: "node_stage", DictLabel: "开始", DictValue: "start", SortOrder: 1, Status: 1, Remark: "开始节点"},
+		{DictCode: "node_stage", DictLabel: "待报价", DictValue: "wait_quote", SortOrder: 2, Status: 1, Remark: "待报价"},
+		{DictCode: "node_stage", DictLabel: "待支付", DictValue: "wait_pay", SortOrder: 3, Status: 1, Remark: "待支付"},
+		{DictCode: "node_stage", DictLabel: "已支付", DictValue: "paid", SortOrder: 4, Status: 1, Remark: "已支付"},
+		{DictCode: "node_stage", DictLabel: "派车中", DictValue: "dispatching", SortOrder: 5, Status: 1, Remark: "派车中"},
+		{DictCode: "node_stage", DictLabel: "服务中", DictValue: "in_progress", SortOrder: 6, Status: 1, Remark: "服务中"},
+		{DictCode: "node_stage", DictLabel: "已完成", DictValue: "completed", SortOrder: 7, Status: 1, Remark: "已完成"},
+		// workflow_action 字典数据
+		{DictCode: "workflow_action", DictLabel: "提交需求", DictValue: "submit_request", SortOrder: 1, Status: 1, Remark: "提交需求"},
+		{DictCode: "workflow_action", DictLabel: "发送报价", DictValue: "send_quote", SortOrder: 2, Status: 1, Remark: "发送报价"},
+		{DictCode: "workflow_action", DictLabel: "立即支付", DictValue: "pay_order", SortOrder: 3, Status: 1, Remark: "立即支付"},
+		{DictCode: "workflow_action", DictLabel: "安排司机", DictValue: "dispatch_driver", SortOrder: 4, Status: 1, Remark: "安排司机"},
+		{DictCode: "workflow_action", DictLabel: "开始服务", DictValue: "start_service", SortOrder: 5, Status: 1, Remark: "开始服务"},
+		{DictCode: "workflow_action", DictLabel: "完成订单", DictValue: "complete_order", SortOrder: 6, Status: 1, Remark: "完成订单"},
+		{DictCode: "workflow_action", DictLabel: "上传材料", DictValue: "upload_material", SortOrder: 7, Status: 1, Remark: "上传材料"},
+		{DictCode: "workflow_action", DictLabel: "确认收齐", DictValue: "material_received", SortOrder: 8, Status: 1, Remark: "确认收齐"},
+		// action_type 字典数据
+		{DictCode: "action_type", DictLabel: "按钮点击", DictValue: "button_click", SortOrder: 1, Status: 1, Remark: "按钮点击"},
+		{DictCode: "action_type", DictLabel: "表单输入", DictValue: "form_input", SortOrder: 2, Status: 1, Remark: "表单输入"},
+		{DictCode: "action_type", DictLabel: "微信支付", DictValue: "wx_pay", SortOrder: 3, Status: 1, Remark: "微信支付"},
+		// executor_role 字典数据
+		{DictCode: "executor_role", DictLabel: "管理员", DictValue: "admin", SortOrder: 1, Status: 1, Remark: "管理员"},
+		{DictCode: "executor_role", DictLabel: "客户", DictValue: "client", SortOrder: 2, Status: 1, Remark: "客户"},
+		{DictCode: "executor_role", DictLabel: "双方", DictValue: "both", SortOrder: 3, Status: 1, Remark: "双方"},
+		// notify_type 字典数据
+		{DictCode: "notify_type", DictLabel: "不通知", DictValue: "none", SortOrder: 1, Status: 1, Remark: "不通知"},
+		{DictCode: "notify_type", DictLabel: "客户通知后台", DictValue: "client_to_admin", SortOrder: 2, Status: 1, Remark: "客户通知后台"},
+		{DictCode: "notify_type", DictLabel: "后台通知客户", DictValue: "admin_to_client", SortOrder: 3, Status: 1, Remark: "后台通知客户"},
+		{DictCode: "notify_type", DictLabel: "系统通知", DictValue: "system", SortOrder: 4, Status: 1, Remark: "系统通知"},
 	}
 	for _, seed := range data {
 		var item models.SysDictData

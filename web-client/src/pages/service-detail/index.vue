@@ -17,6 +17,7 @@ const formSchema = ref({ fields: [] }) // {fields: [{name, label, type, required
 const formValues = ref({})              // 用户填写的表单数据
 const formErrors = ref({})              // 字段级错误信息
 const showForm = ref(false)            // 是否展示下单表单弹窗
+const submitAction = ref(null)        // 当前提交动作信息
 
 const includes = computed(() => [
   '需求沟通与方案确认',
@@ -70,9 +71,25 @@ const loadService = async (id) => {
 }
 
 // parseFormSchema 从 init-form 接口响应中解析 form_fields。
-// 字段标识统一为 key（与后端 FormFieldDef 对齐）。
+// 兼容两种返回格式：
+// 1. 平铺格式：{action_name, button_label, form_fields}
+// 2. 包装格式：{action: {action_name, form_fields}, form_fields}
 const parseFormSchema = (formRes) => {
-  const fields = formRes?.form_fields || []
+  // 兼容包装格式
+  const action = formRes?.action || {
+    action_name: formRes?.action_name,
+    button_label: formRes?.button_label,
+    action_type: formRes?.action_type,
+    target_status: formRes?.target_status,
+    macro_status: formRes?.macro_status,
+    notify_type: formRes?.notify_type,
+    form_fields: formRes?.form_fields || [],
+  }
+
+  // 保存当前动作信息
+  submitAction.value = action?.action_name ? action : null
+
+  const fields = action?.form_fields || formRes?.form_fields || []
   if (!fields.length) {
     formSchema.value = { fields: [] }
     return
@@ -136,17 +153,22 @@ const submitOrder = async () => {
       form_data: { ...formValues.value },
     }
     const res = await post('/v1/client/orders', payload)
-    client.addOrder(res.order)
+    // 正确提取订单 ID，只使用数字 ID 跳转
+    const order = res.order || res.data?.order || {}
+    const orderId = order.id
+
+    client.addOrder(order)
     showForm.value = false
     safeToast('订单已提交，管家即将联系您', 'success')
-    // 跳转到订单详情页
+
+    // 只用数字 ID 跳转，因为后端按数字 ID 查询
     const uniApi = typeof uni !== 'undefined' ? uni : null
-    const orderId = res.order?.id || res.order?.order_no
     if (uniApi?.navigateTo && orderId) {
       setTimeout(() => {
         uniApi.navigateTo({ url: `/pages/order-detail/index?id=${orderId}` })
       }, 1500)
     }
+
     // 重置表单
     const values = {}
     ;(formSchema.value.fields || []).forEach((f) => { values[f.name || f.key] = '' })
@@ -330,12 +352,30 @@ const safeToast = (title, icon = 'info') => {
               </view>
             </picker>
 
-            <!-- file (simple display) -->
+            <!-- file (simple URL input) -->
             <view
               v-else-if="field.type === 'file'"
               class="field-file"
             >
-              <text class="file-placeholder">文件上传暂不支持，请在PC端操作</text>
+              <input
+                v-model="formValues[field.key || field.name]"
+                class="field-input"
+                style="height: auto; padding: 10px 14px;"
+                placeholder="请输入文件URL，或联系管家上传"
+              />
+            </view>
+
+            <!-- image (URL input) -->
+            <view
+              v-else-if="field.type === 'image'"
+              class="field-file"
+            >
+              <input
+                v-model="formValues[field.key || field.name]"
+                class="field-input"
+                style="height: auto; padding: 10px 14px;"
+                placeholder="请输入图片URL，或联系管家上传"
+              />
             </view>
 
             <!-- 错误提示 -->

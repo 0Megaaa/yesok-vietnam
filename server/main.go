@@ -169,6 +169,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		authGroup.GET("/client/state", handlers.GetState(db))
 		authGroup.PUT("/client/state", handlers.UpdateState(db, orderEngine))
 		authGroup.POST("/client/orders", handlers.ClientCreateOrder(db, orderEngine))
+		authGroup.GET("/client/orders/:id", handlers.ClientGetOrder(db))
 		authGroup.GET("/client/orders/:id/actions", handlers.GetClientOrderActions(db))
 		authGroup.POST("/client/orders/:id/action", handlers.PostClientOrderAction(db, orderEngine))
 		authGroup.POST("/client/auth/logout", handlers.AuthLogout())

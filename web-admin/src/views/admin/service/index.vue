@@ -160,7 +160,7 @@ const currentEditNode = computed(() => {
 const addFieldRow = () => {
   if (!currentEditNode.value) return
   currentEditNode.value.form_fields = currentEditNode.value.form_fields || []
-  currentEditNode.value.form_fields.push({ key: '', label: '', type: 'input', required: false, options: [] })
+  currentEditNode.value.form_fields.push({ key: '', label: '', type: 'text', required: false, options: [] })
 }
 
 const removeFieldRow = (fieldIndex) => {

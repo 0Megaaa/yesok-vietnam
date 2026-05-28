@@ -256,21 +256,27 @@ func buildServicePayloads(services []models.SysService) []gin.H {
 	return items
 }
 
-// buildOrderPayload 统一转换订单聚合信息。
+// buildOrderPayload 统一转换订单聚合信息（兼容旧调用，默认为 client 角色）。
 // 1.意图 -> 为后台和 C 端复用同一份订单详情结构。
 // 2.步骤 -> 解析 form_data，加载时间线、支付记录和当前动作节点。
 // 3.返回 -> 带 JSON 详情、动态按钮和财务流水的订单对象。
 func buildOrderPayload(db *gorm.DB, order models.Order) gin.H {
+	return buildOrderPayloadForRole(db, order, "client")
+}
+
+// buildOrderPayloadForRole 按角色返回订单详情，role 可以是 "client" 或 "admin"。
+// client 只返回 client/both 角色的动作节点，admin 返回 admin/both 角色的动作节点。
+func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.H {
 	var timelines []models.OrderTimeline
 	var payments []models.PaymentRecord
 	db.Where("order_id = ?", order.ID).Order("created_at asc").Find(&timelines)
 	db.Where("order_id = ?", order.ID).Order("created_at desc").Find(&payments)
 
-	// 只返回 client 或 both 角色的动作节点
+	// 按角色查询动作节点
 	var nodes []models.SysWorkflowNode
 	db.Where(
-		"service_id = ? AND stage_code = ? AND (executor_role = 'client' OR executor_role = 'both')",
-		order.ServiceID, order.CurrentStage,
+		"service_id = ? AND stage_code = ? AND (executor_role = ? OR executor_role = 'both')",
+		order.ServiceID, order.CurrentStage, role,
 	).Order("sort_order asc, id asc").Find(&nodes)
 
 	actionNodes := make([]gin.H, 0, len(nodes))
@@ -424,6 +430,25 @@ func GetClientOrderActions(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{"actions": actions})
+	}
+}
+
+// ClientGetOrder 返回 C 端用户可查看的订单详情。
+func ClientGetOrder(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := parseUint(c.Param("id"))
+		if err != nil || id == 0 {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid order id")
+			return
+		}
+
+		var order models.Order
+		if err := db.First(&order, id).Error; err != nil {
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found")
+			return
+		}
+
+		c.JSON(http.StatusOK, buildOrderPayloadForRole(db, order, "client"))
 	}
 }
 
