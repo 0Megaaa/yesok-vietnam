@@ -32,12 +32,13 @@ const normalizeOrder = (order) => ({
     order.price || `${Math.round((order.total_amount || 0) / 100)} ${order.currency || 'VND'}`,
   form_data: order.form_data || order.formData || {},
   payment_status: order.payment_status || order.pay_status || 'pending',
-  // actionNodes 字段映射：后端返回 buttonName→action_name, targetStatus→next_stage_code
+  // actionNodes 字段映射：后端返回 button_label → 按钮文案, target_status → 目标状态
   actionNodes: (order.actionNodes || []).map((node) => ({
     id: node.id,
-    action_name: node.button_name || node.action_name || '',
-    next_stage_code: node.target_status || node.targetStatus || '',
-    require_material: node.required_material || node.requiredMaterial || false,
+    action_name: node.action_name || '',
+    button_label: node.button_label || '',
+    target_status: node.target_status || node.targetStatus || '',
+    need_audit: node.need_audit || false,
   })),
 })
 

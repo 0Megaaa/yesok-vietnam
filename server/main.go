@@ -27,7 +27,7 @@ func main() {
 	flag.Parse()
 
 	db := connectDatabase()
-	orderEngine := workflow.NewOrderEngine(db, nil)
+	orderEngine := workflow.NewOrderEngine(db)
 
 	// 2. 根据参数决定是否执行耗时的迁移操作
 	if *runMigrate {
@@ -51,7 +51,6 @@ func main() {
 
 	addr := ":" + getEnv("SERVER_PORT", "7625")
 	log.Printf("YesokVietnam starting on %s", addr)
-	defer orderEngine.Close()
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
@@ -115,6 +114,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		publicGroup.GET("/client/configs", handlers.ClientGetConfigs(db))
 		publicGroup.GET("/client/services", handlers.ClientListServices(db))
 		publicGroup.GET("/client/services/:id", handlers.ClientGetService(db))
+		publicGroup.GET("/client/services/:id/init-form", handlers.ClientGetServiceInitForm(db))
 		publicGroup.GET("/client/articles", handlers.ClientListArticles(db))
 		publicGroup.POST("/client/auth/tg", handlers.AuthTG(db))
 	}
@@ -133,9 +133,11 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		authGroup.GET("/admin/orders/:id", handlers.AdminGetOrder(db))
 		authGroup.GET("/admin/orders/:id/actions", handlers.AdminGetOrderActions(db))
 		authGroup.PUT("/admin/orders/:id", handlers.AdminUpdateOrder(db, orderEngine))
+		authGroup.POST("/admin/orders/:id/action", handlers.AdminPostOrderAction(db, orderEngine))
 		authGroup.GET("/admin/services", handlers.AdminListServices(db))
 		authGroup.GET("/admin/services/:id", handlers.AdminGetServiceDetail(db))
 		authGroup.GET("/admin/services/:id/workflow", handlers.AdminGetServiceWorkflow(db))
+		authGroup.GET("/admin/services/:id/actions", handlers.AdminGetServiceActions(db))
 		authGroup.POST("/admin/services", handlers.AdminSaveService(db))
 		authGroup.POST("/admin/services/save", handlers.AdminSaveService(db))
 		authGroup.PUT("/admin/services/:id", handlers.AdminUpdateService(db))
@@ -167,6 +169,8 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		authGroup.GET("/client/state", handlers.GetState(db))
 		authGroup.PUT("/client/state", handlers.UpdateState(db, orderEngine))
 		authGroup.POST("/client/orders", handlers.ClientCreateOrder(db, orderEngine))
+		authGroup.GET("/client/orders/:id/actions", handlers.GetClientOrderActions(db))
+		authGroup.POST("/client/orders/:id/action", handlers.PostClientOrderAction(db, orderEngine))
 		authGroup.POST("/client/auth/logout", handlers.AuthLogout())
 	}
 }

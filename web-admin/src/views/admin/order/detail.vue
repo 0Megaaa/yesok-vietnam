@@ -2,7 +2,9 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getOrderDetail, updateOrder, getOrderActions } from '@/api/admin/orders'
+import { getOrderDetail, performOrderAction } from '@/api/admin/orders'
+import { getServiceActions } from '@/api/admin/services'
+import DynamicForm from '@/components/DynamicForm.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -13,7 +15,15 @@ const actionsLoading = ref(false)
 const order = ref(null)
 const actions = ref([])
 
-// 映射 macro_status (主状态码) -> 中文标签
+// DynamicForm 组件 ref，用于调用 validateAll()
+const dynamicFormRef = ref(null)
+
+// form_input 弹窗状态
+const formInputVisible = ref(false)
+const formInputAction = ref(null)
+const formInputData = ref({})
+const formInputLoading = ref(false)
+
 const statusLabel = (code) => {
   const m = {
     pending: '等待受理',
@@ -29,21 +39,21 @@ const statusLabel = (code) => {
   return m[code] || code || '未知'
 }
 
-// 格式化金额，单位：分 -> 越南盾
 const formatMoney = (amount) => {
   if (!amount && amount !== 0) return '—'
   return `${(Number(amount) / 100).toLocaleString('vi-VN')} ₫`
 }
 
-// 时间格式化
 const formatTime = (t) => {
   if (!t) return ''
   return new Date(t).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })
 }
 
 const formEntries = computed(() => {
-  if (!order.value?.formData) return []
-  return Object.entries(order.value.formData).map(([k, v]) => ({ key: k, value: v }))
+  if (!order.value?.form_data) return []
+  const raw = order.value.form_data
+  const data = typeof raw === 'string' ? JSON.parse(raw) : raw
+  return Object.entries(data).map(([k, v]) => ({ key: k, value: typeof v === 'object' ? JSON.stringify(v) : v }))
 })
 
 const showToast = (title, type = 'info') => {
@@ -63,13 +73,12 @@ const loadOrderDetail = async () => {
 }
 
 const loadOrderActions = async () => {
-  if (!orderId.value) return
+  if (!order.value?.service_id || !order.value?.current_stage) return
   actionsLoading.value = true
   try {
-    const res = await getOrderActions(orderId.value)
+    const res = await getServiceActions(order.value.service_id, order.value.current_stage, 'admin')
     actions.value = res.actions || []
   } catch {
-    // 动作加载失败不影响主流程
     actions.value = []
   } finally {
     actionsLoading.value = false
@@ -81,11 +90,16 @@ const refresh = async () => {
   await loadOrderActions()
 }
 
-const applyWorkflowAction = async (action) => {
-  if (!order.value) return
+// 根据 action_type 分类
+const buttonClickActions = computed(() => actions.value.filter(a => a.action_type === 'button_click'))
+const formInputActions = computed(() => actions.value.filter(a => a.action_type === 'form_input'))
+const wxPayActions = computed(() => actions.value.filter(a => a.action_type === 'wx_pay'))
+
+// --- button_click 类型：直接执行备注确认 ---
+const executeButtonClick = async (action) => {
   try {
     const { value: remark } = await ElMessageBox.prompt(
-      `执行动作「${action.action_name}」，请输入备注（可选）：`,
+      `执行动作「${action.button_label}」，请输入备注（可选）：`,
       '确认操作',
       {
         confirmButtonText: '确认执行',
@@ -93,18 +107,52 @@ const applyWorkflowAction = async (action) => {
         inputPlaceholder: '备注信息（选填）',
       }
     )
-    const res = await updateOrder(order.value.id, {
+    const res = await performOrderAction(order.value.id, {
       action_name: action.action_name,
       remark: remark || '',
     })
     order.value = res
     await loadOrderActions()
-    showToast(`「${action.action_name}」已执行`, 'success')
+    showToast(`「${action.button_label}」已执行`, 'success')
   } catch (err) {
     if (err !== 'cancel') {
       showToast('流程推进失败', 'error')
     }
   }
+}
+
+// --- form_input 类型：弹窗收集表单数据（DynamicForm 组件驱动）---
+const openFormInput = (action) => {
+  formInputAction.value = action
+  formInputData.value = {}
+  formInputVisible.value = true
+}
+
+const submitFormInput = async () => {
+  // 调用 DynamicForm 的 validateAll()
+  if (!dynamicFormRef.value?.validateAll()) return
+
+  formInputLoading.value = true
+  try {
+    const res = await performOrderAction(order.value.id, {
+      action_name: formInputAction.value.action_name,
+      remark: '',
+      input_data: formInputData.value,
+    })
+    order.value = res
+    await loadOrderActions()
+    formInputVisible.value = false
+    showToast(`「${formInputAction.value.button_label}」已执行`, 'success')
+  } catch {
+    showToast('流程推进失败', 'error')
+  } finally {
+    formInputLoading.value = false
+  }
+}
+
+// --- wx_pay 类型：提示跳转到支付 ---
+const triggerWxPay = (action) => {
+  showToast(`「${action.button_label}」：请引导客户完成微信支付`, 'info')
 }
 
 const goBack = () => {
@@ -225,24 +273,60 @@ onMounted(async () => {
         </div>
         <div v-else-if="!actions.length" class="empty-line">当前节点无操作动作</div>
         <div v-else class="workflow-actions">
+          <!-- button_click -->
           <button
-            v-for="action in actions"
+            v-for="action in buttonClickActions"
             :key="action.id"
             class="action-btn"
-            :class="{
-              'action-payment': action.require_material || action.notify_type === 'payment_reminder',
-              'action-material': action.require_material,
-            }"
-            :title="action.require_material ? '此操作需要上传资料' : action.action_name"
-            @click="applyWorkflowAction(action)"
+            :title="`${action.button_label}（${action.stage_name}）`"
+            @click="executeButtonClick(action)"
           >
-            {{ action.action_name }}
+            {{ action.button_label }}
+          </button>
+          <!-- form_input -->
+          <button
+            v-for="action in formInputActions"
+            :key="action.id"
+            class="action-btn action-material"
+            :title="`${action.button_label}（需填写表单）`"
+            @click="openFormInput(action)"
+          >
+            {{ action.button_label }}
+          </button>
+          <!-- wx_pay -->
+          <button
+            v-for="action in wxPayActions"
+            :key="action.id"
+            class="action-btn action-payment"
+            :title="`${action.button_label}（微信支付）`"
+            @click="triggerWxPay(action)"
+          >
+            {{ action.button_label }}
           </button>
         </div>
       </div>
     </template>
 
     <div v-else class="info-card empty-card">订单不存在或加载失败</div>
+
+    <!-- form_input 动态表单弹窗（DynamicForm 引擎驱动）-->
+    <el-dialog
+      v-model="formInputVisible"
+      :title="`填写：${formInputAction?.button_label || ''}`"
+      width="580px"
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
+      <DynamicForm
+        ref="dynamicFormRef"
+        v-model="formInputData"
+        :fields="formInputAction?.form_fields || []"
+      />
+      <template #footer>
+        <el-button @click="formInputVisible = false">取消</el-button>
+        <el-button type="primary" :loading="formInputLoading" @click="submitFormInput">确认执行</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -473,5 +557,11 @@ onMounted(async () => {
   color: #9aa3b5;
   font-size: 12px;
   padding: 8px 0;
+}
+
+.field-error {
+  color: #e53e3e;
+  font-size: 11px;
+  margin-top: 4px;
 }
 </style>

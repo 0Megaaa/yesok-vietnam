@@ -15,3 +15,9 @@ export function updateOrder(id, data) {
 export function getOrderActions(id) {
   return request.get(`/v1/admin/orders/${id}/actions`).then((res) => res.data)
 }
+
+// performOrderAction 调用 POST /api/v1/orders/:id/action
+// 专用于工作流动作推进，与 updateOrder (PUT) 语义区分
+export function performOrderAction(id, data) {
+  return request.post(`/v1/admin/orders/${id}/action`, data).then((res) => res.data)
+}

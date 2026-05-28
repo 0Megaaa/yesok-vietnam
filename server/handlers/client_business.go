@@ -68,6 +68,59 @@ func ClientGetService(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// ClientGetServiceInitForm 返回指定服务的下单初始化表单。
+// 数据来源：读取该服务 stage_code='start' 且 executor_role 含 'client' 的工作流节点，
+// 取其 form_fields 作为下单表单配置。
+// 若无节点配置，则回退到 sys_services.form_schema。
+func ClientGetServiceInitForm(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		idStr := c.Param("id")
+		var service models.SysService
+		var err error
+		if idStr != "" {
+			var id uint
+			if _, parseErr := fmt.Sscanf(idStr, "%d", &id); parseErr == nil {
+				err = db.Where("id = ? AND status = ?", id, 1).First(&service).Error
+			} else {
+				err = db.Where("service_code = ? AND status = ?", idStr, 1).First(&service).Error
+			}
+		}
+		if err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "service not found"})
+			return
+		}
+
+		// 优先取 start 节点的 form_fields
+		var startNode models.SysWorkflowNode
+		found := db.Where(
+			"service_id = ? AND stage_code = 'start' AND (executor_role = 'client' OR executor_role = 'both')",
+			service.ID,
+		).Order("sort_order asc").First(&startNode).Error == nil
+
+		if found && len(startNode.FormFields) > 0 {
+			c.JSON(http.StatusOK, gin.H{
+				"service_id":   service.ID,
+				"service_name": service.ServiceName,
+				"form_fields":  startNode.FormFields,
+				"source":       "workflow_node",
+			})
+			return
+		}
+
+		// 回退：使用 sys_services.form_schema
+		var fields []models.FormFieldDef
+		if service.FormSchema != nil {
+			json.Unmarshal(service.FormSchema, &fields)
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"service_id":   service.ID,
+			"service_name": service.ServiceName,
+			"form_fields":  fields,
+			"source":       "form_schema",
+		})
+	}
+}
+
 // ClientGetConfigs 输出 C 端公开全局配置。
 // 1.意图 -> 让 Banner、热线、主题色和全局文案由后台动态控制。
 // 2.步骤 -> 仅读取 is_public=true 的 sys_configs，并按 key 组装为对象。
@@ -201,16 +254,15 @@ func buildOrderPayload(db *gorm.DB, order models.Order) gin.H {
 	actionNodes := make([]gin.H, 0, len(nodes))
 	for _, n := range nodes {
 		actionNodes = append(actionNodes, gin.H{
-			"id":               n.ID,
-			"action_name":      n.ActionName,
-			"next_stage_code":  n.NextStageCode,
-			"stage_name":       n.StageName,
-			"require_material": n.RequireMaterial,
-			"notify_type":      n.NotifyType,
-			"sort_order":       n.SortOrder,
-			// 兼容旧字段名
-			"button_name":   n.ActionName,
-			"target_status": n.NextStageCode,
+			"id":            n.ID,
+			"action_name":   n.ActionName,
+			"button_label":  n.ButtonLabel,
+			"target_status": n.TargetStatus,
+			"stage_name":    n.StageName,
+			"action_type":   n.ActionType,
+			"form_fields":   n.FormFields,
+			"need_audit":    n.NeedAudit,
+			"sort_order":    n.SortOrder,
 		})
 	}
 
@@ -296,4 +348,79 @@ func marshalJSON(v any) []byte {
 // 3.返回 -> 例如 650000 ₫ 的展示字符串。
 func formatMoney(amount int64) string {
 	return fmt.Sprintf("%d ₫", amount/100)
+}
+
+// CEndOrderActionRequest C 端执行订单动作的请求体。
+type CEndOrderActionRequest struct {
+	ActionName string                 `json:"action_name" binding:"required"`
+	Remark     string                 `json:"remark"`
+	InputData  map[string]interface{} `json:"input_data"`
+}
+
+// GetClientOrderActions 返回指定订单当前节点对 client 角色可执行的动作列表。
+func GetClientOrderActions(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := parseUint(c.Param("id"))
+		if err != nil || id == 0 {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid order id")
+			return
+		}
+
+		var order models.Order
+		if err := db.First(&order, id).Error; err != nil {
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found")
+			return
+		}
+
+		var nodes []models.SysWorkflowNode
+		db.Where(
+			"service_id = ? AND stage_code = ? AND (executor_role = ? OR executor_role = 'both')",
+			order.ServiceID, order.CurrentStage, "client",
+		).Order("sort_order asc").Find(&nodes)
+
+		c.JSON(http.StatusOK, gin.H{"actions": nodes})
+	}
+}
+
+// PostClientOrderAction C 端执行订单动作（推进状态）。
+func PostClientOrderAction(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := parseUint(c.Param("id"))
+		if err != nil || id == 0 {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid order id")
+			return
+		}
+
+		var req CEndOrderActionRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request: "+err.Error())
+			return
+		}
+
+		var order models.Order
+		if err := db.First(&order, id).Error; err != nil {
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found")
+			return
+		}
+
+		operatorID := fmt.Sprintf("client:%d", order.AppUserID)
+		if err := engine.AdvanceStage(id, req.ActionName, operatorID, "client", req.InputData, req.Remark); err != nil {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, err.Error())
+			return
+		}
+
+		db.First(&order, id)
+		c.JSON(http.StatusOK, gin.H{
+			"message":       "action executed",
+			"order_no":      order.OrderNo,
+			"macro_status":  order.MacroStatus,
+			"current_stage": order.CurrentStage,
+		})
+	}
+}
+
+func parseUint(s string) (uint, error) {
+	var v uint
+	_, err := fmt.Sscanf(s, "%d", &v)
+	return v, err
 }

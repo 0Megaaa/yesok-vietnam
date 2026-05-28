@@ -40,13 +40,18 @@ onLoad((options) => {
   loadService(serviceId.value)
 })
 
-// loadService 加载服务详情并解析 form_schema。
+// loadService 加载服务详情，同时从 init-form 接口获取下单表单配置。
+// 表单数据来源：优先取服务 start 节点的 form_fields，回退到 sys_services.form_schema。
 const loadService = async (id) => {
   loading.value = true
   try {
-    const res = await get(`/v1/client/services/${id}`)
-    serviceData.value = res.data
-    parseFormSchema(res.data)
+    // 获取服务基础信息
+    const [svcRes, formRes] = await Promise.all([
+      get(`/v1/client/services/${id}`),
+      get(`/v1/client/services/${id}/init-form`).catch(() => ({ form_fields: [], source: 'none' })),
+    ])
+    serviceData.value = svcRes.data || svcRes
+    parseFormSchema(formRes)
   } catch {
     serviceData.value = {
       id: 'unknown',
@@ -64,34 +69,34 @@ const loadService = async (id) => {
   }
 }
 
-// parseFormSchema 从服务数据中解析出 form_schema。
-const parseFormSchema = (service) => {
-  try {
-    const raw = service.form_schema || service.formSchema
-    if (!raw) {
-      formSchema.value = { fields: [] }
-      return
-    }
-    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw
-    formSchema.value = parsed
-    // 初始化 formValues
-    const values = {}
-    ;(parsed.fields || []).forEach((f) => { values[f.name] = '' })
-    formValues.value = values
-    formErrors.value = {}
-  } catch {
+// parseFormSchema 从 init-form 接口响应中解析 form_fields。
+// 字段标识统一为 key（与后端 FormFieldDef 对齐）。
+const parseFormSchema = (formRes) => {
+  const fields = formRes?.form_fields || []
+  if (!fields.length) {
     formSchema.value = { fields: [] }
+    return
   }
+  formSchema.value = { fields }
+  const values = {}
+  const errors = {}
+  fields.forEach((f) => {
+    values[f.key || f.name] = ''
+    errors[f.key || f.name] = ''
+  })
+  formValues.value = values
+  formErrors.value = errors
 }
 
 // validateField 校验单个字段。
 const validateField = (field) => {
-  const val = (formValues.value[field.name] || '').toString().trim()
+  const k = field.key || field.name
+  const val = (formValues.value[k] || '').toString().trim()
   if (field.required && !val) {
-    formErrors.value[field.name] = `请填写 ${field.label}`
+    formErrors.value[k] = `请填写 ${field.label}`
     return false
   }
-  delete formErrors.value[field.name]
+  delete formErrors.value[k]
   return true
 }
 
@@ -240,7 +245,7 @@ const safeToast = (title, icon = 'info') => {
 
         <!-- 动态表单字段 -->
         <scroll-view scroll-y class="form-body">
-          <view v-for="field in formSchema.fields" :key="field.name" class="field-wrap">
+          <view v-for="field in formSchema.fields" :key="field.key || field.name" class="field-wrap">
             <!-- 标签 -->
             <view class="field-label">
               <text>{{ field.label }}</text>
@@ -250,10 +255,10 @@ const safeToast = (title, icon = 'info') => {
             <!-- text / phone -->
             <input
               v-if="field.type === 'text' || field.type === 'phone'"
-              v-model="formValues[field.name]"
+              v-model="formValues[field.key || field.name]"
               :type="field.type === 'phone' ? 'number' : 'text'"
               class="field-input"
-              :class="{ error: formErrors[field.name] }"
+              :class="{ error: formErrors[field.key || field.name] }"
               :placeholder="field.placeholder || `请输入${field.label}`"
               @blur="validateField(field)"
             />
@@ -261,9 +266,9 @@ const safeToast = (title, icon = 'info') => {
             <!-- date -->
             <input
               v-else-if="field.type === 'date'"
-              v-model="formValues[field.name]"
+              v-model="formValues[field.key || field.name]"
               class="field-input"
-              :class="{ error: formErrors[field.name] }"
+              :class="{ error: formErrors[field.key || field.name] }"
               placeholder="格式：2025-01-15"
               @blur="validateField(field)"
             />
@@ -271,9 +276,9 @@ const safeToast = (title, icon = 'info') => {
             <!-- textarea -->
             <textarea
               v-else-if="field.type === 'textarea'"
-              v-model="formValues[field.name]"
+              v-model="formValues[field.key || field.name]"
               class="field-textarea"
-              :class="{ error: formErrors[field.name] }"
+              :class="{ error: formErrors[field.key || field.name] }"
               :placeholder="field.placeholder || `请输入${field.label}`"
               @blur="validateField(field)"
             />
@@ -284,16 +289,16 @@ const safeToast = (title, icon = 'info') => {
               mode="selector"
               :value="0"
               :range="field.options || []"
-              @change="(e) => { formValues[field.name] = field.options[e.detail.value]; validateField(field) }"
+              @change="(e) => { formValues[field.key || field.name] = field.options[e.detail.value]; validateField(field) }"
             >
-              <view class="field-picker" :class="{ error: formErrors[field.name], filled: formValues[field.name] }">
-                <text>{{ formValues[field.name] || field.placeholder || `请选择${field.label}` }}</text>
+              <view class="field-picker" :class="{ error: formErrors[field.key || field.name], filled: formValues[field.key || field.name] }">
+                <text>{{ formValues[field.key || field.name] || field.placeholder || `请选择${field.label}` }}</text>
                 <text class="picker-arrow">›</text>
               </view>
             </picker>
 
             <!-- 错误提示 -->
-            <text v-if="formErrors[field.name]" class="field-error">{{ formErrors[field.name] }}</text>
+            <text v-if="formErrors[field.key || field.name]" class="field-error">{{ formErrors[field.key || field.name] }}</text>
           </view>
         </scroll-view>
 

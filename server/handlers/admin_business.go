@@ -15,8 +15,9 @@ import (
 )
 
 type AdminUpdateOrderRequest struct {
-	ActionName string `json:"action_name"`
-	Remark     string `json:"remark"`
+	ActionName string                 `json:"action_name"`
+	Remark     string                 `json:"remark"`
+	InputData  map[string]interface{} `json:"input_data"`
 }
 
 // ServiceInfoRequest 是服务基础信息的请求体。
@@ -163,7 +164,7 @@ func AdminGetOrder(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// AdminGetOrderActions returns all actionable workflow nodes for the current stage.
+// AdminGetOrderActions returns all actionable workflow nodes for the current stage (admin role).
 func AdminGetOrderActions(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
@@ -177,26 +178,14 @@ func AdminGetOrderActions(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		var nodes []models.SysWorkflowNode
-		if err := db.Where("service_id = ? AND stage_code = ?", order.ServiceID, order.CurrentStage).
-			Order("sort_order asc, id asc").Find(&nodes).Error; err != nil {
+		if err := db.Where(
+			"service_id = ? AND stage_code = ? AND (executor_role = ? OR executor_role = 'both')",
+			order.ServiceID, order.CurrentStage, "admin",
+		).Order("sort_order asc").Find(&nodes).Error; err != nil {
 			httpError(c, http.StatusInternalServerError, ErrCodeInternalError, "failed to query actions")
 			return
 		}
-		actions := make([]gin.H, 0, len(nodes))
-		for _, n := range nodes {
-			if n.IsManual {
-				actions = append(actions, gin.H{
-					"id":               n.ID,
-					"action_name":      n.ActionName,
-					"next_stage_code":  n.NextStageCode,
-					"stage_name":       n.StageName,
-					"require_material": n.RequireMaterial,
-					"notify_type":      n.NotifyType,
-					"sort_order":       n.SortOrder,
-				})
-			}
-		}
-		c.JSON(http.StatusOK, gin.H{"actions": actions})
+		c.JSON(http.StatusOK, gin.H{"actions": nodes})
 	}
 }
 
@@ -217,7 +206,7 @@ func AdminUpdateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFunc
 			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "action_name is required")
 			return
 		}
-		if err := engine.AdvanceStage(uint(id), req.ActionName, "后台管家", req.Remark); err != nil {
+		if err := engine.AdvanceStage(uint(id), req.ActionName, "后台管家", "admin", req.InputData, req.Remark); err != nil {
 			httpError(c, http.StatusBadRequest, ErrCodeTransactionFailed, "流程推进失败: "+err.Error())
 			return
 		}
@@ -236,6 +225,37 @@ func AdminListServices(db *gorm.DB) gin.HandlerFunc {
 		var list []models.SysService
 		db.Order("sort_order asc, id asc").Find(&list)
 		c.JSON(http.StatusOK, gin.H{"list": list})
+	}
+}
+
+// AdminPostOrderAction 是工作流动作的专用 POST 入口。
+// 参数与 AdvanceStage 签名完全对齐：action_name / input_data / remark。
+func AdminPostOrderAction(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil || id == 0 {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid order id")
+			return
+		}
+		var req AdminUpdateOrderRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request: "+err.Error())
+			return
+		}
+		if req.ActionName == "" {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "action_name is required")
+			return
+		}
+		if err := engine.AdvanceStage(uint(id), req.ActionName, "后台管家", "admin", req.InputData, req.Remark); err != nil {
+			httpError(c, http.StatusBadRequest, ErrCodeTransactionFailed, "流程推进失败: "+err.Error())
+			return
+		}
+		var order models.Order
+		if err := db.First(&order, id).Error; err != nil {
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found after advance")
+			return
+		}
+		c.JSON(http.StatusOK, buildOrderPayload(db, order))
 	}
 }
 
@@ -282,6 +302,35 @@ func AdminGetServiceWorkflow(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"workflow_nodes": nodes})
+	}
+}
+
+// AdminGetServiceActions 返回指定服务在给定 stage_code 和角色下可执行的动作列表。
+// role 参数从 query string 传入，默认为 "admin"。
+// 用于订单详情页：通过 order.service_id + order.current_stage 动态渲染操作按钮。
+func AdminGetServiceActions(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil || id == 0 {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid service id")
+			return
+		}
+		stage := c.Query("stage")
+		if stage == "" {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "stage query param is required")
+			return
+		}
+		role := c.DefaultQuery("role", "admin")
+
+		var nodes []models.SysWorkflowNode
+		if err := db.Where(
+			"service_id = ? AND stage_code = ? AND (executor_role = ? OR executor_role = 'both')",
+			id, stage, role,
+		).Order("sort_order asc").Find(&nodes).Error; err != nil {
+			httpError(c, http.StatusInternalServerError, ErrCodeInternalError, "failed to query actions")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"actions": nodes})
 	}
 }
 

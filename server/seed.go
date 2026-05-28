@@ -73,7 +73,7 @@ func seedServices(db *gorm.DB) map[string]models.SysService {
 			{Name: "vehicle_type", Label: "车型偏好", Type: "select", Required: false, Options: []string{"轿车", "SUV", "商务车", "小巴", "无要求"}},
 			{Name: "remark", Label: "特殊要求", Type: "textarea", Required: false, Placeholder: "儿童座椅/行李规格等（选填）"},
 		})},
-		{ServiceCode: "translation", ServiceName: "商务翻译", DisplayName: "随行翻译", Icon: "🌐", CoverImage: "/static/img.png", Description: "中越英随行翻译、会议陪同与商务谈判支持。", BasePrice: 150000000, Currency: "VND", Unit: "天", SortOrder: 4, Status: 1, IsHot: false, FormSchema: makeFormSchema([]FieldSchema{
+		{ServiceCode: "translation", ServiceName: "商务翻译", DisplayName: "随行翻译", Icon: "🌐", CoverImage: "/static/img.png", Description: "中越英随行翻译，会议陪同与商务谈判支持。", BasePrice: 150000000, Currency: "VND", Unit: "天", SortOrder: 4, Status: 1, IsHot: false, FormSchema: makeFormSchema([]FieldSchema{
 			{Name: "language", Label: "翻译语言", Type: "select", Required: true, Options: []string{"中越", "中英", "中英越"}},
 			{Name: "scene", Label: "使用场景", Type: "select", Required: true, Options: []string{"会议陪同", "工厂参观", "商务谈判", "展会翻译", "旅行随行", "其他"}},
 			{Name: "meeting_date", Label: "翻译日期", Type: "date", Required: true, Placeholder: "请选择日期"},
@@ -110,16 +110,15 @@ func seedServices(db *gorm.DB) map[string]models.SysService {
 
 // FieldSchema 描述单个表单字段的元数据。
 type FieldSchema struct {
-	Name        string   `json:"name"`              // 表单字段名，对应 form_data 中的 key
-	Label       string   `json:"label"`             // 前端展示标签
-	Type        string   `json:"type"`              // 字段类型：text | select | textarea | date | phone
-	Required    bool     `json:"required"`          // 是否必填
-	Placeholder string   `json:"placeholder"`       // 输入框占位提示
-	Options     []string `json:"options,omitempty"` // select 类型的选项列表
+	Name        string   `json:"name"`
+	Label       string   `json:"label"`
+	Type        string   `json:"type"`
+	Required    bool     `json:"required"`
+	Placeholder string   `json:"placeholder"`
+	Options     []string `json:"options,omitempty"`
 }
 
 // makeFormSchema 构造服务动态表单的 schema JSON。
-// 每个服务可自定义字段集合，前端根据 schema 动态渲染表单。
 func makeFormSchema(fields []FieldSchema) []byte {
 	b, _ := json.Marshal(map[string]interface{}{"fields": fields})
 	return b
@@ -127,57 +126,65 @@ func makeFormSchema(fields []FieldSchema) []byte {
 
 // WorkflowNodeTemplate 描述单个流程节点的静态配置模板。
 type WorkflowNodeTemplate struct {
-	StageCode       string // 当前节点编码（触发入口）
-	StageName       string // 当前节点名称
-	MacroStatus     string // 映射主状态
-	ActionName      string // B 端操作按钮名称
-	NextStageCode   string // 流转到的目标节点编码
-	IsManual        bool   // 是否需要人工触发
-	RequireMaterial bool   // 流转到下一步是否必传资料
-	NotifyType      string // TG 通知类型，空则不发
-	SortOrder       int64  // 按钮排序
+	StageCode    string                // 当前节点编码（触发入口）
+	StageName    string                // 当前节点名称
+	MacroStatus  string                // 映射主状态
+	ActionName   string                // 动作标识（内部使用，唯一键）
+	ButtonLabel  string                // 按钮名称（UI 显示）
+	ExecutorRole string                // admin/client/both
+	ActionType   string                // button_click / form_input / wx_pay
+	FormFields   []models.FormFieldDef // form_input 时的字段定义
+	NeedAudit    bool                  // 提交后是否需人工审核确认才推进
+	TargetStatus string                // 流转目标状态
+	SortOrder    int64                 // 按钮排序
 }
 
 // workflowTemplates 按服务编码聚合流程节点模板。
-// 扩展方式：只需在此 map 中新增 key 或追加节点列表，无需修改注入逻辑。
 var workflowTemplates = map[string][]WorkflowNodeTemplate{
 	"airport_transfer": {
-		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "接单", NextStageCode: "quoted", IsManual: true, RequireMaterial: false, SortOrder: 1},
-		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "确认收款", NextStageCode: "paid", IsManual: true, RequireMaterial: false, SortOrder: 2},
-		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "开始履约", NextStageCode: "in_progress", IsManual: true, RequireMaterial: true, SortOrder: 3},
-		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "完成订单", NextStageCode: "completed", IsManual: true, RequireMaterial: false, SortOrder: 4},
+		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "accept", ButtonLabel: "接单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "quoted", SortOrder: 1},
+		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "confirm_pay", ButtonLabel: "确认收款", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "paid", SortOrder: 2},
+		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "start_service", ButtonLabel: "开始履约", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "in_progress", SortOrder: 3},
+		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "complete", ButtonLabel: "完成订单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "completed", SortOrder: 4},
 	},
 	"visa": {
-		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "接单", NextStageCode: "reviewing", IsManual: true, RequireMaterial: true, SortOrder: 1},
-		{StageCode: "reviewing", StageName: "资料审核中", MacroStatus: "reviewing", ActionName: "审核通过并报价", NextStageCode: "quoted", IsManual: true, RequireMaterial: false, SortOrder: 2},
-		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "确认收款", NextStageCode: "paid", IsManual: true, RequireMaterial: false, SortOrder: 3},
-		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "开始履约", NextStageCode: "in_progress", IsManual: true, RequireMaterial: true, SortOrder: 4},
-		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "完成订单", NextStageCode: "completed", IsManual: true, RequireMaterial: false, SortOrder: 5},
+		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "accept", ButtonLabel: "接单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "wait_material", SortOrder: 1},
+		// NeedAudit=true：客户上传材料后停在 wait_material，待管理员审核后推进
+		{StageCode: "wait_material", StageName: "待收资料", MacroStatus: "pending", ActionName: "upload_material", ButtonLabel: "上传签证材料", ExecutorRole: "client", ActionType: "form_input", NeedAudit: true, TargetStatus: "reviewing",
+			FormFields: []models.FormFieldDef{
+				{Key: "passport", Label: "护照首页", Type: "image", Required: true},
+				{Key: "visa_page", Label: "当前签证页", Type: "image", Required: true},
+				{Key: "entry_date", Label: "预计入境日期", Type: "date", Required: false},
+				{Key: "notes", Label: "备注说明", Type: "textarea", Required: false},
+			},
+			SortOrder: 2},
+		{StageCode: "wait_material", StageName: "待收资料", MacroStatus: "pending", ActionName: "material_received", ButtonLabel: "确认收齐", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "reviewing", SortOrder: 3},
+		{StageCode: "reviewing", StageName: "资料审核中", MacroStatus: "reviewing", ActionName: "approve", ButtonLabel: "审核通过并报价", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "quoted", SortOrder: 4},
+		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "confirm_pay", ButtonLabel: "确认收款", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "paid", SortOrder: 5},
+		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "start_service", ButtonLabel: "开始履约", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "in_progress", SortOrder: 6},
+		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "complete", ButtonLabel: "完成订单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "completed", SortOrder: 7},
 	},
 	"charter": {
-		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "接单", NextStageCode: "quoted", IsManual: true, RequireMaterial: false, SortOrder: 1},
-		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "确认收款", NextStageCode: "paid", IsManual: true, RequireMaterial: false, SortOrder: 2},
-		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "开始履约", NextStageCode: "in_progress", IsManual: true, RequireMaterial: true, SortOrder: 3},
-		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "完成订单", NextStageCode: "completed", IsManual: true, RequireMaterial: false, SortOrder: 4},
+		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "accept", ButtonLabel: "接单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "quoted", SortOrder: 1},
+		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "confirm_pay", ButtonLabel: "确认收款", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "paid", SortOrder: 2},
+		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "start_service", ButtonLabel: "开始履约", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "in_progress", SortOrder: 3},
+		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "complete", ButtonLabel: "完成订单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "completed", SortOrder: 4},
 	},
 	"translation": {
-		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "接单", NextStageCode: "quoted", IsManual: true, RequireMaterial: false, SortOrder: 1},
-		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "确认收款", NextStageCode: "paid", IsManual: true, RequireMaterial: false, SortOrder: 2},
-		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "开始履约", NextStageCode: "in_progress", IsManual: true, RequireMaterial: false, SortOrder: 3},
-		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "完成订单", NextStageCode: "completed", IsManual: true, RequireMaterial: false, SortOrder: 4},
+		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "accept", ButtonLabel: "接单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "quoted", SortOrder: 1},
+		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "confirm_pay", ButtonLabel: "确认收款", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "paid", SortOrder: 2},
+		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "start_service", ButtonLabel: "开始履约", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "in_progress", SortOrder: 3},
+		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "complete", ButtonLabel: "完成订单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "completed", SortOrder: 4},
 	},
 	"business": {
-		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "接单", NextStageCode: "quoted", IsManual: true, RequireMaterial: true, SortOrder: 1},
-		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "确认收款", NextStageCode: "paid", IsManual: true, RequireMaterial: false, SortOrder: 2},
-		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "开始履约", NextStageCode: "in_progress", IsManual: true, RequireMaterial: true, SortOrder: 3},
-		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "完成订单", NextStageCode: "completed", IsManual: true, RequireMaterial: false, SortOrder: 4},
+		{StageCode: "start", StageName: "待受理", MacroStatus: "pending", ActionName: "accept", ButtonLabel: "接单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "quoted", SortOrder: 1},
+		{StageCode: "quoted", StageName: "已报价", MacroStatus: "quoted", ActionName: "confirm_pay", ButtonLabel: "确认收款", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "paid", SortOrder: 2},
+		{StageCode: "paid", StageName: "已收款", MacroStatus: "paid", ActionName: "start_service", ButtonLabel: "开始履约", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "in_progress", SortOrder: 3},
+		{StageCode: "in_progress", StageName: "履约中", MacroStatus: "in_progress", ActionName: "complete", ButtonLabel: "完成订单", ExecutorRole: "admin", ActionType: "button_click", TargetStatus: "completed", SortOrder: 4},
 	},
 }
 
-// seedWorkflowNodes 动态注入流程节点。
-// 1.意图 -> 让节点配置与代码解耦，新增服务只需扩展 workflowTemplates。
-// 2.步骤 -> 遍历已存在的服务，按 ServiceCode 匹配模板；先清理旧节点再幂等写入。
-// 3.返回 -> 无返回，失败写日志。
+// seedWorkflowNodes 动态注入流程节点。先清理旧节点再幂等写入。
 func seedWorkflowNodes(db *gorm.DB, services map[string]models.SysService) {
 	for code, service := range services {
 		templates, ok := workflowTemplates[code]
@@ -186,7 +193,6 @@ func seedWorkflowNodes(db *gorm.DB, services map[string]models.SysService) {
 			continue
 		}
 
-		// 清理该服务已存在的节点，保证幂等
 		if err := db.Where("service_id = ?", service.ID).Delete(&models.SysWorkflowNode{}).Error; err != nil {
 			log.Printf("[seed] clear workflow nodes for service_id=%d failed: %v", service.ID, err)
 			continue
@@ -194,16 +200,18 @@ func seedWorkflowNodes(db *gorm.DB, services map[string]models.SysService) {
 
 		for _, tpl := range templates {
 			node := models.SysWorkflowNode{
-				ServiceID:       service.ID,
-				StageCode:       tpl.StageCode,
-				StageName:       tpl.StageName,
-				MacroStatus:     tpl.MacroStatus,
-				ActionName:      tpl.ActionName,
-				NextStageCode:   tpl.NextStageCode,
-				IsManual:        tpl.IsManual,
-				RequireMaterial: tpl.RequireMaterial,
-				NotifyType:      tpl.NotifyType,
-				SortOrder:       tpl.SortOrder,
+				ServiceID:    service.ID,
+				StageCode:    tpl.StageCode,
+				StageName:    tpl.StageName,
+				MacroStatus:  tpl.MacroStatus,
+				ActionName:   tpl.ActionName,
+				ButtonLabel:  tpl.ButtonLabel,
+				ExecutorRole: tpl.ExecutorRole,
+				ActionType:   tpl.ActionType,
+				FormFields:   tpl.FormFields,
+				NeedAudit:    tpl.NeedAudit,
+				TargetStatus: tpl.TargetStatus,
+				SortOrder:    tpl.SortOrder,
 			}
 			if err := db.Create(&node).Error; err != nil {
 				log.Printf("[seed] create workflow node for service_id=%d stage=%s failed: %v", service.ID, tpl.StageCode, err)
@@ -214,11 +222,15 @@ func seedWorkflowNodes(db *gorm.DB, services map[string]models.SysService) {
 }
 
 // seedConfigs 注入 C 端公开全局配置。
-// 1.意图 -> 支撑 /api/v1/configs 动态输出小程序全局配置。
-// 2.步骤 -> 幂等写入品牌、Banner、热线、主题色等配置项。
-// 3.返回 -> 无返回。
 func seedConfigs(db *gorm.DB) {
-	seeds := []models.SysConfig{{ConfigKey: "app_name", ConfigValue: "Yesok Vietnam", ValueType: "string", GroupName: "brand", Remark: "应用名称", IsPublic: true}, {ConfigKey: "hero_title", ConfigValue: "越南高端生活服务管家", ValueType: "string", GroupName: "home", Remark: "首页主标题", IsPublic: true}, {ConfigKey: "hero_subtitle", ConfigValue: "接机、签证、包车、翻译、企业落地一站式托管", ValueType: "string", GroupName: "home", Remark: "首页副标题", IsPublic: true}, {ConfigKey: "banner_image", ConfigValue: "/static/img.png", ValueType: "string", GroupName: "home", Remark: "首页 Banner 图", IsPublic: true}, {ConfigKey: "primary_color", ConfigValue: "#0F3D3E", ValueType: "string", GroupName: "theme", Remark: "主色", IsPublic: true}, {ConfigKey: "hotline", ConfigValue: "+84 888 666 168", ValueType: "string", GroupName: "contact", Remark: "管家热线", IsPublic: true}}
+	seeds := []models.SysConfig{
+		{ConfigKey: "app_name", ConfigValue: "Yesok Vietnam", ValueType: "string", GroupName: "brand", Remark: "应用名称", IsPublic: true},
+		{ConfigKey: "hero_title", ConfigValue: "越南高端生活服务管家", ValueType: "string", GroupName: "home", Remark: "首页主标题", IsPublic: true},
+		{ConfigKey: "hero_subtitle", ConfigValue: "接机、签证、包车、翻译、企业落地一站式托管", ValueType: "string", GroupName: "home", Remark: "首页副标题", IsPublic: true},
+		{ConfigKey: "banner_image", ConfigValue: "/static/img.png", ValueType: "string", GroupName: "home", Remark: "首页 Banner 图", IsPublic: true},
+		{ConfigKey: "primary_color", ConfigValue: "#0F3D3E", ValueType: "string", GroupName: "theme", Remark: "主色", IsPublic: true},
+		{ConfigKey: "hotline", ConfigValue: "+84 888 666 168", ValueType: "string", GroupName: "contact", Remark: "管家热线", IsPublic: true},
+	}
 	for _, seed := range seeds {
 		var item models.SysConfig
 		if db.Where("config_key = ?", seed.ConfigKey).First(&item).Error != nil {
@@ -230,9 +242,6 @@ func seedConfigs(db *gorm.DB) {
 }
 
 // seedDictTypes 注入基础字典类型与字典数据。
-// 1.意图 -> 让服务分类、资讯分类和订单状态等枚举具备后台可配置基础数据。
-// 2.步骤 -> 幂等写入 sys_dict_types 与 sys_dict_data，按 dict_code 和 dict_value 去重。
-// 3.返回 -> 无返回。
 func seedDictTypes(db *gorm.DB) {
 	types := []models.SysDictType{
 		{DictName: "服务分类", DictCode: "service_category", Remark: "C 端服务入口分类", Status: 1},
@@ -250,7 +259,7 @@ func seedDictTypes(db *gorm.DB) {
 	data := []models.SysDictData{
 		{DictCode: "service_category", DictLabel: "出行交通", DictValue: "travel", SortOrder: 1, Status: 1, Remark: "接机、包车等移动服务"},
 		{DictCode: "service_category", DictLabel: "商务合规", DictValue: "business", SortOrder: 2, Status: 1, Remark: "签证、注册、财税等商务服务"},
-		{DictCode: "service_category", DictLabel: "语言协作", DictValue: "language", SortOrder: 3, Status: 1, Remark: "翻译、陪同、会议支持"},
+		{DictCode: "service_category", DictLabel: "语言协作", DictValue: "language", SortOrder: 3, Status: 1, Remark: "翻译、陪同，会议支持"},
 		{DictCode: "article_category", DictLabel: "落地指南", DictValue: "guide", SortOrder: 1, Status: 1, Remark: "越南商务与生活落地知识"},
 		{DictCode: "article_category", DictLabel: "城市灵感", DictValue: "city", SortOrder: 2, Status: 1, Remark: "胡志明、河内、岘港等城市内容"},
 		{DictCode: "article_category", DictLabel: "服务公告", DictValue: "notice", SortOrder: 3, Status: 1, Remark: "平台服务与活动公告"},
@@ -271,14 +280,11 @@ func seedDictTypes(db *gorm.DB) {
 }
 
 // seedArticles 注入 C 端首页和资讯 Tab 演示内容。
-// 1.意图 -> 让资讯模块在首次启动后即可从数据库动态渲染。
-// 2.步骤 -> 按 title 幂等写入多条热带奢华风越南商务服务资讯。
-// 3.返回 -> 无返回。
 func seedArticles(db *gorm.DB) {
 	articles := []models.SysArticle{
 		{Title: "抵达胡志明后的 6 小时黄金动线", CoverImg: "/static/img.png", Summary: "从机场接送、酒店入住到商务晚宴，Yesok 管家为高净值客户拆解首日抵达节奏。", Content: "抵达越南后的第一天决定了整趟行程的效率。建议提前锁定航班信息、车辆规格、酒店入住窗口与晚宴动线，由双语管家统一协调司机、酒店和餐厅。", Category: "guide", Author: "Yesok Vietnam", Status: 1, SortOrder: 1, ViewCount: 168},
 		{Title: "越南商务包车如何选择车型与路线", CoverImg: "/static/img.png", Summary: "商务拜访、工厂考察与城市转场的车型、司机语言和路线规划建议。", Content: "胡志明与周边工业园路况差异明显。商务包车应优先明确乘坐人数、行李件数、工厂地址、等待时长与返程节点，并预留跨区通勤缓冲。", Category: "guide", Author: "Yesok Vietnam", Status: 1, SortOrder: 2, ViewCount: 132},
-		{Title: "岘港海岸线上的高端生活灵感", CoverImg: "/static/img.png", Summary: "把商务行程和热带度假融合，让越南目的地服务更从容。", Content: "岘港适合在紧凑商务行程中安排短暂停留。高端客户可组合机场接送、半日包车、会客翻译和海岸线餐厅预订，形成更有记忆点的目的地体验。", Category: "city", Author: "Yesok Vietnam", Status: 1, SortOrder: 3, ViewCount: 98},
+		{Title: "岘港海岸线上的高端生活灵感", CoverImg: "/static/img.png", Summary: "把商务行程和热带度假融合，让越南目的地服务更从容。", Content: "岘港适合在紧凑商务行程中安排短暂停留。高端客户可组合机场接送，半日包车、会客翻译和海岸线餐厅预订，形成更有记忆点的目的地体验。", Category: "city", Author: "Yesok Vietnam", Status: 1, SortOrder: 3, ViewCount: 98},
 		{Title: "签证加急资料准备清单", CoverImg: "/static/img.png", Summary: "护照、入境日期、酒店地址与联系人信息，提前准备可显著缩短办理时间。", Content: "签证加急的关键在于资料准确性。客户应提前确认护照有效期、入境日期、停留天数、越南联系人和酒店地址，管家会在提交前完成二次校验。", Category: "notice", Author: "Yesok Vietnam", Status: 1, SortOrder: 4, ViewCount: 76},
 	}
 	for _, seed := range articles {
@@ -292,9 +298,6 @@ func seedArticles(db *gorm.DB) {
 }
 
 // seedAppUser 注入演示客户画像。
-// 1.意图 -> 让用户矩阵和订单链路具备初始客户数据。
-// 2.步骤 -> 按手机号幂等创建一名 VIP 演示客户。
-// 3.返回 -> 无返回。
 func seedAppUser(db *gorm.DB) {
 	var count int64
 	db.Model(&models.AppUser{}).Where("phone = ?", "+84901234567").Count(&count)

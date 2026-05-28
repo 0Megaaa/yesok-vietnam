@@ -23,6 +23,13 @@ const (
 
 const DefaultCurrencyCode = "VND"
 
+// ActionType 工作流动作类型常量。
+const (
+	ActionTypeButtonClick = "button_click"
+	ActionTypeFormInput   = "form_input"
+	ActionTypeWxPay       = "wx_pay"
+)
+
 type Order struct {
 	ID            uint           `json:"id" gorm:"primaryKey;comment:'主键ID'"`
 	CreatedAt     *time.Time     `json:"created_at" gorm:"datetime(3);comment:'创建时间'"`
@@ -35,10 +42,6 @@ type Order struct {
 	FormSnapshot  []byte         `json:"form_snapshot" gorm:"type:json;comment:'下单时动态表单数据快照'"`
 	Amount        float64        `json:"amount" gorm:"type:decimal(16,2);not null;comment:'订单金额'"`
 	Currency      string         `json:"currency" gorm:"size:16;default:VND;comment:'币种代码'"`
-	TGChatID      int64          `json:"tg_chat_id" gorm:"index;comment:'TG会话ID'"`
-	TGMessageID   int64          `json:"tg_message_id" gorm:"comment:'TG消息ID'"`
-	WorkerTGID    int64          `json:"worker_tg_id" gorm:"index;comment:'接单员工TG ID'"`
-	Metadata      string         `json:"metadata" gorm:"type:text;comment:'元数据'"`
 	Note          string         `json:"note" gorm:"size:1024;comment:'内部备注'"`
 	AppUserID     uint           `json:"app_user_id" gorm:"not null;index;comment:'C端客户ID'"`
 	ServiceID     uint           `json:"service_id" gorm:"not null;index;comment:'服务品类ID'"`

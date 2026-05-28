@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
 
@@ -114,17 +114,19 @@ const handleImageUpload = async (fileOptions) => {
   }
 }
 
-// --- 工作流节点 CRUD ---
+// --- 工作流节点 CRUD（对齐 sys_workflow_nodes 新 Schema）---
 const blankNode = () => ({
   id: 0,
   stage_code: '',
   stage_name: '',
   macro_status: '',
   action_name: '',
-  next_stage_code: '',
-  is_manual: true,
-  require_material: false,
-  notify_type: '',
+  button_label: '',
+  executor_role: 'admin',
+  action_type: 'button_click',
+  form_fields: [],
+  need_audit: false,
+  target_status: '',
   sort_order: 0,
 })
 
@@ -138,6 +140,53 @@ const removeNode = (index) => {
   form.value.workflow_nodes.splice(index, 1)
 }
 
+// form_fields 动态编辑器状态（行内展开）
+const fieldEditor = ref({ visible: false, nodeIndex: -1 })
+
+const openFieldEditor = (nodeIndex) => {
+  fieldEditor.value = { visible: true, nodeIndex }
+}
+
+const closeFieldEditor = () => {
+  fieldEditor.value = { visible: false, nodeIndex: -1 }
+}
+
+const currentEditNode = computed(() => {
+  if (fieldEditor.value.nodeIndex < 0) return null
+  return form.value.workflow_nodes[fieldEditor.value.nodeIndex] || null
+})
+
+const addFieldRow = () => {
+  if (!currentEditNode.value) return
+  currentEditNode.value.form_fields = currentEditNode.value.form_fields || []
+  currentEditNode.value.form_fields.push({ key: '', label: '', type: 'input', required: false, options: [] })
+}
+
+const removeFieldRow = (fieldIndex) => {
+  if (!currentEditNode.value) return
+  currentEditNode.value.form_fields.splice(fieldIndex, 1)
+}
+
+const fieldTypeOptions = [
+  { label: '文本输入', value: 'input' },
+  { label: '多行文本', value: 'textarea' },
+  { label: '数字', value: 'number' },
+  { label: '日期', value: 'date' },
+  { label: '下拉选择', value: 'select' },
+  { label: '图片上传', value: 'image' },
+]
+
+const openFieldOptionsDialog = (field, fieldIndex) => {
+  const raw = JSON.stringify(field.options || [], null, 2)
+  const input = window.prompt(`字段「${field.label}」的 options JSON（格式：[{"label":"选项1","value":"val1"}]）`, raw)
+  if (input === null) return
+  try {
+    currentEditNode.value.form_fields[fieldIndex].options = JSON.parse(input)
+  } catch {
+    window.alert('JSON 格式错误')
+  }
+}
+
 // --- 提交前置校验 ---
 const validateWorkflowNodes = () => {
   const nodes = form.value.workflow_nodes
@@ -146,8 +195,9 @@ const validateWorkflowNodes = () => {
     if (!n.stage_code?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「节点编码」不能为空` }
     if (!n.stage_name?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「节点名称」不能为空` }
     if (!n.macro_status?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「主状态」不能为空` }
-    if (!n.action_name?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「按钮名称」不能为空` }
-    if (!n.next_stage_code?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「目标节点」不能为空` }
+    if (!n.action_name?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「动作标识」不能为空` }
+    if (!n.button_label?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「按钮名称」不能为空` }
+    if (!n.target_status?.trim()) return { ok: false, index: i, msg: `第 ${i + 1} 行「目标状态」不能为空` }
   }
   return { ok: true }
 }
@@ -212,10 +262,12 @@ const openEditDialog = async (row) => {
         stage_name: n.stage_name || '',
         macro_status: n.macro_status || '',
         action_name: n.action_name || '',
-        next_stage_code: n.next_stage_code || '',
-        is_manual: n.is_manual ?? true,
-        require_material: n.require_material ?? false,
-        notify_type: n.notify_type || '',
+        button_label: n.button_label || '',
+        executor_role: n.executor_role || 'admin',
+        action_type: n.action_type || 'button_click',
+        form_fields: n.form_fields || [],
+        need_audit: n.need_audit ?? false,
+        target_status: n.target_status || '',
         sort_order: n.sort_order ?? 0,
       })),
     }
@@ -523,12 +575,12 @@ onUnmounted(() => { loading.value = false })
           size="small"
           style="margin-top: 10px"
         >
+          <!-- 排序 -->
           <el-table-column label="排序" width="70" align="center">
             <template #default="{ row }">
               <el-input-number
                 v-model="row.sort_order"
-                :min="1"
-                :max="999"
+                :min="1" :max="999"
                 size="small"
                 controls-position="right"
                 style="width: 60px"
@@ -536,21 +588,65 @@ onUnmounted(() => { loading.value = false })
             </template>
           </el-table-column>
 
-          <el-table-column label="节点编码 *" width="130">
+          <!-- 节点名称（字典 label 显示，value 绑定 stage_code） -->
+          <el-table-column label="节点名称 *" min-width="140">
             <template #default="{ row }">
-              <el-select v-model="row.stage_code" placeholder="选择编码" size="small" style="width: 100%" clearable>
+              <el-select v-model="row.stage_code" placeholder="选择节点" size="small" style="width: 100%" clearable>
                 <el-option v-for="o in workflowNodeCodeOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
               </el-select>
             </template>
           </el-table-column>
 
-          <el-table-column label="节点名称 *" width="120">
+          <!-- 执行角色 -->
+          <el-table-column label="执行角色" width="100" align="center">
             <template #default="{ row }">
-              <el-input v-model="row.stage_name" placeholder="如 待受理" size="small" />
+              <el-select v-model="row.executor_role" size="small" style="width: 100%">
+                <el-option label="管理员" value="admin" />
+                <el-option label="客户" value="client" />
+                <el-option label="两者" value="both" />
+              </el-select>
             </template>
           </el-table-column>
 
-          <el-table-column label="主状态 *" width="120">
+          <!-- 动作行为（action_name 下拉 + button_label 输入） -->
+          <el-table-column label="动作行为 *" min-width="200">
+            <template #default="{ row }">
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <el-select v-model="row.action_name" placeholder="选择动作" size="small" clearable filterable allow-create>
+                  <el-option v-for="o in workflowActionOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
+                </el-select>
+                <el-input v-model="row.button_label" placeholder="自定义按钮名称，如 接单" size="small" />
+              </div>
+            </template>
+          </el-table-column>
+
+          <!-- ActionType + 表单字段编辑入口 -->
+          <el-table-column label="动作类型" width="150">
+            <template #default="{ row, $index }">
+              <div style="display: flex; flex-direction: column; gap: 4px">
+                <el-select v-model="row.action_type" size="small" style="width: 100%" @change="() => { if(row.action_type !== 'form_input') row.form_fields = [] }">
+                  <el-option label="按钮点击" value="button_click" />
+                  <el-option label="表单输入" value="form_input" />
+                  <el-option label="微信支付" value="wx_pay" />
+                </el-select>
+                <template v-if="row.action_type === 'form_input'">
+                  <el-button size="mini" type="primary" plain @click="openFieldEditor($index)">
+                    {{ row.form_fields?.length ? `编辑 ${row.form_fields.length} 个字段` : '+ 添加字段' }}
+                  </el-button>
+                </template>
+              </div>
+            </template>
+          </el-table-column>
+
+          <!-- 需人工审核 -->
+          <el-table-column label="需人工审核" width="100" align="center">
+            <template #default="{ row }">
+              <el-switch v-model="row.need_audit" size="small" :disabled="row.action_type === 'wx_pay'" />
+            </template>
+          </el-table-column>
+
+          <!-- 主状态 -->
+          <el-table-column label="主状态 *" width="110">
             <template #default="{ row }">
               <el-select v-model="row.macro_status" placeholder="选择状态" size="small" style="width: 100%">
                 <el-option v-for="o in macroStatusOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
@@ -558,40 +654,16 @@ onUnmounted(() => { loading.value = false })
             </template>
           </el-table-column>
 
-          <el-table-column label="按钮名称 *" width="120">
+          <!-- 下一步状态（目标状态） -->
+          <el-table-column label="下一步状态 *" width="120">
             <template #default="{ row }">
-              <el-select v-model="row.action_name" placeholder="选择按钮" size="small" style="width: 100%" clearable>
-                <el-option v-for="o in workflowActionOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
-              </el-select>
-            </template>
-          </el-table-column>
-
-          <el-table-column label="目标节点 *" width="130">
-            <template #default="{ row }">
-              <el-select v-model="row.next_stage_code" placeholder="选择目标" size="small" style="width: 100%" clearable>
+              <el-select v-model="row.target_status" placeholder="选择目标" size="small" style="width: 100%" clearable>
                 <el-option v-for="o in workflowNodeCodeOptions" :key="o.dict_value" :label="o.dict_label" :value="o.dict_value" />
               </el-select>
             </template>
           </el-table-column>
 
-          <el-table-column label="人工触发" width="90" align="center">
-            <template #default="{ row }">
-              <el-switch v-model="row.is_manual" size="small" />
-            </template>
-          </el-table-column>
-
-          <el-table-column label="必传资料" width="90" align="center">
-            <template #default="{ row }">
-              <el-switch v-model="row.require_material" size="small" />
-            </template>
-          </el-table-column>
-
-          <el-table-column label="TG通知" width="100">
-            <template #default="{ row }">
-              <el-input v-model="row.notify_type" placeholder="类型" size="small" />
-            </template>
-          </el-table-column>
-
+          <!-- 操作 -->
           <el-table-column label="操作" width="70" align="center">
             <template #default="{ $index }">
               <el-button link type="danger" size="small" @click="removeNode($index)">删除</el-button>
@@ -618,6 +690,62 @@ onUnmounted(() => { loading.value = false })
             </el-button>
           </template>
         </span>
+      </template>
+    </el-dialog>
+
+    <!-- 动态表单字段编辑器弹窗 -->
+    <el-dialog
+      v-model="fieldEditor.visible"
+      :title="`编辑表单字段：${currentEditNode?.button_label || ''}`"
+      width="680px"
+      destroy-on-close
+      append-to-body
+    >
+      <div v-if="currentEditNode" class="field-editor">
+        <div class="field-editor-tip">
+          为动作「{{ currentEditNode.button_label }}」配置收集字段，用户提交后将作为订单资料存档。
+        </div>
+        <el-table :data="currentEditNode.form_fields || []" border size="small" style="margin-bottom: 12px">
+          <el-table-column label="字段 Key" min-width="140">
+            <template #default="{ row }">
+              <el-input v-model="row.key" placeholder="如 passport_img" size="small" />
+            </template>
+          </el-table-column>
+          <el-table-column label="显示名称" min-width="120">
+            <template #default="{ row }">
+              <el-input v-model="row.label" placeholder="如 护照首页" size="small" />
+            </template>
+          </el-table-column>
+          <el-table-column label="控件类型" width="130">
+            <template #default="{ row }">
+              <el-select v-model="row.type" size="small" style="width: 100%" @change="() => { if(row.type !== 'select') row.options = [] }">
+                <el-option v-for="o in fieldTypeOptions" :key="o.value" :label="o.label" :value="o.value" />
+              </el-select>
+            </template>
+          </el-table-column>
+          <el-table-column label="必填" width="60" align="center">
+            <template #default="{ row }">
+              <el-switch v-model="row.required" size="small" />
+            </template>
+          </el-table-column>
+          <el-table-column label="选项配置" width="110" align="center">
+            <template #default="{ row, $index }">
+              <el-button v-if="row.type === 'select'" size="small" type="primary" plain @click="openFieldOptionsDialog(row, $index)">
+                配置选项
+              </el-button>
+              <span v-else class="no-options">—</span>
+            </template>
+          </el-table-column>
+          <el-table-column label="操作" width="60" align="center">
+            <template #default="{ $index }">
+              <el-button link type="danger" size="small" @click="removeFieldRow($index)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
+        <el-button type="primary" plain size="small" @click="addFieldRow">+ 新增字段</el-button>
+      </div>
+      <template #footer>
+        <el-button @click="closeFieldEditor">关闭</el-button>
       </template>
     </el-dialog>
   </div>
@@ -686,4 +814,19 @@ onUnmounted(() => { loading.value = false })
   justify-content: flex-end;
   margin-bottom: 0;
 }
+
+.field-editor { display: flex; flex-direction: column; }
+
+.field-editor-tip {
+  font-size: 12px;
+  color: #909399;
+  background: #f5f7fa;
+  border-radius: 6px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  border-left: 3px solid #004d40;
+  line-height: 1.6;
+}
+
+.no-options { color: #c0c4cc; }
 </style>
