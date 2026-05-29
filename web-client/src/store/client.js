@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { getState, loginWithDemoAccount } from '@/api/client/auth'
+import { getState, loginWithDemoAccount, loginWithWechat } from '@/api/client/auth'
 
 // getUniApi 安全获取 UniApp 运行时对象。
 // 实现步骤：
@@ -104,6 +104,13 @@ export const useClientStore = defineStore('client', {
   },
 
   actions: {
+    // 初始化时清理 mock token，避免干扰真实后端鉴权
+    _cleanupMockToken() {
+      if (this.token === 'mock-client-token-demo') {
+        this.setToken('')
+        this.setUserInfo(null)
+      }
+    },
     // setToken 统一维护本地 Token。
     // 实现步骤：
     // 1. 更新 Pinia 内存状态。
@@ -218,6 +225,56 @@ export const useClientStore = defineStore('client', {
       const data = await loginWithDemoAccount()
       this.setToken(data.token)
       this.setUserInfo(data.user)
+      this.closeLoginSheet()
+      showSafeToast({ title: '登录成功', icon: 'success' })
+      return data
+    },
+
+    // loginByWechat 执行微信小程序登录。
+    // 实现步骤：
+    // 1. 调用 uni.login({ provider: 'weixin' }) 获取微信 code。
+    // 2. 调用后端 /v1/client/auth/wechat 接口换取 JWT token。
+    // 3. 写入本地状态并关闭弹窗。
+    // 4. 清理 mock token，避免干扰真实鉴权。
+    async loginByWechat(phoneCode = '') {
+      const uniApi = getUniApi()
+      if (!uniApi?.login) {
+        throw new Error('当前环境不支持微信登录')
+      }
+
+      const loginRes = await new Promise((resolve, reject) => {
+        uniApi.login({
+          provider: 'weixin',
+          success: resolve,
+          fail: reject,
+        })
+      })
+
+      if (!loginRes.code) {
+        throw new Error('微信登录失败：缺少 code')
+      }
+
+      // 清理可能残留的 mock token
+      if (this.token === 'mock-client-token-demo') {
+        this.setToken('')
+      }
+
+      const data = await loginWithWechat({
+        code: loginRes.code,
+        phone_code: phoneCode || '',
+        nickname: this.userInfo?.nickname || '',
+        avatar_url: this.userInfo?.avatar_url || '',
+      })
+
+      const token = data.token || data.data?.token
+      const user = data.user || data.data?.user
+
+      if (!token) {
+        throw new Error('登录失败：后端未返回 token')
+      }
+
+      this.setToken(token)
+      this.setUserInfo(user)
       this.closeLoginSheet()
       showSafeToast({ title: '登录成功', icon: 'success' })
       return data

@@ -19,6 +19,11 @@ const formErrors = ref({})              // 字段级错误信息
 const showForm = ref(false)             // 是否展示下单表单弹窗
 const submitAction = ref(null)         // 当前提交动作信息
 
+// 调试日志：监控 showForm 变化
+watch(showForm, (val) => {
+  console.log('[service-detail] showForm changed:', val)
+})
+
 const includes = computed(() => [
   '需求沟通与方案确认',
   '材料清单整理与中文说明',
@@ -345,16 +350,33 @@ const safeToast = (title, icon = 'info') => {
     </view>
 
     <!-- 下单表单弹窗 -->
-    <view v-if="showForm" class="form-overlay" @click.self="closeForm">
-      <view class="form-sheet">
+    <view
+      v-if="showForm"
+      class="form-overlay"
+      @touchmove.stop.prevent
+    >
+      <view class="form-mask" @tap="closeForm"></view>
+
+      <view
+        class="form-sheet"
+        @tap.stop
+        @click.stop
+      >
         <!-- 弹窗头部 -->
         <view class="form-header">
           <text class="form-title">填写预约信息</text>
-          <view class="form-close" @click="closeForm">✕</view>
+          <view class="form-close" @tap.stop="closeForm">✕</view>
         </view>
 
         <!-- 动态表单字段 -->
-        <scroll-view scroll-y class="form-body">
+        <scroll-view
+          scroll-y
+          class="form-body"
+          :enhanced="true"
+          :show-scrollbar="false"
+          @tap.stop
+          @click.stop
+        >
           <view v-if="!formSchema.fields.length" class="empty-form">
             当前服务暂未配置预约表单，请联系管家处理。
           </view>
@@ -373,6 +395,10 @@ const safeToast = (title, icon = 'info') => {
               class="field-input"
               :class="{ error: formErrors[field.key || field.name] }"
               :placeholder="field.placeholder || `请输入${field.label}`"
+              :adjust-position="true"
+              cursor-spacing="80"
+              @tap.stop
+              @click.stop
               @blur="validateField(field)"
             />
             <input
@@ -382,6 +408,10 @@ const safeToast = (title, icon = 'info') => {
               class="field-input"
               :class="{ error: formErrors[field.key || field.name] }"
               :placeholder="field.placeholder || `请输入${field.label}`"
+              :adjust-position="true"
+              cursor-spacing="80"
+              @tap.stop
+              @click.stop
               @blur="validateField(field)"
             />
 
@@ -392,6 +422,10 @@ const safeToast = (title, icon = 'info') => {
               class="field-input"
               :class="{ error: formErrors[field.key || field.name] }"
               placeholder="格式：2025-01-15"
+              :adjust-position="true"
+              cursor-spacing="80"
+              @tap.stop
+              @click.stop
               @blur="validateField(field)"
             />
 
@@ -402,6 +436,10 @@ const safeToast = (title, icon = 'info') => {
               class="field-input"
               :class="{ error: formErrors[field.key || field.name] }"
               placeholder="格式：2025-01-15 14:30"
+              :adjust-position="true"
+              cursor-spacing="80"
+              @tap.stop
+              @click.stop
               @blur="validateField(field)"
             />
 
@@ -412,6 +450,10 @@ const safeToast = (title, icon = 'info') => {
               class="field-textarea"
               :class="{ error: formErrors[field.key || field.name] }"
               :placeholder="field.placeholder || `请输入${field.label}`"
+              :auto-height="true"
+              cursor-spacing="80"
+              @tap.stop
+              @click.stop
               @blur="validateField(field)"
             />
 
@@ -422,6 +464,8 @@ const safeToast = (title, icon = 'info') => {
               :value="0"
               :range="field.options || []"
               :range-key="'label'"
+              @tap.stop
+              @click.stop
               @change="(e) => {
                 const selected = field.options[e.detail.value]
                 formValues[field.key || field.name] = selected?.value ?? selected ?? ''
@@ -444,6 +488,10 @@ const safeToast = (title, icon = 'info') => {
                 class="field-input"
                 style="height: auto; padding: 10px 14px;"
                 placeholder="请输入文件URL，或联系管家上传"
+                :adjust-position="true"
+                cursor-spacing="80"
+                @tap.stop
+                @click.stop
               />
             </view>
 
@@ -457,6 +505,10 @@ const safeToast = (title, icon = 'info') => {
                 class="field-input"
                 style="height: auto; padding: 10px 14px;"
                 placeholder="请输入图片URL，或联系管家上传"
+                :adjust-position="true"
+                cursor-spacing="80"
+                @tap.stop
+                @click.stop
               />
             </view>
 
@@ -466,8 +518,12 @@ const safeToast = (title, icon = 'info') => {
         </scroll-view>
 
         <!-- 提交按钮 -->
-        <view class="form-footer">
-          <button class="submit-btn" :disabled="submitting || !formSchema.fields.length" @click="submitOrder">
+        <view class="form-footer" @tap.stop @click.stop>
+          <button
+            class="submit-btn"
+            :disabled="submitting || !formSchema.fields.length"
+            @tap.stop="submitOrder"
+          >
             {{ submitting ? '提交中...' : '确认提交' }}
           </button>
         </view>
@@ -684,12 +740,22 @@ const safeToast = (title, icon = 'info') => {
   position: fixed;
   inset: 0;
   z-index: 50;
-  display: flex;
-  align-items: flex-end;
+  background: transparent;
+}
+
+.form-mask {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
   background: rgba(0, 0, 0, 0.36);
 }
 
 .form-sheet {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2;
   display: flex;
   flex-direction: column;
   width: 100%;

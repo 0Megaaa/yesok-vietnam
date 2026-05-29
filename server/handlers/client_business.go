@@ -166,6 +166,28 @@ func ClientCreateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFun
 			return
 		}
 
+		// 优先使用 JWT uid 创建订单，不信任前端传来的 app_user_id
+		uidVal, ok := c.Get("uid")
+		if !ok {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		appUserID, ok := uidVal.(uint)
+		if !ok || appUserID == 0 {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid user"})
+			return
+		}
+
+		var appUser models.AppUser
+		if err := db.First(&appUser, appUserID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "app user not found, please login again"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
+			return
+		}
+
 		var service models.SysService
 		query := db.Where("status = ?", 1)
 		if req.ServiceID > 0 {
@@ -202,7 +224,6 @@ func ClientCreateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFun
 			}
 		}
 
-		appUser := ensureOrderAppUser(db, req)
 		formData := normalizeFormData(req.FormData, service)
 		order := models.Order{
 			OrderNo:       fmt.Sprintf("YS%s%04d", time.Now().Format("20060102150405"), time.Now().UnixNano()%10000),

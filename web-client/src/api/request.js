@@ -42,8 +42,16 @@ async function request(method, url, data, config = {}) {
         header: header,
         timeout: TIMEOUT,
         success: (res) => {
-          if (res.statusCode === 401) removeStorage(tokenKey);
-          resolve({ data: res.data, status: res.statusCode });
+          if (res.statusCode === 401) {
+            removeStorage(tokenKey)
+            reject(res.data || { message: '登录已失效，请重新登录' })
+            return
+          }
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(res.data || { message: '请求失败' })
+            return
+          }
+          resolve({ data: res.data, status: res.statusCode })
         },
         fail: (err) => reject({ message: err.errMsg || '网络请求失败' })
       });
@@ -63,8 +71,8 @@ async function request(method, url, data, config = {}) {
       });
       return { data: res.data, status: res.status };
     } catch (err) {
-      if (err.response?.status === 401) removeStorage(tokenKey);
-      throw err;
+      if (err.response?.status === 401) removeStorage(tokenKey)
+      throw err
     }
   }
 }

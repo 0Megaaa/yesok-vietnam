@@ -1,6 +1,11 @@
 import { get, post, put } from '../request'
 import { MOCK_USER } from '../mockData'
 
+// loginWithWechat 调用后端微信登录接口，换取真实 JWT token。
+export function loginWithWechat(payload) {
+  return post('/v1/client/auth/wechat', payload).then((res) => res.data)
+}
+
 // loginWithTG 是 Telegram Mini App 登录占位函数。
 // 实现步骤：
 // 1. 保留 initData 入参，日后接入 Telegram WebApp initData 校验时无需改页面。

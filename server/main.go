@@ -117,6 +117,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		publicGroup.GET("/client/services/:id/init-form", handlers.ClientGetServiceInitForm(db))
 		publicGroup.GET("/client/articles", handlers.ClientListArticles(db))
 		publicGroup.POST("/client/auth/tg", handlers.AuthTG(db))
+		publicGroup.POST("/client/auth/wechat", handlers.ClientWechatLogin(db))
 	}
 
 	// ==========================================================
@@ -165,7 +166,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		authGroup.DELETE("/admin/users/:id", handlers.DeleteUser(db))
 
 		// C 端用户私有路由
-		authGroup.GET("/client/user/me", handlers.GetMe(db))
+		authGroup.GET("/client/user/me", handlers.ClientMe(db))
 		authGroup.GET("/client/state", handlers.GetState(db))
 		authGroup.PUT("/client/state", handlers.UpdateState(db, orderEngine))
 		authGroup.POST("/client/orders", handlers.ClientCreateOrder(db, orderEngine))

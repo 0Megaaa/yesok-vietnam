@@ -36,14 +36,22 @@ const handleDemoLogin = async () => {
   }
 }
 
-// handleWechatAuthorize 处理微信小程序专用授权。
-// 意图：隔离微信半屏授权入口，保留后续接入 wx.login 与手机号授权的扩展点。
+// handleWechatAuthorize 处理微信小程序授权登录。
+// 意图：调用微信 wx.login 获取 code，再通过后端换取真实 JWT token。
 // 实现步骤：
-// 1. 当前演示版不读取真实手机号，避免误采集敏感信息。
-// 2. 先复用 Mock 登录完成流程闭环。
-// 3. 后续联调时在 api/client/wechat.js 中替换为真实 code 校验。
+// 1. 调用 store.loginByWechat(phoneCode) 执行完整的微信登录流程。
+// 2. 登录失败时展示中文轻提示，方便用户定位问题。
 // 返回：Promise 登录结果。
-const handleWechatAuthorize = async () => handleDemoLogin()
+const handleWechatAuthorize = async (e) => {
+  try {
+    const phoneCode = e?.detail?.code || ''
+    return await client.loginByWechat(phoneCode)
+  } catch (error) {
+    console.error('[WechatLogin] failed:', error)
+    showSafeToast(error?.message || '微信登录失败，请稍后重试')
+    return null
+  }
+}
 
 // handleTelegramPlaceholder 预留 Telegram Mini App 登录入口。
 // 意图：保留 TG 无感登录产品位，但本阶段严格不在前端信任 initData。
