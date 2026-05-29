@@ -30,13 +30,14 @@ const statusMap = {
 const statusLabel = (code) => statusMap[code] || code || '未知'
 
 const formatMoney = (amount) => {
-  if (!amount && amount !== 0) return '—'
-  return `${(Number(amount) / 100).toLocaleString('vi-VN')} ₫`
+  if (amount === null || amount === undefined || amount === '') return '—'
+  const n = Number(amount || 0)
+  return `¥${n.toLocaleString('zh-CN')}`
 }
 
 const formatTime = (t) => {
   if (!t) return ''
-  return new Date(t).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })
+  return new Date(t).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
 }
 
 const formEntries = computed(() => {

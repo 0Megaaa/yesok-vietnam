@@ -44,9 +44,9 @@ const showSafeToast = (title) => {
 }
 
 const formatServicePrice = (item) => {
-  const amount = Number(item?.base_price ?? item?.basePrice ?? 0)
-  if (!amount) return item?.price || '面议'
-  return `${(amount / 100).toLocaleString('vi-VN')} ₫`
+  const amount = Number(item?.base_price ?? item?.basePrice ?? item?.price ?? 0)
+  if (!amount) return '面议'
+  return `¥${amount.toLocaleString('zh-CN')}`
 }
 
 const normalizeService = (item) => {

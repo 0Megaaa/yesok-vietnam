@@ -42,11 +42,11 @@ const unwrapResponse = (res) => {
   return res.data ?? res
 }
 
-// formatPrice 格式化金额为越南盾展示
+// formatPrice 格式化金额为人民币展示
 const formatPrice = (amount) => {
   const n = Number(amount || 0)
   if (!n) return '面议'
-  return `${(n / 100).toLocaleString('vi-VN')} ₫`
+  return `¥${n.toLocaleString('zh-CN')}`
 }
 
 // normalizeServiceDetail 以 /client/services/:id 接口返回为准规范化服务详情
