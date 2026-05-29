@@ -23,7 +23,7 @@ type Claims struct {
 
 // Config holds the signing key and token TTL. In production this should be
 // injected from config.Global.JWT.Secret (set via JWT_SECRET env var).
-var Secret = []byte(getEnv("JWT_SECRET", "yesok-vietnam-jwt-secret-change-in-production"))
+var Secret = []byte(getEnv("JWT_SECRET", "/MIGdDnsUBlrxKZxW4loyBWkJCL0yJ6fi9MPZIhuWdqiui5XnpYhRmFWfuP6lnvf"))
 var TokenTTL = 7 * 24 * time.Hour // 7 days
 
 func getEnv(key, fallback string) string {
