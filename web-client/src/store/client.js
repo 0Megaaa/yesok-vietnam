@@ -74,6 +74,32 @@ const removeStorage = (key) => {
 // getClientPlatform 识别当前客户端平台。
 const getClientPlatform = () => 'mp_weixin'
 
+// getOrCreateDevIdentity 生成或读取本地稳定 dev_identity，用于本地开发 mock openid。
+// 只要不清缓存，同一个开发者工具用户对应同一个 app_user。
+const getOrCreateDevIdentity = () => {
+  const key = 'yesok_dev_identity'
+  try {
+    const uniApi = getUniApi()
+    if (uniApi?.getStorageSync) {
+      const existing = uniApi.getStorageSync(key)
+      if (existing) return existing
+      const value = `mpdev_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+      uniApi.setStorageSync(key, value)
+      return value
+    }
+    if (typeof localStorage !== 'undefined') {
+      const existing = localStorage.getItem(key)
+      if (existing) return existing
+      const value = `webdev_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+      localStorage.setItem(key, value)
+      return value
+    }
+  } catch (error) {
+    console.warn('[DevIdentity] failed:', error)
+  }
+  return `fallback_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+}
+
 // getWechatProfileSafely 安全获取微信用户资料，用户拒绝授权也不阻止登录。
 const getWechatProfileSafely = async () => {
   const uniApi = getUniApi()
@@ -344,6 +370,7 @@ export const useClientStore = defineStore('client', {
         avatar_url: profile.avatar_url || this.userInfo?.avatar_url || '',
         login_provider: 'wechat',
         client_platform: getClientPlatform(),
+        dev_identity: getOrCreateDevIdentity(),
       })
 
       const token = data.token || data.data?.token

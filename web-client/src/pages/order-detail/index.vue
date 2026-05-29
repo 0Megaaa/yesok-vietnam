@@ -15,6 +15,12 @@ const formVisible = ref(false)
 const currentAction = ref(null)
 const submitting = ref(false)
 
+// unwrapResponse 统一解包 request.js 返回的 { data: ... } 结构
+const unwrapResponse = (res) => {
+  if (!res) return {}
+  return res.data ?? res
+}
+
 const statusMap = {
   start: '开始',
   pending: '等待受理',
@@ -33,12 +39,16 @@ const statusMap = {
 
 const statusLabel = (code) => statusMap[code] || code || '未知'
 
-// normalizeOrder 标准化后端返回字段
+// normalizeOrder 标准化后端返回字段，保留完整 action_nodes 信息
 const normalizeOrder = (raw = {}) => ({
   ...raw,
   action_nodes: raw.action_nodes || raw.actionNodes || [],
   form_items: raw.form_items || [],
-  form_data: raw.form_data || {},
+  form_data: raw.form_data || raw.formData || {},
+  total_amount: raw.total_amount ?? raw.amount ?? 0,
+  amount: raw.amount ?? raw.total_amount ?? 0,
+  payment_status: raw.payment_status || 'unpaid',
+  payment_status_text: raw.payment_status_text || '',
 })
 
 const formatMoney = (amount) => {
@@ -86,9 +96,16 @@ const loadOrderDetail = async () => {
   loading.value = true
   try {
     const res = await get(`/v1/client/orders/${orderId.value}`)
-    const payload = res.order || res.data?.order || res.data || res
-    order.value = normalizeOrder(payload)
-  } catch {
+    const payload = unwrapResponse(res)
+    const normalized = normalizeOrder(payload.order || payload)
+    order.value = normalized
+
+    // 后端订单详情已经返回 action_nodes，先用它兜底渲染按钮
+    if (Array.isArray(normalized.action_nodes)) {
+      actions.value = normalized.action_nodes
+    }
+  } catch (error) {
+    console.error('[order-detail] loadOrderDetail failed:', error)
     safeToast('订单详情加载失败', 'error')
   } finally {
     loading.value = false
@@ -100,9 +117,18 @@ const loadOrderActions = async () => {
   actionsLoading.value = true
   try {
     const res = await get(`/v1/client/orders/${orderId.value}/actions`)
-    actions.value = res.actions || []
-  } catch {
-    actions.value = []
+    const payload = unwrapResponse(res)
+
+    actions.value =
+      payload.actions ||
+      payload.action_nodes ||
+      payload.actionNodes ||
+      []
+  } catch (error) {
+    console.warn('[order-detail] loadOrderActions failed:', error)
+    // 如果单独 actions 接口失败，不要直接清空；
+    // 订单详情里的 action_nodes 仍可作为兜底。
+    actions.value = order.value?.action_nodes || []
   } finally {
     actionsLoading.value = false
   }
@@ -158,24 +184,64 @@ const submitForm = async () => {
 }
 
 const executeWxPay = async (action) => {
-  const uniApi = typeof uni !== 'undefined' ? uni : null
-  const payAmount = order.value?.total_amount || order.value?.amount || 0
+  if (submitting.value) return
 
-  // 构造 input_data 包含金额
-  const inputData = { amount: payAmount }
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  const payAmount = Number(order.value?.total_amount || order.value?.amount || 0)
+
+  const confirmPay = async () => {
+    await simulateWxPay(action, payAmount)
+  }
 
   if (uniApi?.showModal) {
     uniApi.showModal({
-      title: `执行「${action.button_label}」`,
+      title: action.button_label || '立即支付',
       content: `确认支付 ${formatMoney(payAmount)}？`,
+      confirmText: '确认支付',
+      cancelText: '取消',
       success: async (res) => {
         if (res.confirm) {
-          await performAction(action, inputData)
+          await confirmPay()
         }
       },
     })
   } else {
-    await performAction(action, inputData)
+    await confirmPay()
+  }
+}
+
+// TODO: 正式接入微信支付时改造这里：
+// 1. 调后端创建支付单，获取 prepay 参数
+// 2. 调 uni.requestPayment(wxPayParams)
+// 3. 支付成功后调用 /client/orders/:id/action 或专门的支付确认接口
+// 4. 支付失败/取消时不推进工作流
+const simulateWxPay = async (action, payAmount) => {
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+
+  submitting.value = true
+  if (uniApi?.showLoading) uniApi.showLoading({ title: '支付处理中...' })
+
+  try {
+    await post(`/v1/client/orders/${orderId.value}/action`, {
+      action_name: action.action_name,
+      remark: '客户已完成支付',
+      input_data: {
+        amount: payAmount,
+        pay_channel: 'mock_wx_pay',
+      },
+    })
+
+    if (uniApi?.hideLoading) uniApi.hideLoading()
+    safeToast('支付成功', 'success')
+
+    await loadOrderDetail()
+    await loadOrderActions()
+  } catch (error) {
+    if (uniApi?.hideLoading) uniApi.hideLoading()
+    console.error('[order-detail] simulateWxPay failed:', error)
+    safeToast(error?.error || error?.message || '支付失败，请稍后重试', 'none')
+  } finally {
+    submitting.value = false
   }
 }
 
@@ -319,9 +385,10 @@ onMounted(async () => {
             v-for="action in wxPayActions"
             :key="action.id"
             class="action-btn action-pay"
+            :disabled="submitting"
             @click="executeWxPay(action)"
           >
-            {{ action.button_label }}
+            {{ submitting ? '处理中...' : (action.button_label || '立即支付') }}
           </button>
         </view>
       </view>

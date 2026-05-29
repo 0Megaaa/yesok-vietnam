@@ -24,6 +24,7 @@ type ClientWechatLoginRequest struct {
 	AvatarURL      string `json:"avatar_url"`
 	LoginProvider  string `json:"login_provider"`
 	ClientPlatform string `json:"client_platform"`
+	DevIdentity    string `json:"dev_identity"`
 }
 
 // WechatSessionResp 微信 jscode2session 接口返回结构。
@@ -36,19 +37,38 @@ type WechatSessionResp struct {
 }
 
 // exchangeWechatCode 调用微信接口将 code 换取 openid。
-// 开发环境（ENV=dev）若无配置则返回模拟 openid。
-func exchangeWechatCode(code string) (openid string, unionid string, err error) {
+// 注意：wx.login 的 code 是一次性临时凭证，每次都会变化，不能作为用户唯一标识。
+// 本地未配置 WECHAT_APPID/WECHAT_SECRET 时，使用前端持久化 dev_identity 生成稳定 mock openid。
+// 生产环境必须使用微信 jscode2session 返回的真实 openid。
+func exchangeWechatCode(code string, devIdentity string) (openid string, unionid string, err error) {
 	appid := os.Getenv("WECHAT_APPID")
 	secret := os.Getenv("WECHAT_SECRET")
-	env := os.Getenv("ENV")
-
-	// 开发环境兜底：允许模拟 openid
-	if env == "dev" && (appid == "" || secret == "") {
-		log.Printf("[Wechat] ENV=dev, returning mock openid for code: %s", code)
-		return "dev_openid_" + code, "", nil
-	}
+	env := strings.ToLower(strings.TrimSpace(os.Getenv("ENV")))
 
 	if appid == "" || secret == "" {
+		if env == "dev" || env == "local" || env == "test" || env == "" {
+			stableID := strings.TrimSpace(devIdentity)
+			if stableID == "" {
+				stableID = code
+				log.Printf("[Wechat] WARNING: dev_identity missing, fallback to login code; mock openid may change every login")
+			}
+
+			replacer := strings.NewReplacer(
+				" ", "_",
+				"/", "_",
+				"\\", "_",
+				":", "_",
+				"\n", "_",
+				"\r", "_",
+				"\t", "_",
+			)
+			stableID = replacer.Replace(stableID)
+
+			mockOpenID := "dev_openid_" + stableID
+			log.Printf("[Wechat] ENV=%s, WECHAT_APPID/SECRET missing, using stable mock openid: %s", env, mockOpenID)
+			return mockOpenID, "", nil
+		}
+
 		return "", "", fmt.Errorf("WECHAT_APPID or WECHAT_SECRET not configured")
 	}
 
@@ -94,10 +114,11 @@ func ClientWechatLogin(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		log.Printf("[WechatLogin] code=%s nickname=%s", req.Code, req.Nickname)
+		log.Printf("[WechatLogin] code=%s nickname=%s dev_identity=%s",
+			req.Code, req.Nickname, req.DevIdentity)
 
 		// 换取 openid
-		openid, unionid, err := exchangeWechatCode(req.Code)
+		openid, unionid, err := exchangeWechatCode(req.Code, req.DevIdentity)
 		if err != nil {
 			log.Printf("[WechatLogin] exchangeWechatCode failed: %v", err)
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "微信登录失败，请稍后重试", "detail": err.Error()})
@@ -114,6 +135,7 @@ func ClientWechatLogin(db *gorm.DB) gin.HandlerFunc {
 		if clientPlatform == "" {
 			clientPlatform = "mp_weixin"
 		}
+		log.Printf("[WechatLogin] provider=%s platform=%s", loginProvider, clientPlatform)
 
 		// 查询或创建 app_user（老数据仍按 wechat_open_id 查询，不走 login_provider）
 		var appUser models.AppUser
