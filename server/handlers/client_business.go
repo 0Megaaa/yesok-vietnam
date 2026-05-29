@@ -567,6 +567,53 @@ func GetClientOrderActions(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// ClientListOrders 返回当前 C 端用户的订单列表，支持 status 过滤。
+func ClientListOrders(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uidVal, ok := c.Get("uid")
+		if !ok {
+			httpError(c, http.StatusUnauthorized, ErrCodeUnauthorized, "unauthorized")
+			return
+		}
+		appUserID, ok := uidVal.(uint)
+		if !ok || appUserID == 0 {
+			httpError(c, http.StatusUnauthorized, ErrCodeUnauthorized, "unauthorized")
+			return
+		}
+
+		status := c.DefaultQuery("status", "all")
+
+		query := db.Where("app_user_id = ?", appUserID)
+
+		switch status {
+		case "completed":
+			query = query.Where("macro_status = ? OR current_stage = ?", "completed", "completed")
+		case "active":
+			query = query.Where("macro_status <> ? AND current_stage <> ?", "completed", "completed")
+		case "all", "":
+			// no extra filter
+		default:
+			query = query.Where("macro_status = ? OR current_stage = ?", status, status)
+		}
+
+		var orders []models.Order
+		if err := query.Order("created_at desc").Find(&orders).Error; err != nil {
+			httpError(c, http.StatusInternalServerError, ErrCodeInternalError, "failed to fetch orders")
+			return
+		}
+
+		list := make([]gin.H, 0, len(orders))
+		for _, order := range orders {
+			list = append(list, buildOrderPayloadForRole(db, order, "client"))
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"list":  list,
+			"total": len(list),
+		})
+	}
+}
+
 // ClientGetOrder 返回 C 端用户可查看的订单详情。
 func ClientGetOrder(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -630,19 +677,32 @@ func parseUint(s string) (uint, error) {
 }
 
 // buildFormItems 将 form_data 转换为带中文 label 和 display_value 的列表。
+// 1. 查询服务全部 workflow nodes，从所有节点的 form_fields 建立字段定义（按 sort_order 顺序）
+// 2. 遍历 form_data，按节点定义顺序生成 form_items
+// 3. 系统字段和 _last_* 字段不进入业务资料展示
 func buildFormItems(db *gorm.DB, order models.Order) []gin.H {
-	// 1. 查询下单节点获取字段定义
-	var submitNode models.SysWorkflowNode
-	db.Where(
-		"service_id = ? AND stage_code = ? AND action_name = ? AND action_type = ?",
-		order.ServiceID, "start", "submit_request", "form_input",
-	).First(&submitNode)
+	// 1. 查询当前服务全部节点（按 sort_order 排序）
+	var allNodes []models.SysWorkflowNode
+	db.Where("service_id = ?", order.ServiceID).
+		Order("sort_order ASC, id ASC").
+		Find(&allNodes)
 
-	// 构建字段 key -> FormFieldDef 的 map
+	// 构建 fieldDefs 列表（保留顺序）和 fieldMap（用于快速查找）
+	type fieldDefEntry struct {
+		key   string
+		field models.FormFieldDef
+	}
+	fieldDefs := make([]fieldDefEntry, 0)
 	fieldMap := map[string]models.FormFieldDef{}
-	for _, f := range submitNode.FormFields {
-		if f.Key != "" {
-			fieldMap[f.Key] = f
+	for _, node := range allNodes {
+		for _, f := range node.FormFields {
+			if f.Key == "" {
+				continue
+			}
+			if _, exists := fieldMap[f.Key]; !exists {
+				fieldMap[f.Key] = f
+				fieldDefs = append(fieldDefs, fieldDefEntry{key: f.Key, field: f})
+			}
 		}
 	}
 
@@ -664,47 +724,43 @@ func buildFormItems(db *gorm.DB, order models.Order) []gin.H {
 		"_last_submitted_at":  true,
 	}
 
-	// 4. 构建 form_items
+	// 4. 构建 form_items（按 fieldDefs 顺序，第一次出现的 key 优先）
 	items := make([]gin.H, 0)
-	for key, rawValue := range data {
-		if systemKeys[key] || strings.HasPrefix(key, "_") {
+	seenKeys := map[string]bool{}
+	for _, entry := range fieldDefs {
+		if seenKeys[entry.key] {
+			continue
+		}
+		seenKeys[entry.key] = true
+
+		rawValue, exists := data[entry.key]
+		if !exists || systemKeys[entry.key] || strings.HasPrefix(entry.key, "_") {
 			continue
 		}
 
-		field, hasDef := fieldMap[key]
-		label := key
-		fieldType := "text"
+		field := entry.field
 		displayValue := ""
 
-		if hasDef {
-			if field.Label != "" {
-				label = field.Label
-			}
-			fieldType = field.Type
-
-			// select 枚举值转中文
-			if field.Type == "select" && len(field.Options) > 0 {
-				val := fmt.Sprintf("%v", rawValue)
-				for _, opt := range field.Options {
-					if opt.Value == val {
-						displayValue = opt.Label
-						break
-					}
+		// select 枚举值转中文
+		if field.Type == "select" && len(field.Options) > 0 {
+			val := fmt.Sprintf("%v", rawValue)
+			for _, opt := range field.Options {
+				if opt.Value == val {
+					displayValue = opt.Label
+					break
 				}
 			}
 		}
-
-		// 如果没有找到 option 的 display_value，直接用原始值
 		if displayValue == "" {
 			displayValue = fmt.Sprintf("%v", rawValue)
 		}
 
 		items = append(items, gin.H{
-			"key":           key,
-			"label":         label,
+			"key":           entry.key,
+			"label":         field.Label,
 			"value":         rawValue,
 			"display_value": displayValue,
-			"type":          fieldType,
+			"type":          field.Type,
 		})
 	}
 

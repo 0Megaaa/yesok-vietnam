@@ -1,13 +1,22 @@
 <script setup>
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import request from '@/api/request'
+import DynamicForm from '@/components/DynamicForm.vue'
 
 const router = useRouter()
 const loading = ref(true)
 const activeFilter = ref('all')
 const orders = ref([])
+
+// form_input 弹窗状态
+const dynamicFormRef = ref(null)
+const formInputVisible = ref(false)
+const formInputOrder = ref(null)
+const formInputAction = ref(null)
+const formInputData = ref({})
+const formInputLoading = ref(false)
 
 const showToast = (title, type = 'info') => {
   ElMessage({ message: title, type })
@@ -39,27 +48,33 @@ const formatMoney = (amount) => {
 
 const normalizeOrder = (order) => ({
   ...order,
-  order_no: order.order_no,
-  service_name: order.service_name,
-  current_status: order.macro_status,
+  order_no: order.order_no || order.orderNo,
+  service_name: order.service_name || order.serviceName,
+  current_status: order.macro_status || order.current_status || order.currentStatus,
   current_stage: order.current_stage || '',
   current_stage_text: order.current_stage_text || '',
+  macro_status: order.macro_status || order.current_status || order.currentStatus,
   macro_status_text: order.macro_status_text || '',
+  payment_status: order.payment_status || order.pay_status || 'unpaid',
   payment_status_text: order.payment_status_text || '',
   total_amount: order.total_amount || order.amount || 0,
   totalAmountText: formatMoney(order.total_amount || order.amount || 0),
-  payment_status: order.payment_status || 'unpaid',
-  macro_status: order.macro_status,
-  // form_items: 后端返回的中文业务资料列表
   form_items: order.form_items || [],
-  // action_nodes 标准化
+  form_data: order.form_data || order.formData || {},
+  // action_nodes 完整字段
   action_nodes: (order.action_nodes || order.actionNodes || []).map((node) => ({
     id: node.id,
     action_name: node.action_name || '',
-    button_label: node.button_label || node.action_name_text || '',
     action_name_text: node.action_name_text || '',
-    target_status: node.target_status || '',
-    target_status_text: node.target_status_text || node.target_status || '',
+    button_label: node.button_label || node.action_name_text || node.action_name || '',
+    action_type: node.action_type || 'button_click',
+    form_fields: node.form_fields || [],
+    target_status: node.target_status || node.targetStatus || '',
+    target_status_text: node.target_status_text || '',
+    macro_status: node.macro_status || '',
+    macro_status_text: node.macro_status_text || '',
+    notify_type: node.notify_type || '',
+    notify_type_text: node.notify_type_text || '',
     need_audit: node.need_audit || false,
   })),
 })
@@ -79,18 +94,89 @@ const loadOrders = async () => {
   }
 }
 
-const applyWorkflowAction = async (order, node) => {
+// 根据 action_type 分流处理工作流动作
+const handleWorkflowAction = async (order, node) => {
+  if (node.action_type === 'form_input') {
+    openFormInput(order, node)
+    return
+  }
+
+  if (node.action_type === 'wx_pay') {
+    showToast('支付动作请客户在 C 端完成，后台不直接执行支付', 'info')
+    return
+  }
+
+  await executeButtonClick(order, node)
+}
+
+// 直接执行 button_click 动作
+const executeButtonClick = async (order, node) => {
   try {
-    const res = await request.put(`/v1/admin/orders/${order.id}`, {
-      action_name: node.action_name,
-      remark: `${node.action_name}：由后台管家执行`,
-    })
-    orders.value = orders.value.map((item) =>
-      item.id === order.id ? normalizeOrder(res.data.order || res.data) : item
+    const { value: remark } = await ElMessageBox.prompt(
+      `确认执行「${node.button_label || node.action_name}」？可填写备注：`,
+      '确认操作',
+      {
+        confirmButtonText: '确认执行',
+        cancelButtonText: '取消',
+        inputPlaceholder: '备注信息（选填）',
+      }
     )
-    showToast(`${node.action_name}已执行`, 'success')
+
+    const res = await request.post(`/v1/admin/orders/${order.id}/action`, {
+      action_name: node.action_name,
+      remark: remark || '',
+      input_data: {},
+    })
+
+    const next = normalizeOrder(res.data?.order || res.data)
+    orders.value = orders.value.map((item) => (item.id === order.id ? next : item))
+    showToast(`「${node.button_label || node.action_name}」已执行`, 'success')
   } catch (error) {
-    showToast(error?.message || '流程推进失败', 'error')
+    if (error !== 'cancel') {
+      showToast(error?.response?.data?.error || error?.message || '流程推进失败', 'error')
+    }
+  }
+}
+
+// 打开 form_input 弹窗
+const openFormInput = (order, node) => {
+  formInputOrder.value = order
+  formInputAction.value = node
+  formInputData.value = {}
+  formInputVisible.value = true
+}
+
+// 提交 form_input
+const submitFormInput = async () => {
+  if (!formInputOrder.value || !formInputAction.value) return
+
+  if (dynamicFormRef.value?.validateAll && !dynamicFormRef.value.validateAll()) {
+    return
+  }
+
+  formInputLoading.value = true
+  try {
+    const res = await request.post(`/v1/admin/orders/${formInputOrder.value.id}/action`, {
+      action_name: formInputAction.value.action_name,
+      remark: '',
+      input_data: formInputData.value,
+    })
+
+    const next = normalizeOrder(res.data?.order || res.data)
+    orders.value = orders.value.map((item) =>
+      item.id === formInputOrder.value.id ? next : item
+    )
+
+    formInputVisible.value = false
+    formInputOrder.value = null
+    formInputAction.value = null
+    formInputData.value = {}
+
+    showToast(`「${next.service_name || '订单'}」流程已推进`, 'success')
+  } catch (error) {
+    showToast(error?.response?.data?.error || error?.message || '流程推进失败', 'error')
+  } finally {
+    formInputLoading.value = false
   }
 }
 
@@ -217,7 +303,7 @@ onUnmounted(() => {
             class="action-btn"
             :class="{ payment: node.need_audit }"
             type="default"
-            @click="applyWorkflowAction(order, node)"
+            @click="handleWorkflowAction(order, node)"
           >
             {{ node.button_label || node.action_name_text || node.action_name }}
           </el-button>
@@ -232,6 +318,28 @@ onUnmounted(() => {
         暂无符合条件的订单
       </div>
     </div>
+
+    <!-- form_input 弹窗 -->
+    <el-dialog
+      v-model="formInputVisible"
+      :title="`填写：${formInputAction?.button_label || formInputAction?.action_name || ''}`"
+      width="580px"
+      destroy-on-close
+      :close-on-click-modal="false"
+    >
+      <DynamicForm
+        ref="dynamicFormRef"
+        v-model="formInputData"
+        :fields="formInputAction?.form_fields || []"
+      />
+
+      <template #footer>
+        <el-button @click="formInputVisible = false">取消</el-button>
+        <el-button type="primary" :loading="formInputLoading" @click="submitFormInput">
+          确认执行
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 

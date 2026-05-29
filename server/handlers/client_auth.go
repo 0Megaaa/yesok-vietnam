@@ -18,10 +18,12 @@ import (
 
 // ClientWechatLoginRequest 微信小程序登录请求。
 type ClientWechatLoginRequest struct {
-	Code      string `json:"code" binding:"required"`
-	PhoneCode string `json:"phone_code"`
-	Nickname  string `json:"nickname"`
-	AvatarURL string `json:"avatar_url"`
+	Code           string `json:"code" binding:"required"`
+	PhoneCode      string `json:"phone_code"`
+	Nickname       string `json:"nickname"`
+	AvatarURL      string `json:"avatar_url"`
+	LoginProvider  string `json:"login_provider"`
+	ClientPlatform string `json:"client_platform"`
 }
 
 // WechatSessionResp 微信 jscode2session 接口返回结构。
@@ -103,17 +105,29 @@ func ClientWechatLogin(db *gorm.DB) gin.HandlerFunc {
 		}
 		log.Printf("[WechatLogin] openid=%s unionid=%s", openid, unionid)
 
-		// 查询或创建 app_user
+		// 平台来源默认值
+		loginProvider := strings.TrimSpace(req.LoginProvider)
+		if loginProvider == "" {
+			loginProvider = "wechat"
+		}
+		clientPlatform := strings.TrimSpace(req.ClientPlatform)
+		if clientPlatform == "" {
+			clientPlatform = "mp_weixin"
+		}
+
+		// 查询或创建 app_user（老数据仍按 wechat_open_id 查询，不走 login_provider）
 		var appUser models.AppUser
 		result := db.Where("wechat_open_id = ?", openid).First(&appUser)
 
 		if result.Error == gorm.ErrRecordNotFound {
 			// 新用户：创建记录
 			appUser = models.AppUser{
-				WechatOpenID: openid,
-				Nickname:     strings.TrimSpace(req.Nickname),
-				AvatarURL:    strings.TrimSpace(req.AvatarURL),
-				VipLevel:     1,
+				WechatOpenID:   openid,
+				Nickname:       strings.TrimSpace(req.Nickname),
+				AvatarURL:      strings.TrimSpace(req.AvatarURL),
+				LoginProvider:  loginProvider,
+				ClientPlatform: clientPlatform,
+				VipLevel:       1,
 			}
 			if appUser.Nickname == "" {
 				appUser.Nickname = "微信用户"
@@ -123,26 +137,32 @@ func ClientWechatLogin(db *gorm.DB) gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create user"})
 				return
 			}
-			log.Printf("[WechatLogin] new user created | id=%d openid=%s", appUser.ID, openid)
+			log.Printf("[WechatLogin] new user created | id=%d openid=%s login_provider=%s client_platform=%s",
+				appUser.ID, openid, loginProvider, clientPlatform)
 		} else if result.Error != nil {
 			log.Printf("[WechatLogin] db.First failed: %v", result.Error)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "database error"})
 			return
 		} else {
-			// 老用户：同步昵称和头像
-			updates := map[string]interface{}{}
-			if req.Nickname != "" {
+			// 老用户：同步昵称、头像和平台字段
+			updates := map[string]interface{}{
+				"login_provider":  loginProvider,
+				"client_platform": clientPlatform,
+			}
+			if strings.TrimSpace(req.Nickname) != "" {
 				updates["nickname"] = strings.TrimSpace(req.Nickname)
 			}
-			if req.AvatarURL != "" {
+			if strings.TrimSpace(req.AvatarURL) != "" {
 				updates["avatar_url"] = strings.TrimSpace(req.AvatarURL)
 			}
-			if len(updates) > 0 {
-				db.Model(&appUser).Updates(updates)
-				log.Printf("[WechatLogin] existing user | id=%d openid=%s — synced profile", appUser.ID, openid)
-			} else {
-				log.Printf("[WechatLogin] existing user | id=%d openid=%s — no profile update", appUser.ID, openid)
+			if err := db.Model(&appUser).Updates(updates).Error; err != nil {
+				log.Printf("[WechatLogin] db.Updates failed: %v", err)
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update user"})
+				return
 			}
+			// 重新查询保证返回最新字段
+			db.First(&appUser, appUser.ID)
+			log.Printf("[WechatLogin] existing user | id=%d openid=%s — synced profile & platform", appUser.ID, openid)
 		}
 
 		// 签发 JWT（uid = app_users.id，role = RoleUser）
@@ -160,12 +180,15 @@ func ClientWechatLogin(db *gorm.DB) gin.HandlerFunc {
 			"token":  jwtToken,
 			"expire": expireUnix,
 			"user": gin.H{
-				"id":             appUser.ID,
-				"wechat_open_id": appUser.WechatOpenID,
-				"nickname":       appUser.Nickname,
-				"avatar_url":     appUser.AvatarURL,
-				"phone":          appUser.Phone,
-				"vip_level":      appUser.VipLevel,
+				"id":              appUser.ID,
+				"wechat_open_id":  appUser.WechatOpenID,
+				"nickname":        appUser.Nickname,
+				"avatar_url":      appUser.AvatarURL,
+				"phone":           appUser.Phone,
+				"vip_level":       appUser.VipLevel,
+				"balance":         appUser.Balance,
+				"login_provider":  appUser.LoginProvider,
+				"client_platform": appUser.ClientPlatform,
 			},
 		})
 	}

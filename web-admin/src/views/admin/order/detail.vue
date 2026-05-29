@@ -25,11 +25,16 @@ const formInputLoading = ref(false)
 
 const statusLabel = (code) => {
   const m = {
+    start: '开始',
     pending: '等待受理',
     reviewing: '资料审核中',
     quoted: '已报价',
     paid: '已收款',
+    wait_quote: '待报价',
+    wait_pay: '待支付',
+    dispatching: '派车中',
     in_progress: '服务履约中',
+    processing: '服务中',
     completed: '已完成',
     cancelled: '已取消',
     refunded: '已退款',
@@ -39,20 +44,48 @@ const statusLabel = (code) => {
 }
 
 const formatMoney = (amount) => {
-  if (!amount && amount !== 0) return '—'
-  return `${(Number(amount) / 100).toLocaleString('vi-VN')} ₫`
+  if (amount === null || amount === undefined || amount === '') return '—'
+  const n = Number(amount || 0)
+  return `¥${n.toLocaleString('zh-CN')}`
 }
 
 const formatTime = (t) => {
   if (!t) return ''
-  return new Date(t).toLocaleString('vi-VN', { dateStyle: 'short', timeStyle: 'short' })
+  const d = new Date(t)
+  if (Number.isNaN(d.getTime())) return t
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
+// normalizeOrder 标准化后端返回字段
+const normalizeOrder = (raw = {}) => ({
+  ...raw,
+  order_no: raw.order_no || raw.orderNo,
+  service_name: raw.service_name || raw.serviceName,
+  macro_status: raw.macro_status || raw.current_status || raw.currentStatus,
+  macro_status_text: raw.macro_status_text || '',
+  current_stage: raw.current_stage || '',
+  current_stage_text: raw.current_stage_text || '',
+  payment_status: raw.payment_status || 'unpaid',
+  payment_status_text: raw.payment_status_text || '',
+  total_amount: raw.total_amount || raw.amount || 0,
+  form_items: raw.form_items || [],
+  form_data: raw.form_data || raw.formData || {},
+  timelines: raw.timelines || [],
+  payments: raw.payments || [],
+  action_nodes: raw.action_nodes || raw.actionNodes || [],
+})
+
+// 业务表单：只使用 form_items
 const formEntries = computed(() => {
-  if (!order.value?.form_data) return []
-  const raw = order.value.form_data
-  const data = typeof raw === 'string' ? JSON.parse(raw) : raw
-  return Object.entries(data).map(([k, v]) => ({ key: k, value: typeof v === 'object' ? JSON.stringify(v) : v }))
+  if (Array.isArray(order.value?.form_items) && order.value.form_items.length) {
+    return order.value.form_items.map((item) => ({
+      key: item.key,
+      label: item.label || item.key,
+      value: item.display_value ?? item.value ?? '—',
+    }))
+  }
+  return []
 })
 
 const showToast = (title, type = 'info') => {
@@ -63,7 +96,7 @@ const loadOrderDetail = async () => {
   loading.value = true
   try {
     const res = await getOrderDetail(orderId.value)
-    order.value = res
+    order.value = normalizeOrder(res)
   } catch {
     showToast('订单详情加载失败', 'error')
   } finally {
@@ -110,7 +143,7 @@ const executeButtonClick = async (action) => {
       action_name: action.action_name,
       remark: remark || '',
     })
-    order.value = res
+    order.value = normalizeOrder(res)
     await loadOrderActions()
     showToast(`「${action.button_label}」已执行`, 'success')
   } catch (err) {
@@ -138,7 +171,7 @@ const submitFormInput = async () => {
       remark: '',
       input_data: formInputData.value,
     })
-    order.value = res
+    order.value = normalizeOrder(res)
     await loadOrderActions()
     formInputVisible.value = false
     showToast(`「${formInputAction.value.button_label}」已执行`, 'success')
@@ -195,8 +228,8 @@ onMounted(async () => {
             <span class="service-name">{{ order.service_name || order.serviceName }}</span>
             <span class="order-no">{{ order.order_no || order.orderNo }}</span>
           </div>
-          <div class="status-pill" :class="order.macro_status || order.currentStatus">
-            {{ statusLabel(order.macro_status || order.currentStatus) }}
+          <div class="status-pill" :class="order.macro_status">
+            {{ order.macro_status_text || statusLabel(order.macro_status) }}
           </div>
         </div>
         <div class="summary-grid">
@@ -210,11 +243,11 @@ onMounted(async () => {
           </div>
           <div>
             <span class="label">金额</span>
-            <span class="value price">{{ formatMoney(order.total_amount || order.totalAmount) }}</span>
+            <span class="value price">{{ formatMoney(order.total_amount || order.amount) }}</span>
           </div>
           <div>
             <span class="label">当前节点</span>
-            <span class="value">{{ order.current_stage || order.currentStatus || '—' }}</span>
+            <span class="value">{{ order.current_stage_text || statusLabel(order.current_stage) || '—' }}</span>
           </div>
         </div>
       </div>
@@ -224,7 +257,7 @@ onMounted(async () => {
         <div class="section-title">业务表单</div>
         <div v-if="!formEntries.length" class="empty-line">暂无表单数据</div>
         <div v-for="entry in formEntries" :key="entry.key" class="json-row">
-          <span class="json-key">{{ entry.key }}</span>
+          <span class="json-key">{{ entry.label }}</span>
           <span class="json-value">{{ entry.value }}</span>
         </div>
       </div>
@@ -237,12 +270,10 @@ onMounted(async () => {
           <div class="timeline-dot"></div>
           <div class="timeline-body">
             <span class="timeline-title">
-              {{ tl.after_status || tl.label || '—' }}
+              {{ tl.after_status_text || statusLabel(tl.after_status) || '—' }}
             </span>
             <span v-if="tl.remark" class="timeline-desc">{{ tl.remark }}</span>
-            <span class="timeline-time">
-              {{ tl.operator || '系统' }} · {{ formatTime(tl.created_at || tl.createdAt) }}
-            </span>
+            <span class="timeline-time">{{ formatTime(tl.created_at || tl.createdAt) }}</span>
           </div>
         </div>
       </div>
@@ -258,7 +289,9 @@ onMounted(async () => {
           </div>
           <div class="payment-right">
             <span class="payment-amount">{{ formatMoney(pay.pay_amount || pay.payAmount) }}</span>
-            <span class="payment-status" :class="pay.status">{{ pay.status }}</span>
+            <span class="payment-status" :class="pay.status">
+              {{ pay.status === 'success' ? '支付成功' : pay.status === 'failed' ? '支付失败' : pay.status || '—' }}
+            </span>
           </div>
         </div>
       </div>

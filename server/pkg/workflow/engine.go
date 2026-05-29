@@ -101,12 +101,18 @@ func (e *OrderEngine) AdvanceStage(
 				}
 			}
 
+			auditRemark := strings.TrimSpace(remark)
+			if auditRemark == "" {
+				auditRemark = defaultTimelineRemark(actionName, node.ButtonLabel, operatorRole)
+			}
+			auditRemark = auditRemark + "，待后台审核"
+
 			timeline := models.OrderTimeline{
 				OrderID:      order.ID,
 				BeforeStatus: beforeStage,
 				AfterStatus:  beforeStage,
 				Operator:     operator,
-				Remark:       fmt.Sprintf("%s | 待后台审核", remark),
+				Remark:       auditRemark,
 				ActionName:   actionName,
 				Payload:      payloadBytes,
 				AuditStatus:  models.AuditStatusPending,
@@ -193,10 +199,10 @@ func (e *OrderEngine) AdvanceStage(
 			return fmt.Errorf("更新订单状态失败: %w", err)
 		}
 
-		// Step 5: 写入时间线记录
-		timelineRemark := remark
-		if node.NotifyType != "" {
-			timelineRemark = fmt.Sprintf("%s [notify:%s]", remark, node.NotifyType)
+		// Step 5: 写入时间线记录（使用中文业务备注，不暴露 notify_type）
+		timelineRemark := strings.TrimSpace(remark)
+		if timelineRemark == "" {
+			timelineRemark = defaultTimelineRemark(actionName, node.ButtonLabel, operatorRole)
 		}
 		timeline := models.OrderTimeline{
 			OrderID:      order.ID,
@@ -312,6 +318,41 @@ func (e *OrderEngine) GetAvailableActions(orderID uint, role string) ([]models.S
 	).Order("sort_order asc").Find(&nodes).Error
 
 	return nodes, err
+}
+
+// defaultTimelineRemark 根据动作名称和按钮标签返回中文业务备注。
+func defaultTimelineRemark(actionName, buttonLabel, operatorRole string) string {
+	switch actionName {
+	case "submit_request":
+		return "客户提交资料"
+	case "send_quote":
+		return "后台已发送报价"
+	case "pay_order":
+		return "客户已完成支付"
+	case "dispatch_driver":
+		return "后台已安排司机"
+	case "start_service":
+		return "服务已开始"
+	case "complete_order":
+		return "订单已完成"
+	case "upload_material":
+		return "客户已上传资料"
+	case "material_received":
+		return "后台已确认资料收齐"
+	case "approve":
+		return "后台审核通过"
+	default:
+		if buttonLabel != "" {
+			if operatorRole == "admin" {
+				return "后台执行：" + buttonLabel
+			}
+			if operatorRole == "client" {
+				return "客户执行：" + buttonLabel
+			}
+			return buttonLabel
+		}
+		return "流程状态已更新"
+	}
 }
 
 // isEmptyValue 检查值是否为空（nil、空字符串等）

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { getState, loginWithDemoAccount, loginWithWechat } from '@/api/client/auth'
+import { getClientMe, updateClientProfile, getClientOrders } from '@/api/client/profile'
 
 // getUniApi 安全获取 UniApp 运行时对象。
 // 实现步骤：
@@ -70,6 +71,34 @@ const removeStorage = (key) => {
   }
 }
 
+// getClientPlatform 识别当前客户端平台。
+const getClientPlatform = () => 'mp_weixin'
+
+// getWechatProfileSafely 安全获取微信用户资料，用户拒绝授权也不阻止登录。
+const getWechatProfileSafely = async () => {
+  const uniApi = getUniApi()
+  if (!uniApi?.getUserProfile) return {}
+
+  try {
+    const res = await new Promise((resolve, reject) => {
+      uniApi.getUserProfile({
+        desc: '用于完善 YesOK 用户资料展示',
+        success: resolve,
+        fail: reject,
+      })
+    })
+
+    const info = res.userInfo || {}
+    return {
+      nickname: info.nickName || '',
+      avatar_url: info.avatarUrl || '',
+    }
+  } catch (error) {
+    console.warn('[WechatProfile] user cancelled or failed:', error)
+    return {}
+  }
+}
+
 // showSafeToast 安全展示轻提示。
 // 实现步骤：
 // 1. UniApp 环境使用 showToast。
@@ -99,8 +128,16 @@ export const useClientStore = defineStore('client', {
   getters: {
     isLoggedIn: (state) => !!state.token,
     isAdmin: (state) => state.userInfo?.role === 'admin',
-    activeOrders: (state) => state.orders.filter((order) => order.status !== 'completed'),
-    completedOrders: (state) => state.orders.filter((order) => order.status === 'completed'),
+    activeOrders: (state) =>
+      state.orders.filter((order) => {
+        const s = order.macro_status || order.current_stage || order.status
+        return s !== 'completed'
+      }),
+    completedOrders: (state) =>
+      state.orders.filter((order) => {
+        const s = order.macro_status || order.current_stage || order.status
+        return s === 'completed'
+      }),
   },
 
   actions: {
@@ -160,6 +197,44 @@ export const useClientStore = defineStore('client', {
       const idx = this.orders.findIndex((order) => order.id === orderId)
       if (idx !== -1) {
         this.orders[idx] = { ...this.orders[idx], ...updates }
+      }
+    },
+
+    // fetchMe 从后端拉取最新用户资料并更新 store。
+    async fetchMe() {
+      if (!this.token) return null
+      try {
+        const data = await getClientMe()
+        const user = data.user || data.data?.user || data
+        if (user) this.setUserInfo(user)
+        return user
+      } catch {
+        return null
+      }
+    },
+
+    // updateProfile 更新用户资料（昵称、头像）。
+    async updateProfile(profile) {
+      const data = await updateClientProfile(profile)
+      const user = data.user || data.data?.user || data
+      if (user) this.setUserInfo(user)
+      return user
+    },
+
+    // fetchOrders 从后端拉取当前用户的订单列表并更新 store。
+    async fetchOrders(status = 'all') {
+      if (!this.token) {
+        this.setOrders([])
+        return []
+      }
+      try {
+        const data = await getClientOrders({ status })
+        const list = data.list || data.orders || []
+        this.setOrders(list)
+        return list
+      } catch {
+        this.setOrders([])
+        return []
       }
     },
 
@@ -230,12 +305,12 @@ export const useClientStore = defineStore('client', {
       return data
     },
 
-    // loginByWechat 执行微信小程序登录。
+    // loginByWechat 执行微信小程序登录（含昵称头像授权）。
     // 实现步骤：
-    // 1. 调用 uni.login({ provider: 'weixin' }) 获取微信 code。
-    // 2. 调用后端 /v1/client/auth/wechat 接口换取 JWT token。
-    // 3. 写入本地状态并关闭弹窗。
-    // 4. 清理 mock token，避免干扰真实鉴权。
+    // 1. 调用 uni.login 获取微信 code。
+    // 2. 调用 getWechatProfileSafely 获取昵称头像（用户拒绝不阻止登录）。
+    // 3. 调用后端 /v1/client/auth/wechat 接口换取 JWT token。
+    // 4. 写入本地状态并关闭弹窗。
     async loginByWechat(phoneCode = '') {
       const uniApi = getUniApi()
       if (!uniApi?.login) {
@@ -259,11 +334,16 @@ export const useClientStore = defineStore('client', {
         this.setToken('')
       }
 
+      // 获取微信昵称头像（用户拒绝授权不阻止登录）
+      const profile = await getWechatProfileSafely()
+
       const data = await loginWithWechat({
         code: loginRes.code,
         phone_code: phoneCode || '',
-        nickname: this.userInfo?.nickname || '',
-        avatar_url: this.userInfo?.avatar_url || '',
+        nickname: profile.nickname || this.userInfo?.nickname || '',
+        avatar_url: profile.avatar_url || this.userInfo?.avatar_url || '',
+        login_provider: 'wechat',
+        client_platform: getClientPlatform(),
       })
 
       const token = data.token || data.data?.token

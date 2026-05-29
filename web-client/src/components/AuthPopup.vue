@@ -37,15 +37,14 @@ const handleDemoLogin = async () => {
 }
 
 // handleWechatAuthorize 处理微信小程序授权登录。
-// 意图：调用微信 wx.login 获取 code，再通过后端换取真实 JWT token。
+// 意图：调用 uni.login 获取 code，再通过后端换取真实 JWT token。
 // 实现步骤：
-// 1. 调用 store.loginByWechat(phoneCode) 执行完整的微信登录流程。
+// 1. 调用 store.loginByWechat('') 执行完整的微信登录流程（含 getUserProfile 授权）。
 // 2. 登录失败时展示中文轻提示，方便用户定位问题。
 // 返回：Promise 登录结果。
-const handleWechatAuthorize = async (e) => {
+const handleWechatAuthorize = async () => {
   try {
-    const phoneCode = e?.detail?.code || ''
-    return await client.loginByWechat(phoneCode)
+    return await client.loginByWechat('')
   } catch (error) {
     console.error('[WechatLogin] failed:', error)
     showSafeToast(error?.message || '微信登录失败，请稍后重试')
@@ -77,10 +76,9 @@ const handleTelegramPlaceholder = () => {
       </view>
 
       <!-- #ifdef MP-WEIXIN -->
-      <button class="auth-primary" open-type="getPhoneNumber" @getphonenumber="handleWechatAuthorize">
-        微信一键授权
+      <button class="auth-primary" @click="handleWechatAuthorize">
+        微信授权登录
       </button>
-<!--      <button class="auth-secondary" @click="handleDemoLogin">使用演示身份继续</button>-->
       <!-- #endif -->
 
       <!-- #ifdef H5 -->
