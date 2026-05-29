@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { get, post } from '@/api/request'
+import { get } from '@/api/request'
 import AuthPopup from '@/components/AuthPopup.vue'
 import { useClientStore } from '@/store/client'
 import { useGlobalShare } from '@/composables/useGlobalShare'
@@ -10,8 +10,6 @@ const loading = ref(true)
 const services = ref([])
 const articles = ref([])
 const configs = ref({})
-const selectedService = ref(null)
-const orderForm = ref({ contact_name: '', contact_phone: '', hotel_address: '', remark: '' })
 
 useGlobalShare({ title: 'Yesok Vietnam｜越南本地生活管家', path: '/pages/home/index' })
 
@@ -45,27 +43,21 @@ const showSafeToast = (title) => {
   console.info('[Yesok Client]', title)
 }
 
+const formatServicePrice = (item) => {
+  const amount = Number(item?.base_price ?? item?.basePrice ?? 0)
+  if (!amount) return item?.price || '面议'
+  return `${(amount / 100).toLocaleString('vi-VN')} ₫`
+}
+
 const normalizeService = (item) => {
-  // 优先提取后端已经格式化好的 price 字段，如 "650000 ₫"
-  let priceText = `${item.base_price}￥` || ''
-
-  // 如果后端没有提供格式化好的 price，则通过 base_price 和 currency 进行动态拼接兜底
-  if (!priceText && item.base_price !== undefined) {
-    // 华豪华接机等大额 VND 不需要除以 100，这里做个安全分币制或整型判断兜底
-    const rawPrice = item.currency === 'VND' || item.base_price > 10000
-        ? item.base_price
-        : Math.round(item.base_price / 100)
-    priceText = `${rawPrice} ${item.currency || 'VND'}`
-  }
-
   return {
     ...item,
     display_name: item.display_name || item.service_name || item.name,
-    price_text: priceText,
+    price_text: formatServicePrice(item),
     cover_image: item.cover_image || bannerImage.value,
     service_code: item.service_code || item.code,
     icon: item.icon || '✨',
-    unit: item.unit || '次' // 确保绑定后端返回的 "天/单/项/次" 计价单位
+    unit: item.unit || '次'
   }
 }
 
@@ -102,42 +94,14 @@ const goPage = (page) => {
 }
 
 const openServiceDetail = (service) => {
-  const url = `/pages/service-detail/index?id=${encodeURIComponent(service.id)}&code=${encodeURIComponent(service.service_code)}`
+  const url = `/pages/service-detail/index?id=${encodeURIComponent(service.id)}&code=${encodeURIComponent(service.service_code || '')}`
   const uniApi = typeof uni !== 'undefined' ? uni : null
   if (uniApi?.navigateTo) uniApi.navigateTo({ url })
-}
-
-const openOrderSheet = (service) => {
-  if (!client.checkAuth(`咨询「${service.display_name}」`)) return
-  selectedService.value = service
 }
 
 const openNewsList = () => {
   const uniApi = typeof uni !== 'undefined' ? uni : null
   if (uniApi?.switchTab) uniApi.switchTab({ url: '/pages/news/index' })
-}
-
-const submitOrder = async () => {
-  if (!selectedService.value) return
-  try {
-    const payload = {
-      service_code: selectedService.value.service_code,
-      contact_name: orderForm.value.contact_name || '微信客户',
-      contact_phone: orderForm.value.contact_phone || '+84000000000',
-      form_data: {
-        hotel_address: orderForm.value.hotel_address,
-        remark: orderForm.value.remark,
-        source: 'C端首页服务咨询入口',
-      },
-    }
-    const res = await post('/v1/client/orders', payload)
-    client.addOrder?.(res.data.order)
-    selectedService.value = null
-    orderForm.value = { contact_name: '', contact_phone: '', hotel_address: '', remark: '' }
-    showSafeToast('订单已提交，管家即将联系您')
-  } catch (error) {
-    showSafeToast(error?.message || '下单失败')
-  }
 }
 
 onMounted(() => {
@@ -185,7 +149,7 @@ onMounted(() => {
                 {{ service.price_text }}
                 <text class="service-unit">/{{ service.unit || '次' }}</text>
               </text>
-              <view class="consult-btn" @click.stop="openOrderSheet(service)">去咨询</view>
+              <view class="consult-btn" @click.stop="openServiceDetail(service)">去咨询</view>
             </view>
           </view>
         </view>
@@ -216,20 +180,6 @@ onMounted(() => {
          <view style="text-align: center; padding: 10px;"><view style="font-size: 28px; margin-bottom: 8px;">🛡️</view><view style="font-size: 14px; font-weight: bold; color: #333; margin-bottom: 4px;">资金合规</view><view style="font-size: 11px; color: #888; line-height: 1.4;">平台担保 安全无忧</view></view>
          <view style="text-align: center; padding: 10px;"><view style="font-size: 28px; margin-bottom: 8px;">💰</view><view style="font-size: 14px; font-weight: bold; color: #333; margin-bottom: 4px;">透明报价</view><view style="font-size: 11px; color: #888; line-height: 1.4;">明码标价 拒绝隐形</view></view>
          <view style="text-align: center; padding: 10px;"><view style="font-size: 28px; margin-bottom: 8px;">⚡</view><view style="font-size: 14px; font-weight: bold; color: #333; margin-bottom: 4px;">极速响应</view><view style="font-size: 11px; color: #888; line-height: 1.4;">专属管家 1对1服务</view></view>
-      </view>
-    </view>
-
-    <view v-if="selectedService" class="order-modal">
-      <view class="order-sheet">
-        <text class="panel-title">咨询 {{ selectedService.display_name }}</text>
-        <input v-model="orderForm.contact_name" class="form-input" placeholder="联系人" />
-        <input v-model="orderForm.contact_phone" class="form-input" placeholder="联系电话" />
-        <input v-model="orderForm.hotel_address" class="form-input" placeholder="酒店/目的地" />
-        <input v-model="orderForm.remark" class="form-input" placeholder="补充需求" />
-        <view class="modal-actions">
-          <view class="cancel-btn" @click="selectedService = null">取消</view>
-          <view class="submit-btn" @click="submitOrder">提交订单</view>
-        </view>
       </view>
     </view>
 

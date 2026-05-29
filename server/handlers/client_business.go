@@ -114,8 +114,17 @@ func ClientGetServiceInitForm(db *gorm.DB) gin.HandlerFunc {
 
 		// 回退：使用 sys_services.form_schema
 		var fields []models.FormFieldDef
-		if service.FormSchema != nil {
-			json.Unmarshal(service.FormSchema, &fields)
+		if len(service.FormSchema) > 0 {
+			// 1. 先尝试直接解析数组
+			if err := json.Unmarshal(service.FormSchema, &fields); err != nil || fields == nil {
+				// 2. 再尝试解析 { fields: [] }
+				var schema struct {
+					Fields []models.FormFieldDef `json:"fields"`
+				}
+				if err2 := json.Unmarshal(service.FormSchema, &schema); err2 == nil {
+					fields = schema.Fields
+				}
+			}
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"service_id":   service.ID,

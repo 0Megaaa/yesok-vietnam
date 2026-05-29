@@ -2,10 +2,7 @@
 import {computed, onMounted, ref} from 'vue'
 import {get} from '@/api/request'
 import AuthPopup from '@/components/AuthPopup.vue'
-import {useClientStore} from '@/store/client'
 
-const client = useClientStore()
-const services = ref([])
 const loading = ref(true)
 const keyword = ref('')
 
@@ -24,28 +21,21 @@ const showSafeToast = (title) => {
   else console.info('[Yesok Services]', title)
 }
 
-// loadServices 加载真实服务配置。
-// 1.意图 -> 消除服务页硬编码，让 B 端 sys_services 决定 C 端内容。
-// 2.步骤 -> 请求 /v1/services 并规范化名称、价格和封面字段。
-// 3.返回 -> Promise<void>。
+const formatServicePrice = (item) => {
+  const amount = Number(item?.base_price ?? item?.basePrice ?? 0)
+  if (!amount) return item?.price || '面议'
+  return `${(amount / 100).toLocaleString('vi-VN')} ₫`
+}
+
 const loadServices = async () => {
   loading.value = true
   try {
     const res = await get('/v1/client/services')
     services.value = (res.data.list || []).map((item) => {
-      // 优先提取后端格式化好的 price 字段
-      let priceText = `${item.base_price}￥` || ''
-      if (!priceText && item.base_price !== undefined) {
-        const rawPrice = item.currency === 'VND' || item.base_price > 10000
-            ? item.base_price
-            : Math.round(item.base_price / 100)
-        priceText = `${rawPrice} ${item.currency || 'VND'}`
-      }
-
       return {
         ...item,
         display_name: item.display_name || item.service_name,
-        price_text: priceText,
+        price_text: formatServicePrice(item),
         unit: item.unit || '次'
       }
     })
@@ -56,15 +46,12 @@ const loadServices = async () => {
   }
 }
 
-// consultService 发起服务咨询。
-// 1.意图 -> 继续复用 AuthPopup 鉴权挡板，不破坏底层登录逻辑。
-// 2.步骤 -> 校验登录，成功后跳转详情页。
-// 3.返回 -> 无返回值。
 const consultService = (service) => {
-  if (!client.checkAuth(`咨询「${service.display_name}」`)) return
   const uniApi = typeof uni !== 'undefined' ? uni : null
   if (uniApi?.navigateTo) {
-    uniApi.navigateTo({url: `/pages/service-detail/index?id=${service.id}&code=${service.service_code}`})
+    uniApi.navigateTo({
+      url: `/pages/service-detail/index?id=${encodeURIComponent(service.id)}&code=${encodeURIComponent(service.service_code || '')}`
+    })
   }
 }
 

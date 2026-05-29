@@ -16,8 +16,8 @@ const submitting = ref(false)
 const formSchema = ref({ fields: [] }) // {fields: [{name, label, type, required, placeholder, options}]}
 const formValues = ref({})              // 用户填写的表单数据
 const formErrors = ref({})              // 字段级错误信息
-const showForm = ref(false)            // 是否展示下单表单弹窗
-const submitAction = ref(null)        // 当前提交动作信息
+const showForm = ref(false)             // 是否展示下单表单弹窗
+const submitAction = ref(null)         // 当前提交动作信息
 
 const includes = computed(() => [
   '需求沟通与方案确认',
@@ -36,6 +36,41 @@ const steps = computed(() => [
 
 useGlobalShare({ title: 'YesOK越南管家｜服务详情', path: '/pages/home/index' })
 
+// unwrapResponse 解包 request.js 返回的 {data, status} 包装结构
+const unwrapResponse = (res) => {
+  if (!res) return {}
+  return res.data ?? res
+}
+
+// formatPrice 格式化金额为越南盾展示
+const formatPrice = (amount) => {
+  const n = Number(amount || 0)
+  if (!n) return '面议'
+  return `${(n / 100).toLocaleString('vi-VN')} ₫`
+}
+
+// normalizeServiceDetail 以 /client/services/:id 接口返回为准规范化服务详情
+const normalizeServiceDetail = (raw = {}) => {
+  const serviceName = raw.service_name || raw.serviceName || raw.display_name || raw.name || '服务详情'
+  const displayName = raw.display_name || raw.displayName || serviceName
+
+  return {
+    ...raw,
+    id: raw.id || raw.service_id,
+    service_id: raw.service_id || raw.id,
+    service_code: raw.service_code || raw.serviceCode || raw.code || '',
+    service_name: serviceName,
+    display_name: displayName,
+    title: serviceName,
+    icon: raw.icon || '📋',
+    cover_image: raw.cover_image || raw.coverImage || '',
+    description: raw.description || raw.desc || '该服务由 YesOK 越南管家提供中文一站式协助。',
+    base_price: Number(raw.base_price ?? raw.basePrice ?? 0),
+    price_text: formatPrice(raw.base_price ?? raw.basePrice),
+    unit: raw.unit || '次',
+  }
+}
+
 onLoad((options) => {
   serviceId.value = options.id || ''
   loadService(serviceId.value)
@@ -46,13 +81,16 @@ onLoad((options) => {
 const loadService = async (id) => {
   loading.value = true
   try {
-    // 获取服务基础信息
     const [svcRes, formRes] = await Promise.all([
       get(`/v1/client/services/${id}`),
-      get(`/v1/client/services/${id}/init-form`).catch(() => ({ form_fields: [], source: 'none' })),
+      get(`/v1/client/services/${id}/init-form`).catch(() => ({ data: { form_fields: [], source: 'none' } })),
     ])
-    serviceData.value = svcRes.data || svcRes
-    parseFormSchema(formRes)
+
+    const svcPayload = unwrapResponse(svcRes)
+    const formPayload = unwrapResponse(formRes)
+
+    serviceData.value = normalizeServiceDetail(svcPayload)
+    parseFormSchema(formPayload)
   } catch {
     serviceData.value = {
       id: 'unknown',
@@ -70,37 +108,72 @@ const loadService = async (id) => {
   }
 }
 
+// normalizeFieldOptions 规范化字段选项
+const normalizeFieldOptions = (options = []) => {
+  if (!Array.isArray(options)) return []
+  return options.map((opt) => {
+    if (typeof opt === 'string') return { label: opt, value: opt }
+    return {
+      label: opt.label ?? opt.name ?? opt.value ?? '',
+      value: opt.value ?? opt.label ?? opt.name ?? '',
+    }
+  })
+}
+
+// normalizeFields 规范化字段列表
+const normalizeFields = (fields = []) => {
+  if (!Array.isArray(fields)) return []
+  return fields.map((f) => {
+    const key = f.key || f.name || ''
+    return {
+      ...f,
+      key,
+      name: key,
+      label: f.label || key,
+      type: f.type || 'text',
+      required: !!f.required,
+      placeholder: f.placeholder || `请输入${f.label || key}`,
+      options: normalizeFieldOptions(f.options || []),
+    }
+  }).filter(f => f.key)
+}
+
 // parseFormSchema 从 init-form 接口响应中解析 form_fields。
-// 兼容两种返回格式：
+// 兼容多种返回格式：
 // 1. 平铺格式：{action_name, button_label, form_fields}
 // 2. 包装格式：{action: {action_name, form_fields}, form_fields}
-const parseFormSchema = (formRes) => {
-  // 兼容包装格式
-  const action = formRes?.action || {
-    action_name: formRes?.action_name,
-    button_label: formRes?.button_label,
-    action_type: formRes?.action_type,
-    target_status: formRes?.target_status,
-    macro_status: formRes?.macro_status,
-    notify_type: formRes?.notify_type,
-    form_fields: formRes?.form_fields || [],
+// 3. form_schema 格式：{form_schema: {fields: []}}
+const parseFormSchema = (formPayload = {}) => {
+  const payload = unwrapResponse(formPayload)
+
+  const action = payload.action || {
+    action_name: payload.action_name,
+    button_label: payload.button_label,
+    action_type: payload.action_type,
+    target_status: payload.target_status,
+    macro_status: payload.macro_status,
+    notify_type: payload.notify_type,
+    form_fields: payload.form_fields || [],
   }
 
-  // 保存当前动作信息
   submitAction.value = action?.action_name ? action : null
 
-  const fields = action?.form_fields || formRes?.form_fields || []
-  if (!fields.length) {
-    formSchema.value = { fields: [] }
-    return
-  }
+  const rawFields =
+    action?.form_fields ||
+    payload.form_fields ||
+    payload.form_schema?.fields ||
+    payload.fields ||
+    []
+
+  const fields = normalizeFields(rawFields)
+
   formSchema.value = { fields }
+
   const values = {}
   const errors = {}
   fields.forEach((f) => {
-    const key = f.key || f.name || ''
-    values[key] = ''
-    errors[key] = ''
+    values[f.key] = ''
+    errors[f.key] = ''
   })
   formValues.value = values
   formErrors.value = errors
@@ -128,9 +201,17 @@ const validateAll = () => {
   return ok
 }
 
+// getSelectedLabel 获取 select 字段的显示文本
+const getSelectedLabel = (field) => {
+  const key = field.key || field.name
+  const value = formValues.value[key]
+  const option = (field.options || []).find((item) => item.value === value)
+  return option?.label || value || field.placeholder || `请选择${field.label}`
+}
+
 // openOrderForm 打开下单表单弹窗。
 const openOrderForm = () => {
-  const serviceName = serviceData.value?.name || '该服务'
+  const serviceName = serviceData.value?.service_name || serviceData.value?.display_name || '该服务'
   if (!client.checkAuth(`预约「${serviceName}」`)) return
   showForm.value = true
 }
@@ -192,7 +273,7 @@ const goBack = () => {
 }
 
 const contactManager = () => {
-  const serviceName = serviceData.value?.name || '服务详情'
+  const serviceName = serviceData.value?.service_name || serviceData.value?.display_name || '服务详情'
   if (!client.checkAuth(`咨询「${serviceName}」`)) return
   const uniApi = typeof uni !== 'undefined' ? uni : null
   if (uniApi?.navigateTo) uniApi.navigateTo({ url: `/pages/chat/index?svc=${encodeURIComponent(serviceName)}` })
@@ -223,16 +304,14 @@ const safeToast = (title, icon = 'info') => {
           <text class="service-icon">{{ serviceData?.icon || '📋' }}</text>
         </view>
         <view class="title-main">
-          <text class="service-title">{{ serviceData?.name || serviceData?.display_name || '服务详情' }}</text>
+          <text class="service-title">{{ serviceData?.service_name || serviceData?.display_name || '服务详情' }}</text>
           <view class="tag-row">
             <text v-for="tag in (serviceData?.tags || [])" :key="tag" class="tag">{{ tag }}</text>
           </view>
         </view>
       </view>
       <view class="price-row">
-        <text class="price">
-          {{ serviceData?.base_price ? `${(Number(serviceData.base_price) / 100).toLocaleString('vi-VN')} ₫` : serviceData?.price || '面议' }}
-        </text>
+        <text class="price">{{ serviceData?.price_text || '面议' }}</text>
         <text class="unit">/{{ serviceData?.unit || '次' }}</text>
       </view>
       <text class="desc">{{ serviceData?.description || serviceData?.desc || '该服务由 YesOK 越南管家提供中文一站式协助。' }}</text>
@@ -276,6 +355,9 @@ const safeToast = (title, icon = 'info') => {
 
         <!-- 动态表单字段 -->
         <scroll-view scroll-y class="form-body">
+          <view v-if="!formSchema.fields.length" class="empty-form">
+            当前服务暂未配置预约表单，请联系管家处理。
+          </view>
           <view v-for="field in formSchema.fields" :key="field.key || field.name" class="field-wrap">
             <!-- 标签 -->
             <view class="field-label">
@@ -347,7 +429,7 @@ const safeToast = (title, icon = 'info') => {
               }"
             >
               <view class="field-picker" :class="{ error: formErrors[field.key || field.name], filled: formValues[field.key || field.name] }">
-                <text>{{ formValues[field.key || field.name] || field.placeholder || `请选择${field.label}` }}</text>
+                <text>{{ getSelectedLabel(field) }}</text>
                 <text class="picker-arrow">›</text>
               </view>
             </picker>
@@ -385,7 +467,7 @@ const safeToast = (title, icon = 'info') => {
 
         <!-- 提交按钮 -->
         <view class="form-footer">
-          <button class="submit-btn" :disabled="submitting" @click="submitOrder">
+          <button class="submit-btn" :disabled="submitting || !formSchema.fields.length" @click="submitOrder">
             {{ submitting ? '提交中...' : '确认提交' }}
           </button>
         </view>
@@ -653,6 +735,14 @@ const safeToast = (title, icon = 'info') => {
 /* 动态字段 */
 .field-wrap {
   margin-bottom: 18px;
+}
+
+.empty-form {
+  padding: 40px 20px;
+  text-align: center;
+  color: #6b7c78;
+  font-size: 14px;
+  line-height: 1.8;
 }
 
 .field-label {
