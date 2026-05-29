@@ -31,28 +31,34 @@ const paymentStatusMap = {
   refunded: '已退款',
 }
 
+// formatMoney 格式化金额为人民币
+const formatMoney = (amount) => {
+  const n = Number(amount || 0)
+  return `¥${n.toLocaleString('zh-CN')}`
+}
+
 const normalizeOrder = (order) => ({
   ...order,
-  order_no: order.order_no || order.orderNo,
-  service_name: order.service_name || order.serviceName,
-  current_status: order.macro_status || order.current_status || order.currentStatus,
+  order_no: order.order_no,
+  service_name: order.service_name,
+  current_status: order.macro_status,
   current_stage: order.current_stage || '',
+  current_stage_text: order.current_stage_text || '',
+  macro_status_text: order.macro_status_text || '',
+  payment_status_text: order.payment_status_text || '',
   total_amount: order.total_amount || order.amount || 0,
-  totalAmountText: (() => {
-    const n = Number(order.total_amount || order.amount || 0)
-    return `¥${n.toLocaleString('zh-CN')}`
-  })(),
-  payment_status: order.payment_status || order.pay_status || 'pending',
-  macro_status: order.macro_status || order.current_status || order.currentStatus,
+  totalAmountText: formatMoney(order.total_amount || order.amount || 0),
+  payment_status: order.payment_status || 'unpaid',
+  macro_status: order.macro_status,
   // form_items: 后端返回的中文业务资料列表
   form_items: order.form_items || [],
-  // actionNodes 字段映射
-  actionNodes: (order.actionNodes || []).map((node) => ({
+  // action_nodes 标准化
+  action_nodes: (order.action_nodes || order.actionNodes || []).map((node) => ({
     id: node.id,
     action_name: node.action_name || '',
     button_label: node.button_label || node.action_name_text || '',
     action_name_text: node.action_name_text || '',
-    target_status: node.target_status || node.targetStatus || '',
+    target_status: node.target_status || '',
     target_status_text: node.target_status_text || node.target_status || '',
     need_audit: node.need_audit || false,
   })),
@@ -206,16 +212,16 @@ onUnmounted(() => {
 
         <div class="actions" @click.stop>
           <el-button
-            v-for="node in order.actionNodes"
+            v-for="node in order.action_nodes"
             :key="node.id"
             class="action-btn"
             :class="{ payment: node.need_audit }"
             type="default"
             @click="applyWorkflowAction(order, node)"
           >
-            {{ node.button_label || node.action_name }}
+            {{ node.button_label || node.action_name_text || node.action_name }}
           </el-button>
-          <span v-if="!order.actionNodes.length" class="muted">暂无下一步动作</span>
+          <span v-if="!order.action_nodes.length" class="muted">暂无下一步动作</span>
           <el-button class="detail-btn" type="default" @click.stop="goToDetail(order.id)">
             查看详情
           </el-button>

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"database/sql/driver"
 	"encoding/json"
 	"time"
 )
@@ -21,26 +22,40 @@ type FormFieldDef struct {
 // FormFields 是 form_fields 列的 JSON 类型别名，实现 GORM 的 Scanner/Valuer 接口。
 type FormFields []FormFieldDef
 
-func (f FormFields) Value() (interface{}, error) {
+// Value 实现 driver.Valuer，将 FormFields 序列化为 JSON 字符串存入数据库。
+func (f FormFields) Value() (driver.Value, error) {
 	if f == nil {
 		return nil, nil
 	}
-	return json.Marshal(f)
+	b, err := json.Marshal(f)
+	if err != nil {
+		return nil, err
+	}
+	return string(b), nil
 }
 
+// Scan 实现 sql.Scanner，从数据库读取 JSON 字符串并反序列化为 FormFields。
 func (f *FormFields) Scan(value interface{}) error {
 	if value == nil {
 		*f = nil
 		return nil
 	}
-	b, ok := value.([]byte)
-	if !ok {
+
+	var b []byte
+	switch v := value.(type) {
+	case []byte:
+		b = v
+	case string:
+		b = []byte(v)
+	default:
 		return nil
 	}
+
 	if len(b) == 0 {
 		*f = nil
 		return nil
 	}
+
 	return json.Unmarshal(b, f)
 }
 

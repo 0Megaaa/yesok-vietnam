@@ -224,12 +224,12 @@ func ClientCreateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFun
 			}
 		}
 
-		formData := normalizeFormData(req.FormData, service)
 		// 优先使用 service_name，display_name 作为兜底
 		serviceName := strings.TrimSpace(service.ServiceName)
 		if serviceName == "" {
 			serviceName = strings.TrimSpace(service.DisplayName)
 		}
+		formData := normalizeFormData(req.FormData, service, serviceName)
 		order := models.Order{
 			OrderNo:       fmt.Sprintf("YS%s%04d", time.Now().Format("20060102150405"), time.Now().UnixNano()%10000),
 			AppUserID:     appUser.ID,
@@ -343,7 +343,6 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 			"after_status":       tl.AfterStatus,
 			"after_status_text":  afterText,
 			"remark":             tl.Remark,
-			"operator":           tl.Operator,
 			"action_name":        tl.ActionName,
 			"created_at":         tl.CreatedAt,
 		})
@@ -426,7 +425,7 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 		"updated_at":          order.UpdatedAt,
 		"timelines":           timelineItems,
 		"payments":            payments,
-		"actionNodes":         actionNodes,
+		"action_nodes":        actionNodes,
 	}
 }
 
@@ -456,12 +455,12 @@ func ensureOrderAppUser(db *gorm.DB, req CreateOrderRequest) models.AppUser {
 // 1.意图 -> 确保不同服务的 JSON 均带有 service_code 和提交时间。
 // 2.步骤 -> 若表单为空则创建 map，并写入服务编码、服务名称、提交时间。
 // 3.返回 -> 可序列化进入 orders.form_data 的 map。
-func normalizeFormData(data map[string]interface{}, service models.SysService) map[string]interface{} {
+func normalizeFormData(data map[string]interface{}, service models.SysService, serviceName string) map[string]interface{} {
 	if data == nil {
 		data = map[string]interface{}{}
 	}
 	data["service_code"] = service.ServiceCode
-	data["service_name"] = service.ServiceName
+	data["service_name"] = serviceName
 	data["submitted_at"] = time.Now().Format(time.RFC3339)
 	return data
 }
@@ -528,19 +527,39 @@ func GetClientOrderActions(db *gorm.DB) gin.HandlerFunc {
 		// 规范化返回字段
 		actions := make([]gin.H, 0, len(nodes))
 		for _, n := range nodes {
+			actionNameText := dictLabel(db, "workflow_action", n.ActionName)
+			if actionNameText == "" {
+				actionNameText = n.ButtonLabel
+			}
+			targetStatusText := dictLabel(db, "node_stage", n.TargetStatus)
+			if targetStatusText == "" {
+				targetStatusText = n.TargetStatus
+			}
+			macroText := dictLabel(db, "macro_status", n.MacroStatus)
+			if macroText == "" {
+				macroText = n.MacroStatus
+			}
+			notifyText := dictLabel(db, "notify_type", n.NotifyType)
+			if notifyText == "" {
+				notifyText = n.NotifyType
+			}
 			actions = append(actions, gin.H{
-				"id":            n.ID,
-				"action_name":   n.ActionName,
-				"button_label":  n.ButtonLabel,
-				"action_type":   n.ActionType,
-				"form_fields":   n.FormFields,
-				"target_status": n.TargetStatus,
-				"macro_status":  n.MacroStatus,
-				"notify_type":   n.NotifyType,
-				"need_audit":    n.NeedAudit,
-				"sort_order":    n.SortOrder,
-				"stage_code":    n.StageCode,
-				"stage_name":    n.StageName,
+				"id":                 n.ID,
+				"action_name":        n.ActionName,
+				"action_name_text":   actionNameText,
+				"button_label":       n.ButtonLabel,
+				"action_type":        n.ActionType,
+				"form_fields":        n.FormFields,
+				"target_status":      n.TargetStatus,
+				"target_status_text": targetStatusText,
+				"macro_status":       n.MacroStatus,
+				"macro_status_text":  macroText,
+				"notify_type":        n.NotifyType,
+				"notify_type_text":   notifyText,
+				"need_audit":         n.NeedAudit,
+				"sort_order":         n.SortOrder,
+				"stage_code":         n.StageCode,
+				"stage_name":         n.StageName,
 			})
 		}
 

@@ -16,11 +16,15 @@ const currentAction = ref(null)
 const submitting = ref(false)
 
 const statusMap = {
+  start: '开始',
   pending: '等待受理',
   reviewing: '资料审核中',
   quoted: '已报价',
   paid: '已收款',
+  wait_quote: '待报价',
   wait_pay: '待支付',
+  dispatching: '派车中',
+  in_progress: '服务中',
   processing: '服务中',
   completed: '已完成',
   cancelled: '已取消',
@@ -28,6 +32,14 @@ const statusMap = {
 }
 
 const statusLabel = (code) => statusMap[code] || code || '未知'
+
+// normalizeOrder 标准化后端返回字段
+const normalizeOrder = (raw = {}) => ({
+  ...raw,
+  action_nodes: raw.action_nodes || raw.actionNodes || [],
+  form_items: raw.form_items || [],
+  form_data: raw.form_data || {},
+})
 
 const formatMoney = (amount) => {
   if (amount === null || amount === undefined || amount === '') return '—'
@@ -40,8 +52,8 @@ const formatTime = (t) => {
   return new Date(t).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
 }
 
+// 业务资料：只使用 form_items，不再 fallback
 const formEntries = computed(() => {
-  // 优先使用后端 form_items
   if (Array.isArray(order.value?.form_items) && order.value.form_items.length) {
     return order.value.form_items.map((item) => ({
       key: item.key,
@@ -49,18 +61,7 @@ const formEntries = computed(() => {
       value: item.display_value ?? item.value ?? '—',
     }))
   }
-
-  // fallback：旧数据
-  if (!order.value?.form_data) return []
-  const raw = order.value.form_data
-  const data = typeof raw === 'string' ? JSON.parse(raw) : raw
-  return Object.entries(data)
-    .filter(([k]) => !k.startsWith('_') && !['service_code', 'service_name', 'submitted_at'].includes(k))
-    .map(([k, v]) => ({
-      key: k,
-      label: k,
-      value: typeof v === 'object' ? JSON.stringify(v) : v,
-    }))
+  return []
 })
 
 const timelineEntries = computed(() => {
@@ -85,8 +86,8 @@ const loadOrderDetail = async () => {
   loading.value = true
   try {
     const res = await get(`/v1/client/orders/${orderId.value}`)
-    // 后端直接返回订单对象，兼容 res.order 或 res.data
-    order.value = res.order || res.data?.order || res.data || res
+    const payload = res.order || res.data?.order || res.data || res
+    order.value = normalizeOrder(payload)
   } catch {
     safeToast('订单详情加载失败', 'error')
   } finally {
@@ -284,7 +285,7 @@ onMounted(async () => {
           <view class="timeline-body">
             <text class="timeline-title">{{ tl.after_status_text || statusLabel(tl.after_status) || '—' }}</text>
             <text v-if="tl.remark" class="timeline-desc">{{ tl.remark }}</text>
-            <text class="timeline-time">{{ tl.operator || '系统' }} · {{ formatTime(tl.created_at) }}</text>
+            <text class="timeline-time">{{ formatTime(tl.created_at) }}</text>
           </view>
         </view>
       </view>
