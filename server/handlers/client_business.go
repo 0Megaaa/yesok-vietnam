@@ -225,11 +225,16 @@ func ClientCreateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFun
 		}
 
 		formData := normalizeFormData(req.FormData, service)
+		// 优先使用 service_name，display_name 作为兜底
+		serviceName := strings.TrimSpace(service.ServiceName)
+		if serviceName == "" {
+			serviceName = strings.TrimSpace(service.DisplayName)
+		}
 		order := models.Order{
 			OrderNo:       fmt.Sprintf("YS%s%04d", time.Now().Format("20060102150405"), time.Now().UnixNano()%10000),
 			AppUserID:     appUser.ID,
 			ServiceID:     service.ID,
-			ServiceName:   service.DisplayName,
+			ServiceName:   serviceName,
 			ContactName:   req.ContactName,
 			ContactPhone:  req.ContactPhone,
 			TotalAmount:   service.BasePrice,
@@ -238,9 +243,6 @@ func ClientCreateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFun
 			MacroStatus:   startNode.MacroStatus,
 			PaymentStatus: "unpaid",
 			FormData:      marshalJSON(formData),
-		}
-		if order.ServiceName == "" {
-			order.ServiceName = service.ServiceName
 		}
 
 		if err := db.Transaction(func(tx *gorm.DB) error {
@@ -309,39 +311,122 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 		order.ServiceID, order.CurrentStage, role,
 	).Order("sort_order asc, id asc").Find(&nodes)
 
-	actionNodes := make([]gin.H, 0, len(nodes))
-	for _, n := range nodes {
-		actionNodes = append(actionNodes, gin.H{
-			"id":            n.ID,
-			"action_name":   n.ActionName,
-			"button_label":  n.ButtonLabel,
-			"action_type":   n.ActionType,
-			"form_fields":   n.FormFields,
-			"target_status": n.TargetStatus,
-			"macro_status":  n.MacroStatus,
-			"notify_type":   n.NotifyType,
-			"need_audit":    n.NeedAudit,
-			"sort_order":    n.SortOrder,
-			"stage_code":    n.StageCode,
-			"stage_name":    n.StageName,
+	// 构建 form_items：业务字段中文展示
+	formItems := buildFormItems(db, order)
+
+	// 状态中文
+	macroStatusText := dictLabel(db, "macro_status", order.MacroStatus)
+	if macroStatusText == "" {
+		macroStatusText = order.MacroStatus
+	}
+	currentStageText := dictLabel(db, "node_stage", order.CurrentStage)
+	if currentStageText == "" {
+		currentStageText = order.CurrentStage
+	}
+	paymentStatusText := paymentStatusLabel(order.PaymentStatus)
+
+	// timeline 中文字段
+	timelineItems := make([]gin.H, 0, len(timelines))
+	for _, tl := range timelines {
+		afterText := dictLabel(db, "node_stage", tl.AfterStatus)
+		if afterText == "" {
+			afterText = tl.AfterStatus
+		}
+		beforeText := dictLabel(db, "node_stage", tl.BeforeStatus)
+		if beforeText == "" {
+			beforeText = tl.BeforeStatus
+		}
+		timelineItems = append(timelineItems, gin.H{
+			"id":                 tl.ID,
+			"before_status":      tl.BeforeStatus,
+			"before_status_text": beforeText,
+			"after_status":       tl.AfterStatus,
+			"after_status_text":  afterText,
+			"remark":             tl.Remark,
+			"operator":           tl.Operator,
+			"action_name":        tl.ActionName,
+			"created_at":         tl.CreatedAt,
 		})
 	}
 
+	// actionNodes 中文字段
+	actionNodes := make([]gin.H, 0, len(nodes))
+	for _, n := range nodes {
+		actionNameText := dictLabel(db, "workflow_action", n.ActionName)
+		if actionNameText == "" {
+			actionNameText = n.ButtonLabel
+		}
+		targetStatusText := dictLabel(db, "node_stage", n.TargetStatus)
+		if targetStatusText == "" {
+			targetStatusText = n.TargetStatus
+		}
+		macroText := dictLabel(db, "macro_status", n.MacroStatus)
+		if macroText == "" {
+			macroText = n.MacroStatus
+		}
+		notifyText := dictLabel(db, "notify_type", n.NotifyType)
+		if notifyText == "" {
+			notifyText = n.NotifyType
+		}
+		actionNodes = append(actionNodes, gin.H{
+			"id":                 n.ID,
+			"action_name":        n.ActionName,
+			"action_name_text":   actionNameText,
+			"button_label":       n.ButtonLabel,
+			"action_type":        n.ActionType,
+			"form_fields":        n.FormFields,
+			"target_status":      n.TargetStatus,
+			"target_status_text": targetStatusText,
+			"macro_status":       n.MacroStatus,
+			"macro_status_text":  macroText,
+			"notify_type":        n.NotifyType,
+			"notify_type_text":   notifyText,
+			"need_audit":         n.NeedAudit,
+			"sort_order":         n.SortOrder,
+			"stage_code":         n.StageCode,
+			"stage_name":         n.StageName,
+		})
+	}
+
+	// submitted_at 单独提取
+	var submittedAt, serviceCode string
+	rawFormData := parseJSONString(string(order.FormData))
+	if m, ok := rawFormData.(map[string]interface{}); ok {
+		if v, ok := m["submitted_at"].(string); ok {
+			submittedAt = v
+		}
+		if v, ok := m["service_code"].(string); ok {
+			serviceCode = v
+		}
+	}
+
 	return gin.H{
-		"id": order.ID, "order_no": order.OrderNo, "orderNo": order.OrderNo, "app_user_id": order.AppUserID,
-		"service_id": order.ServiceID, "serviceId": order.ServiceID,
-		"service_name": order.ServiceName, "serviceName": order.ServiceName,
-		"contact_name": order.ContactName, "contact_phone": order.ContactPhone,
-		"total_amount": order.TotalAmount, "amount": order.TotalAmount, "price": formatMoney(order.TotalAmount),
-		"currency":       order.Currency,
-		"current_stage":  order.CurrentStage,
-		"current_status": order.MacroStatus, "currentStatus": order.MacroStatus,
-		"macro_status":   order.MacroStatus,
-		"payment_status": order.PaymentStatus,
-		"form_data":      parseJSONString(string(order.FormData)), "formData": parseJSONString(string(order.FormData)),
-		"remark":     order.Remark,
-		"created_at": order.CreatedAt, "updated_at": order.UpdatedAt,
-		"timelines": timelines, "payments": payments, "actionNodes": actionNodes,
+		"id":                  order.ID,
+		"order_no":            order.OrderNo,
+		"app_user_id":         order.AppUserID,
+		"service_id":          order.ServiceID,
+		"service_code":        serviceCode,
+		"service_name":        order.ServiceName,
+		"contact_name":        order.ContactName,
+		"contact_phone":       order.ContactPhone,
+		"total_amount":        order.TotalAmount,
+		"amount":              order.TotalAmount,
+		"currency":            order.Currency,
+		"macro_status":        order.MacroStatus,
+		"macro_status_text":   macroStatusText,
+		"current_stage":       order.CurrentStage,
+		"current_stage_text":  currentStageText,
+		"payment_status":      order.PaymentStatus,
+		"payment_status_text": paymentStatusText,
+		"form_data":           rawFormData,
+		"form_items":          formItems,
+		"submitted_at":        submittedAt,
+		"remark":              order.Remark,
+		"created_at":          order.CreatedAt,
+		"updated_at":          order.UpdatedAt,
+		"timelines":           timelineItems,
+		"payments":            payments,
+		"actionNodes":         actionNodes,
 	}
 }
 
@@ -523,4 +608,112 @@ func parseUint(s string) (uint, error) {
 	var v uint
 	_, err := fmt.Sscanf(s, "%d", &v)
 	return v, err
+}
+
+// buildFormItems 将 form_data 转换为带中文 label 和 display_value 的列表。
+func buildFormItems(db *gorm.DB, order models.Order) []gin.H {
+	// 1. 查询下单节点获取字段定义
+	var submitNode models.SysWorkflowNode
+	db.Where(
+		"service_id = ? AND stage_code = ? AND action_name = ? AND action_type = ?",
+		order.ServiceID, "start", "submit_request", "form_input",
+	).First(&submitNode)
+
+	// 构建字段 key -> FormFieldDef 的 map
+	fieldMap := map[string]models.FormFieldDef{}
+	for _, f := range submitNode.FormFields {
+		if f.Key != "" {
+			fieldMap[f.Key] = f
+		}
+	}
+
+	// 2. 解析 form_data
+	rawFormData := parseJSONString(string(order.FormData))
+	data, ok := rawFormData.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	// 3. 系统字段不作为业务资料展示
+	systemKeys := map[string]bool{
+		"service_code":        true,
+		"service_name":        true,
+		"submitted_at":        true,
+		"_last_action_name":   true,
+		"_last_notify_type":   true,
+		"_last_operator_role": true,
+		"_last_submitted_at":  true,
+	}
+
+	// 4. 构建 form_items
+	items := make([]gin.H, 0)
+	for key, rawValue := range data {
+		if systemKeys[key] || strings.HasPrefix(key, "_") {
+			continue
+		}
+
+		field, hasDef := fieldMap[key]
+		label := key
+		fieldType := "text"
+		displayValue := ""
+
+		if hasDef {
+			if field.Label != "" {
+				label = field.Label
+			}
+			fieldType = field.Type
+
+			// select 枚举值转中文
+			if field.Type == "select" && len(field.Options) > 0 {
+				val := fmt.Sprintf("%v", rawValue)
+				for _, opt := range field.Options {
+					if opt.Value == val {
+						displayValue = opt.Label
+						break
+					}
+				}
+			}
+		}
+
+		// 如果没有找到 option 的 display_value，直接用原始值
+		if displayValue == "" {
+			displayValue = fmt.Sprintf("%v", rawValue)
+		}
+
+		items = append(items, gin.H{
+			"key":           key,
+			"label":         label,
+			"value":         rawValue,
+			"display_value": displayValue,
+			"type":          fieldType,
+		})
+	}
+
+	return items
+}
+
+// dictLabel 通过字典码和字典值查询中文标签。
+func dictLabel(db *gorm.DB, dictCode, dictValue string) string {
+	if dictCode == "" || dictValue == "" {
+		return ""
+	}
+	var dictData models.SysDictData
+	if err := db.Where("dict_code = ? AND dict_value = ? AND status = ?", dictCode, dictValue, 1).First(&dictData).Error; err != nil {
+		return ""
+	}
+	return dictData.DictLabel
+}
+
+// paymentStatusLabel 返回支付状态的中文标签。
+var paymentStatusMap = map[string]string{
+	"unpaid":   "未支付",
+	"paid":     "已支付",
+	"refunded": "已退款",
+}
+
+func paymentStatusLabel(status string) string {
+	if label, ok := paymentStatusMap[status]; ok {
+		return label
+	}
+	return status
 }

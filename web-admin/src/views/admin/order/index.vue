@@ -38,17 +38,22 @@ const normalizeOrder = (order) => ({
   current_status: order.macro_status || order.current_status || order.currentStatus,
   current_stage: order.current_stage || '',
   total_amount: order.total_amount || order.amount || 0,
-  totalAmountText:
-    order.price || `${Math.round((order.total_amount || 0) / 100)} ${order.currency || 'VND'}`,
-  form_data: order.form_data || order.formData || {},
+  totalAmountText: (() => {
+    const n = Number(order.total_amount || order.amount || 0)
+    return `¥${n.toLocaleString('zh-CN')}`
+  })(),
   payment_status: order.payment_status || order.pay_status || 'pending',
   macro_status: order.macro_status || order.current_status || order.currentStatus,
-  // actionNodes 字段映射：后端返回 button_label → 按钮文案, target_status → 目标状态
+  // form_items: 后端返回的中文业务资料列表
+  form_items: order.form_items || [],
+  // actionNodes 字段映射
   actionNodes: (order.actionNodes || []).map((node) => ({
     id: node.id,
     action_name: node.action_name || '',
-    button_label: node.button_label || '',
+    button_label: node.button_label || node.action_name_text || '',
+    action_name_text: node.action_name_text || '',
     target_status: node.target_status || node.targetStatus || '',
+    target_status_text: node.target_status_text || node.target_status || '',
     need_audit: node.need_audit || false,
   })),
 })
@@ -179,22 +184,24 @@ onUnmounted(() => {
             </span>
           </div>
           <div class="status-badges">
-            <span class="status">{{ statusMap[order.current_status] || order.current_status }}</span>
-            <span v-if="order.current_stage && order.current_stage !== order.current_status" class="stage-tag">{{ order.current_stage }}</span>
-            <span class="payment-tag" :class="order.payment_status">{{ paymentStatusMap[order.payment_status] || order.payment_status }}</span>
+            <span class="status">{{ order.macro_status_text || statusMap[order.current_status] || order.current_status }}</span>
+            <span v-if="order.current_stage_text && order.current_stage_text !== order.current_status" class="stage-tag">{{ order.current_stage_text }}</span>
+            <span class="payment-tag" :class="order.payment_status">{{ order.payment_status_text || paymentStatusMap[order.payment_status] || order.payment_status }}</span>
           </div>
         </div>
 
         <div class="order-meta">
           <span>金额：{{ order.totalAmountText }}</span>
-          <span>支付：{{ order.payment_status }}</span>
           <span>时间：{{ order.created_at }}</span>
         </div>
 
         <div class="json-box">
-          <span v-for="(value, key) in order.form_data" :key="key">
-            {{ key }}：{{ value }}
-          </span>
+          <template v-if="order.form_items && order.form_items.length">
+            <span v-for="item in order.form_items" :key="item.key">
+              {{ item.label }}：{{ item.display_value ?? item.value ?? '—' }}
+            </span>
+          </template>
+          <span v-else class="muted">暂无业务资料</span>
         </div>
 
         <div class="actions" @click.stop>
@@ -202,11 +209,11 @@ onUnmounted(() => {
             v-for="node in order.actionNodes"
             :key="node.id"
             class="action-btn"
-            :class="{ payment: node.require_material }"
+            :class="{ payment: node.need_audit }"
             type="default"
             @click="applyWorkflowAction(order, node)"
           >
-            {{ node.action_name }}
+            {{ node.button_label || node.action_name }}
           </el-button>
           <span v-if="!order.actionNodes.length" class="muted">暂无下一步动作</span>
           <el-button class="detail-btn" type="default" @click.stop="goToDetail(order.id)">

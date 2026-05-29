@@ -41,13 +41,26 @@ const formatTime = (t) => {
 }
 
 const formEntries = computed(() => {
+  // 优先使用后端 form_items
+  if (Array.isArray(order.value?.form_items) && order.value.form_items.length) {
+    return order.value.form_items.map((item) => ({
+      key: item.key,
+      label: item.label || item.key,
+      value: item.display_value ?? item.value ?? '—',
+    }))
+  }
+
+  // fallback：旧数据
   if (!order.value?.form_data) return []
   const raw = order.value.form_data
   const data = typeof raw === 'string' ? JSON.parse(raw) : raw
-  return Object.entries(data).filter(([k]) => !k.startsWith('_')).map(([k, v]) => ({
-    key: k,
-    value: typeof v === 'object' ? JSON.stringify(v) : v,
-  }))
+  return Object.entries(data)
+    .filter(([k]) => !k.startsWith('_') && !['service_code', 'service_name', 'submitted_at'].includes(k))
+    .map(([k, v]) => ({
+      key: k,
+      label: k,
+      value: typeof v === 'object' ? JSON.stringify(v) : v,
+    }))
 })
 
 const timelineEntries = computed(() => {
@@ -229,7 +242,7 @@ onMounted(async () => {
             <text class="order-no">{{ order.order_no || order.orderNo }}</text>
           </view>
           <view class="status-pill" :class="order.macro_status || order.current_status">
-            {{ statusLabel(order.macro_status || order.current_status) }}
+            {{ order.macro_status_text || statusLabel(order.macro_status || order.current_status) }}
           </view>
         </view>
         <view class="summary-grid">
@@ -247,7 +260,7 @@ onMounted(async () => {
           </view>
           <view class="grid-item">
             <text class="label">支付状态</text>
-            <text class="value">{{ order.payment_status === 'paid' ? '已支付' : '未支付' }}</text>
+            <text class="value">{{ order.payment_status_text || (order.payment_status === 'paid' ? '已支付' : '未支付') }}</text>
           </view>
         </view>
       </view>
@@ -257,7 +270,7 @@ onMounted(async () => {
         <view class="section-title"><view class="section-bar"></view>业务资料</view>
         <view v-if="!formEntries.length" class="empty-text">暂无资料</view>
         <view v-for="entry in formEntries" :key="entry.key" class="form-row">
-          <text class="form-key">{{ entry.key }}</text>
+          <text class="form-key">{{ entry.label }}</text>
           <text class="form-value">{{ entry.value }}</text>
         </view>
       </view>
@@ -269,7 +282,7 @@ onMounted(async () => {
         <view v-for="tl in timelineEntries" :key="tl.id" class="timeline-item">
           <view class="timeline-dot"></view>
           <view class="timeline-body">
-            <text class="timeline-title">{{ tl.after_status || '—' }}</text>
+            <text class="timeline-title">{{ tl.after_status_text || statusLabel(tl.after_status) || '—' }}</text>
             <text v-if="tl.remark" class="timeline-desc">{{ tl.remark }}</text>
             <text class="timeline-time">{{ tl.operator || '系统' }} · {{ formatTime(tl.created_at) }}</text>
           </view>

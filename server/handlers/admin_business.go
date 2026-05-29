@@ -144,7 +144,7 @@ func AdminListOrders(db *gorm.DB) gin.HandlerFunc {
 		for _, order := range orders {
 			list = append(list, buildOrderPayloadForRole(db, order, "admin"))
 		}
-		c.JSON(http.StatusOK, gin.H{"list": list, "orders": list, "total": total})
+		c.JSON(http.StatusOK, gin.H{"list": list, "total": total})
 	}
 }
 
