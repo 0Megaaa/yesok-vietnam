@@ -2,7 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '@/api/request'
+import request, { ORIGIN_URL } from '@/api/request'
 import DynamicForm from '@/components/DynamicForm.vue'
 
 const router = useRouter()
@@ -20,6 +20,55 @@ const formInputLoading = ref(false)
 
 const showToast = (title, type = 'info') => {
   ElMessage({ message: title, type })
+}
+
+// getFileUrl 从字符串/对象/数组中提取文件 URL
+const getFileUrl = (value) => {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    const first = value[0]
+    if (typeof first === 'string') return first
+    return first?.url || first?.path || ''
+  }
+  if (typeof value === 'object') {
+    return value.url || value.path || ''
+  }
+  return ''
+}
+
+const isMaterialFile = (value) => {
+  const url = getFileUrl(value)
+  if (!url) return false
+  return url.includes('/material/') || url.includes('/uploads/')
+}
+
+const isImageFile = (value) => {
+  const url = getFileUrl(value)
+  if (!isMaterialFile(url)) return false
+  return /\.(jpg|jpeg|png)$/i.test(url)
+}
+
+const toFullFileUrl = (url) => {
+  if (!url) return ''
+  if (/^https?:\/\//.test(url)) return url
+  const origin = String(ORIGIN_URL || '').replace(/\/+$/, '')
+  const path = url.startsWith('/') ? url : `/${url}`
+  return `${origin}${path}`
+}
+
+// materialImageItems 返回前3张图片项，避免列表卡片过重
+const materialImageItems = (order) => {
+  return (order.form_items || [])
+    .filter((item) => isImageFile(item.display_value ?? item.value))
+    .slice(0, 3)
+}
+
+// textFormItems 返回非图片的文本项，最多8条
+const textFormItems = (order) => {
+  return (order.form_items || [])
+    .filter((item) => !isMaterialFile(item.display_value ?? item.value))
+    .slice(0, 8)
 }
 
 const statusMap = {
@@ -87,6 +136,89 @@ const hasPendingAudit = (order) => {
 
 const latestRejectedAudit = (order) => {
   return [...(order.timelines || [])].reverse().find((tl) => tl.audit_status === 'rejected')
+}
+
+const pendingAuditTimelineOf = (order) => {
+  return (order.timelines || []).find((tl) => tl.audit_status === 'pending')
+}
+
+// 待审核状态下过滤掉 audit 类动作
+const isAuditAction = (action) => {
+  if (!action) return false
+  return action.is_audit_action === true ||
+    ['audit_approve', 'audit_reject', 'audit_rejected'].includes(action.action_name)
+}
+
+// 列表可见动作：待审核时返回空数组，隐藏普通 action_nodes
+const visibleActionNodes = (order) => {
+  if (!order) return []
+  if (hasPendingAudit(order)) return []
+  return (order.action_nodes || []).filter((a) => !isAuditAction(a))
+}
+
+const approveAuditFromList = async (order) => {
+  const pending = pendingAuditTimelineOf(order)
+  if (!pending || !order?.id) return
+
+  try {
+    await ElMessageBox.confirm(
+      `确认审核通过订单「${order.order_no || order.orderNo}」？`,
+      '审核确认',
+      { confirmButtonText: '审核通过', cancelButtonText: '取消', type: 'success' }
+    )
+
+    const res = await request.post(`/v1/admin/orders/${order.id}/audit`, {
+      timeline_id: pending.id,
+      result: 'approved',
+      audit_remark: '资料审核通过',
+    })
+
+    const next = normalizeOrder(res.data?.order || res.data)
+    orders.value = orders.value.map((item) => (item.id === order.id ? next : item))
+
+    showToast('审核已通过', 'success')
+  } catch (error) {
+    if (error !== 'cancel') {
+      showToast(error?.response?.data?.error || error?.message || '审核失败', 'error')
+    }
+  }
+}
+
+const rejectAuditFromList = async (order) => {
+  const pending = pendingAuditTimelineOf(order)
+  if (!pending || !order?.id) return
+
+  try {
+    const { value } = await ElMessageBox.prompt(
+      `请填写订单「${order.order_no || order.orderNo}」审核不通过原因`,
+      '审核不通过',
+      {
+        confirmButtonText: '确认驳回',
+        cancelButtonText: '取消',
+        inputType: 'textarea',
+        inputPlaceholder: '例如：护照首页照片模糊，请重新上传',
+        inputValidator: (val) => {
+          if (!val || !val.trim()) return '请填写审核不通过原因'
+          return true
+        },
+      }
+    )
+
+    const res = await request.post(`/v1/admin/orders/${order.id}/audit`, {
+      timeline_id: pending.id,
+      result: 'rejected',
+      audit_remark: value.trim(),
+    })
+
+    const next = normalizeOrder(res.data?.order || res.data)
+    orders.value = orders.value.map((item) => (item.id === order.id ? next : item))
+
+    showToast('已驳回，订单已回到补资料流程', 'success')
+  } catch (error) {
+    if (error !== 'cancel') {
+      showToast(error?.response?.data?.error || error?.message || '审核失败', 'error')
+    }
+  }
 }
 
 const loadOrders = async () => {
@@ -301,25 +433,57 @@ onUnmounted(() => {
 
         <div class="json-box">
           <template v-if="order.form_items && order.form_items.length">
-            <span v-for="item in order.form_items" :key="item.key">
+            <span v-for="item in textFormItems(order)" :key="item.key">
               {{ item.label }}：{{ item.display_value ?? item.value ?? '—' }}
             </span>
+
+            <div v-if="materialImageItems(order).length" class="material-preview-row" @click.stop>
+              <el-image
+                v-for="item in materialImageItems(order)"
+                :key="item.key"
+                :src="toFullFileUrl(getFileUrl(item.display_value ?? item.value))"
+                :preview-src-list="materialImageItems(order).map(img => toFullFileUrl(getFileUrl(img.display_value ?? img.value)))"
+                fit="cover"
+                class="material-list-thumb"
+              />
+            </div>
           </template>
           <span v-else class="muted">暂无业务资料</span>
         </div>
 
         <div class="actions" @click.stop>
-          <el-button
-            v-for="node in order.action_nodes"
-            :key="node.id"
-            class="action-btn"
-            :class="{ payment: node.need_audit }"
-            type="default"
-            @click="handleWorkflowAction(order, node)"
-          >
-            {{ node.button_label || node.action_name_text || node.action_name }}
-          </el-button>
-          <span v-if="!order.action_nodes.length" class="muted">暂无下一步动作</span>
+          <template v-if="hasPendingAudit(order)">
+            <el-button
+              class="action-btn audit-pass"
+              type="success"
+              @click.stop="approveAuditFromList(order)"
+            >
+              审核通过
+            </el-button>
+            <el-button
+              class="action-btn audit-reject"
+              type="danger"
+              plain
+              @click.stop="rejectAuditFromList(order)"
+            >
+              审核不通过
+            </el-button>
+          </template>
+
+          <template v-else>
+            <el-button
+              v-for="node in visibleActionNodes(order)"
+              :key="node.id"
+              class="action-btn"
+              :class="{ payment: node.need_audit }"
+              type="default"
+              @click.stop="handleWorkflowAction(order, node)"
+            >
+              {{ node.button_label || node.action_name_text || node.action_name }}
+            </el-button>
+            <span v-if="!visibleActionNodes(order).length" class="muted">暂无下一步动作</span>
+          </template>
+
           <el-button class="detail-btn" type="default" @click.stop="goToDetail(order.id)">
             查看详情
           </el-button>
@@ -547,6 +711,18 @@ onUnmounted(() => {
   background: #f5d98f;
 }
 
+.action-btn.audit-pass {
+  background: #0b6b55;
+  border-color: #0b6b55;
+  color: #fff;
+}
+
+.action-btn.audit-reject {
+  background: #fff5f5;
+  border-color: #ffb8b8;
+  color: #d64545;
+}
+
 .detail-btn {
   height: 34px;
   padding: 0 16px;
@@ -562,5 +738,20 @@ onUnmounted(() => {
   color: #6b7c78;
   text-align: center;
   font-size: 14px;
+}
+
+.material-preview-row {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.material-list-thumb {
+  width: 64px;
+  height: 64px;
+  border-radius: 10px;
+  border: 1px solid #e5efeb;
+  background: #f6faf8;
+  overflow: hidden;
 }
 </style>

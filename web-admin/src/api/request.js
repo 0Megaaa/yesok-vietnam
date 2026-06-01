@@ -1,6 +1,14 @@
 import axios from 'axios'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+
+// ORIGIN_URL 用于拼接静态资源 /material，避免带 /api 前缀
+// 例如：BASE_URL = http://127.0.0.1:7625/api → ORIGIN_URL = http://127.0.0.1:7625
+const ORIGIN_URL = (() => {
+  const raw = String(BASE_URL || '').replace(/\/+$/, '')
+  return raw.replace(/\/api$/, '')
+})()
+
 const TIMEOUT = 10000
 
 // readStorage 读取本地 token。
@@ -120,4 +128,4 @@ function createRequest() {
 
 const request = createRequest()
 export default request
-export { request }
+export { request, ORIGIN_URL }

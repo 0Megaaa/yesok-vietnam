@@ -165,6 +165,23 @@ func AdminGetOrder(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// resolveMacroStatusByStage 根据服务ID和阶段编码查找节点的宏状态，用于审核失败时推导回退节点对应的 macro_status
+func resolveMacroStatusByStage(db *gorm.DB, serviceID uint, stageCode string, fallback string) string {
+	var node models.SysWorkflowNode
+	if err := db.Where(
+		"service_id = ? AND stage_code = ?",
+		serviceID, stageCode,
+	).Order("sort_order ASC, id ASC").First(&node).Error; err == nil {
+		if strings.TrimSpace(node.MacroStatus) != "" {
+			return strings.TrimSpace(node.MacroStatus)
+		}
+	}
+	if strings.TrimSpace(fallback) != "" {
+		return fallback
+	}
+	return "supplement"
+}
+
 // AdminGetOrderActions returns all actionable workflow nodes for the current stage (admin role).
 func AdminGetOrderActions(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -206,6 +223,7 @@ func AdminGetOrderActions(db *gorm.DB) gin.HandlerFunc {
 			if notifyText == "" {
 				notifyText = n.NotifyType
 			}
+			isAuditAction := n.ActionName == "audit_approve" || n.ActionName == "audit_reject"
 			actions = append(actions, gin.H{
 				"id":                  n.ID,
 				"action_name":         n.ActionName,
@@ -221,6 +239,7 @@ func AdminGetOrderActions(db *gorm.DB) gin.HandlerFunc {
 				"notify_type_text":    notifyText,
 				"need_audit":          n.NeedAudit,
 				"audit_reject_status": n.AuditRejectStatus,
+				"is_audit_action":     isAuditAction,
 				"sort_order":          n.SortOrder,
 				"stage_code":          n.StageCode,
 				"stage_name":          n.StageName,
@@ -823,16 +842,36 @@ func AdminAuditOrder(db *gorm.DB) gin.HandlerFunc {
 				"updated_at":     now,
 			})
 
-			// 计算回退节点
+			// 计算回退节点优先级：
+			// 1. originNode.AuditRejectStatus（当前审核节点的专属回退目标）
+			// 2. 当前 stage 中 audit_reject 节点的 target_status
+			// 3. timeline.BeforeStatus（审核前的节点）
+			// 4. fallback: wait_supplement
 			rejectStatus := strings.TrimSpace(originNode.AuditRejectStatus)
+			if rejectStatus == "" {
+				var rejectNode models.SysWorkflowNode
+				if err := tx.Where(
+					"service_id = ? AND stage_code = ? AND action_name = ? AND executor_role IN ?",
+					order.ServiceID, order.CurrentStage, "audit_reject",
+					[]string{"admin", "both"},
+				).Order("sort_order ASC, id ASC").First(&rejectNode).Error; err == nil {
+					rejectStatus = strings.TrimSpace(rejectNode.TargetStatus)
+				}
+			}
+			if rejectStatus == "" {
+				rejectStatus = strings.TrimSpace(timeline.BeforeStatus)
+			}
 			if rejectStatus == "" {
 				rejectStatus = "wait_supplement"
 			}
 
-			// 更新订单状态（macro_status 固定为 reviewing，表示待补资料状态）
+			// 根据回退节点推导 macro_status（不要硬编码 reviewing）
+			rejectMacroStatus := resolveMacroStatusByStage(tx, order.ServiceID, rejectStatus, "supplement")
+
+			// 更新订单状态
 			tx.Model(&order).Updates(map[string]interface{}{
 				"current_stage": rejectStatus,
-				"macro_status":  "reviewing",
+				"macro_status":  rejectMacroStatus,
 				"updated_at":    now,
 			})
 

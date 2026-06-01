@@ -3,7 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getOrderDetail, getOrderActions, performOrderAction } from '@/api/admin/orders'
-import request from '@/api/request'
+import { request, ORIGIN_URL } from '@/api/request'
 import DynamicForm from '@/components/DynamicForm.vue'
 
 const router = useRouter()
@@ -95,22 +95,39 @@ const showToast = (title, type = 'info') => {
   ElMessage({ message: title, type })
 }
 
-const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || ''
+// getFileUrl 从字符串/对象/数组中提取文件 URL
+const getFileUrl = (value) => {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    const first = value[0]
+    if (typeof first === 'string') return first
+    return first?.url || first?.path || ''
+  }
+  if (typeof value === 'object') {
+    return value.url || value.path || ''
+  }
+  return ''
+}
 
 const isMaterialFile = (value) => {
-  if (!value || typeof value !== 'string') return false
-  return value.includes('/material/') || value.includes('/uploads/')
+  const url = getFileUrl(value)
+  if (!url) return false
+  return url.includes('/material/') || url.includes('/uploads/')
 }
 
 const isImageFile = (value) => {
-  if (!isMaterialFile(value)) return false
-  return /\.(jpg|jpeg|png)$/i.test(value)
+  const url = getFileUrl(value)
+  if (!isMaterialFile(url)) return false
+  return /\.(jpg|jpeg|png)$/i.test(url)
 }
 
 const toFullFileUrl = (url) => {
   if (!url) return ''
   if (/^https?:\/\//.test(url)) return url
-  return `${apiBaseUrl}${url.startsWith('/') ? url : `/${url}`}`
+  const origin = String(ORIGIN_URL || '').replace(/\/+$/, '')
+  const path = url.startsWith('/') ? url : `/${url}`
+  return `${origin}${path}`
 }
 
 const pendingAuditTimeline = computed(() => {
@@ -138,6 +155,10 @@ const approveAudit = async () => {
     })
     const payload = res.data?.order || res.order || res.data || res
     order.value = normalizeOrder(payload)
+
+    await loadOrderDetail()
+    await loadOrderActions()
+
     showToast('审核已通过', 'success')
   } catch (error) {
     if (error !== 'cancel') {
@@ -168,9 +189,14 @@ const submitRejectAudit = async () => {
     })
     const payload = res.data?.order || res.order || res.data || res
     order.value = normalizeOrder(payload)
+
+    await loadOrderDetail()
+    await loadOrderActions()
+
     rejectAuditVisible.value = false
     rejectAuditRemark.value = ''
-    showToast('已驳回，订单已回到待补资料', 'success')
+
+    showToast('已驳回，订单已回到补资料流程', 'success')
   } catch (error) {
     showToast(error?.response?.data?.error || error?.message || '审核失败', 'error')
   } finally {
@@ -208,10 +234,22 @@ const refresh = async () => {
   await loadOrderActions()
 }
 
-// 根据 action_type 分类
-const buttonClickActions = computed(() => actions.value.filter(a => a.action_type === 'button_click'))
-const formInputActions = computed(() => actions.value.filter(a => a.action_type === 'form_input'))
-const wxPayActions = computed(() => actions.value.filter(a => a.action_type === 'wx_pay'))
+// 根据 action_type 分类（待审核状态下过滤掉 audit 类动作）
+const isAuditAction = (action) => {
+  if (!action) return false
+  return action.is_audit_action === true ||
+    ['audit_approve', 'audit_reject', 'audit_rejected'].includes(action.action_name)
+}
+
+const visibleWorkflowActions = computed(() => {
+  // 待审核状态下，不展示任何普通工作流 action_nodes，只展示人工审核按钮
+  if (hasPendingAudit.value) return []
+  return (actions.value || []).filter((a) => !isAuditAction(a))
+})
+
+const buttonClickActions = computed(() => visibleWorkflowActions.value.filter(a => a.action_type === 'button_click'))
+const formInputActions = computed(() => visibleWorkflowActions.value.filter(a => a.action_type === 'form_input'))
+const wxPayActions = computed(() => visibleWorkflowActions.value.filter(a => a.action_type === 'wx_pay'))
 
 // --- button_click 类型：直接执行备注确认 ---
 const executeButtonClick = async (action) => {
@@ -346,28 +384,18 @@ onMounted(async () => {
           <span class="json-key">{{ entry.label }}</span>
           <span v-if="isImageFile(entry.value)" class="json-value image-cell">
             <el-image
-              :src="toFullFileUrl(entry.value)"
-              :preview-src-list="[toFullFileUrl(entry.value)]"
+              :src="toFullFileUrl(getFileUrl(entry.value))"
+              :preview-src-list="[toFullFileUrl(getFileUrl(entry.value))]"
               fit="cover"
               class="material-thumb"
             />
           </span>
           <span v-else-if="isMaterialFile(entry.value)" class="json-value">
-            <el-link :href="toFullFileUrl(entry.value)" target="_blank" type="primary">
+            <el-link :href="toFullFileUrl(getFileUrl(entry.value))" target="_blank" type="primary">
               查看文件
             </el-link>
           </span>
           <span v-else class="json-value">{{ entry.value }}</span>
-        </div>
-      </div>
-
-      <!-- 平台资料审核 -->
-      <div v-if="hasPendingAudit" class="audit-panel">
-        <div class="audit-title">平台资料审核</div>
-        <div class="audit-desc">当前订单有待审核资料，请审核后决定是否进入下一流程。</div>
-        <div class="audit-actions">
-          <el-button type="success" :loading="auditLoading" @click="approveAudit">审核通过</el-button>
-          <el-button type="danger" plain :loading="auditLoading" @click="openRejectAudit">审核不通过</el-button>
         </div>
       </div>
 
@@ -417,38 +445,59 @@ onMounted(async () => {
           <div class="skeleton-btn"></div>
           <div class="skeleton-btn"></div>
         </div>
-        <div v-else-if="!actions.length" class="empty-line">当前节点无操作动作</div>
+        <div v-else-if="!hasPendingAudit && !visibleWorkflowActions.length" class="empty-line">当前节点无操作动作</div>
         <div v-else class="workflow-actions">
-          <!-- button_click -->
-          <button
-            v-for="action in buttonClickActions"
-            :key="action.id"
-            class="action-btn"
-            :title="`${action.button_label}（${action.stage_name}）`"
-            @click="executeButtonClick(action)"
-          >
-            {{ action.button_label }}
-          </button>
-          <!-- form_input -->
-          <button
-            v-for="action in formInputActions"
-            :key="action.id"
-            class="action-btn action-material"
-            :title="`${action.button_label}（需填写表单）`"
-            @click="openFormInput(action)"
-          >
-            {{ action.button_label }}
-          </button>
-          <!-- wx_pay -->
-          <button
-            v-for="action in wxPayActions"
-            :key="action.id"
-            class="action-btn action-payment"
-            :title="`${action.button_label}（微信支付）`"
-            @click="triggerWxPay(action)"
-          >
-            {{ action.button_label }}
-          </button>
+          <!-- 待审核：只展示人工审核按钮 -->
+          <template v-if="hasPendingAudit">
+            <button
+              class="action-btn action-audit-pass"
+              :disabled="auditLoading"
+              @click="approveAudit"
+            >
+              审核通过
+            </button>
+            <button
+              class="action-btn action-audit-reject"
+              :disabled="auditLoading"
+              @click="openRejectAudit"
+            >
+              审核不通过
+            </button>
+          </template>
+
+          <!-- 普通工作流动作（待审核时已被 visibleWorkflowActions 过滤为空，此分支不会渲染） -->
+          <template v-else>
+            <!-- button_click -->
+            <button
+              v-for="action in buttonClickActions"
+              :key="action.id"
+              class="action-btn"
+              :title="`${action.button_label}（${action.stage_name}）`"
+              @click="executeButtonClick(action)"
+            >
+              {{ action.button_label }}
+            </button>
+            <!-- form_input -->
+            <button
+              v-for="action in formInputActions"
+              :key="action.id"
+              class="action-btn action-material"
+              :title="`${action.button_label}（需填写表单）`"
+              @click="openFormInput(action)"
+            >
+              {{ action.button_label }}
+            </button>
+            <!-- wx_pay -->
+            <button
+              v-for="action in wxPayActions"
+              :key="action.id"
+              class="action-btn action-payment"
+              :title="`${action.button_label}（微信支付）`"
+              @click="triggerWxPay(action)"
+            >
+              {{ action.button_label }}
+            </button>
+          </template>
         </div>
       </div>
     </template>
@@ -700,6 +749,10 @@ onMounted(async () => {
 
 .action-btn.action-payment { color: #12312c; background: #c5a059; }
 .action-btn.action-material { color: #004d40; background: rgba(0, 77, 64, 0.1); border: 1.5px solid rgba(0, 77, 64, 0.2); }
+.action-btn.action-audit-pass { background: #0b6b55; color: #fff; border-color: #0b6b55; }
+.action-btn.action-audit-pass:hover { background: #075f4b; border-color: #075f4b; }
+.action-btn.action-audit-reject { background: #fff5f5; color: #d64545; border-color: #ffb8b8; }
+.action-btn.action-audit-reject:hover { background: #ffecec; color: #c92f2f; border-color: #ff9b9b; }
 
 /* 骨架屏占位 */
 .actions-skeleton { display: flex; gap: 10px; }

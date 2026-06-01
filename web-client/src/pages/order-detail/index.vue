@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
-import { get, post } from '@/api/request'
+import { get, post, ORIGIN_URL } from '@/api/request'
 import { uploadOrderMaterial } from '@/api/order'
 
 const client = useClientStore()
@@ -19,22 +19,32 @@ const submitting = ref(false)
 // 图片上传中状态（key = field.key）
 const uploadingMap = ref({})
 
-// BASE_URL 用于拼接文件 URL
-const BASE_URL = (() => {
-  if (typeof import_meta !== 'undefined' && import_meta?.env?.VITE_API_BASE_URL) {
-    return import_meta.env.VITE_API_BASE_URL
-  }
-  return ''
-})()
+// 本地临时文件缓存（key = field.key），上传后才替换为后端 URL
+const localFileMap = ref({})
 
-// toFullFileUrl 将相对路径转为完整 URL
-const toFullFileUrl = (url) => {
-  if (!url) return ''
-  if (/^https?:\/\//.test(url)) return url
-  return `${BASE_URL}${url.startsWith('/') ? url : `/${url}`}`
+// isLocalTempFile 判断是否是本地临时文件路径（不上传后端则不走此路径）
+const isLocalTempFile = (url) => {
+  if (!url || typeof url !== 'string') return false
+  return (
+    url.startsWith('wxfile://') ||
+    url.startsWith('http://tmp/') ||
+    url.startsWith('file://') ||
+    url.includes('/tmp/') ||
+    url.includes('/temp/')
+  )
 }
 
-// chooseAndUploadFile 选择图片并上传
+// toFullFileUrl：静态资源用 ORIGIN_URL 拼接，本地临时文件直接返回
+const toFullFileUrl = (url) => {
+  if (!url) return ''
+  if (isLocalTempFile(url)) return url
+  if (/^https?:\/\//.test(url)) return url
+  const origin = String(ORIGIN_URL || '').replace(/\/+$/, '')
+  const path = url.startsWith('/') ? url : `/${url}`
+  return `${origin}${path}`
+}
+
+// chooseAndUploadFile：仅选择本地图片，缓存临时路径，不上传
 const chooseAndUploadFile = async (field) => {
   if (!order.value?.id) {
     uni.showToast({ title: '订单不存在', icon: 'none' })
@@ -49,24 +59,14 @@ const chooseAndUploadFile = async (field) => {
       const tempFilePath = res.tempFilePaths?.[0]
       if (!tempFilePath) return
 
-      uploadingMap.value[field.key] = true
-      try {
-        const uploadRes = await uploadOrderMaterial(order.value.id, tempFilePath, field.key)
-
-        if (!uploadRes?.url) {
-          throw new Error('上传失败')
-        }
-
-        formData.value[field.key] = uploadRes.url
-        uni.showToast({ title: '上传成功', icon: 'success' })
-      } catch (error) {
-        uni.showToast({
-          title: error?.message || '上传失败',
-          icon: 'none',
-        })
-      } finally {
-        uploadingMap.value[field.key] = false
+      localFileMap.value[field.key] = {
+        tempFilePath,
+        name: field.key,
+        uploadedUrl: '',
       }
+
+      formData.value[field.key] = tempFilePath
+      uni.showToast({ title: '图片已选择', icon: 'success' })
     },
     fail: (err) => {
       console.warn('[chooseAndUploadFile] cancelled or failed:', err)
@@ -74,10 +74,115 @@ const chooseAndUploadFile = async (field) => {
   })
 }
 
-// previewUploadedFile 预览已上传图片
-const previewUploadedFile = (url) => {
+// uploadPendingLocalFiles：提交前上传所有本地临时文件，返回替换了后端 URL 的 inputData
+const uploadPendingLocalFiles = async (fields = []) => {
+  const finalData = { ...formData.value }
+
+  for (const field of fields) {
+    if (field.type !== 'image' && field.type !== 'file') continue
+
+    const currentValue = finalData[field.key]
+    if (!currentValue) continue
+
+    // 已是后端 URL，跳过
+    if (!isLocalTempFile(currentValue)) continue
+
+    const localItem = localFileMap.value[field.key]
+    const tempFilePath = localItem?.tempFilePath || currentValue
+
+    uploadingMap.value[field.key] = true
+
+    try {
+      const uploadRes = await uploadOrderMaterial(order.value.id, tempFilePath, field.key)
+
+      if (!uploadRes?.url) {
+        throw new Error(`${field.label}上传失败`)
+      }
+
+      finalData[field.key] = uploadRes.url
+
+      localFileMap.value[field.key] = {
+        ...localItem,
+        uploadedUrl: uploadRes.url,
+      }
+    } finally {
+      uploadingMap.value[field.key] = false
+    }
+  }
+
+  return finalData
+}
+
+// previewUploadedFile 预览图片（支持本地临时和后端 URL）
+const previewUploadedFile = (url, urls = []) => {
   const fullUrl = toFullFileUrl(url)
-  uni.previewImage({ urls: [fullUrl], current: fullUrl })
+  if (!fullUrl) return
+  const fullUrls = urls.length ? urls.map(toFullFileUrl) : [fullUrl]
+  uni.previewImage({ urls: fullUrls, current: fullUrl })
+}
+
+// getFileUrl 从字符串/对象/数组中提取文件 URL
+const getFileUrl = (value) => {
+  if (!value) return ''
+  if (typeof value === 'string') return value
+  if (Array.isArray(value)) {
+    const first = value[0]
+    if (typeof first === 'string') return first
+    return first?.url || first?.path || ''
+  }
+  if (typeof value === 'object') {
+    return value.url || value.path || ''
+  }
+  return ''
+}
+
+// isMaterialFile 判断是否为平台素材文件
+const isMaterialFile = (value) => {
+  const url = getFileUrl(value)
+  if (!url) return false
+  return url.includes('/material/') || url.includes('/uploads/') || isLocalTempFile(url)
+}
+
+// isImageFile 判断是否为图片文件
+const isImageFile = (value) => {
+  const url = getFileUrl(value)
+  if (!url) return false
+  if (isLocalTempFile(url)) return true
+  return /\.(jpg|jpeg|png)$/i.test(url)
+}
+
+// isImageEntry 判断 entry 是否为图片字段
+const isImageEntry = (entry) => {
+  if (!entry) return false
+  if (entry.type === 'image' || entry.type === 'file') {
+    return isImageFile(entry.raw_value || entry.value)
+  }
+  return isImageFile(entry.raw_value || entry.value)
+}
+
+// getFileUrls 提取多个文件 URL（支持未来数组场景）
+const getFileUrls = (value) => {
+  if (!value) return []
+  if (typeof value === 'string') return [value]
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === 'string') return item
+        return item?.url || item?.path || ''
+      })
+      .filter(Boolean)
+  }
+  if (typeof value === 'object') {
+    const url = value.url || value.path || ''
+    return url ? [url] : []
+  }
+  return []
+}
+
+// getOptionLabel 返回 select 字段选中项的中文 label
+const getOptionLabel = (field, value) => {
+  const option = (field.options || []).find((item) => item.value === value)
+  return option?.label || value || ''
 }
 
 // unwrapResponse 统一解包 request.js 返回的 { data: ... } 结构
@@ -127,13 +232,16 @@ const formatTime = (t) => {
   return new Date(t).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
 }
 
-// 业务资料：只使用 form_items，不再 fallback
+// 业务资料：保留 type/raw_value/display_value 以支持图片识别
 const formEntries = computed(() => {
   if (Array.isArray(order.value?.form_items) && order.value.form_items.length) {
     return order.value.form_items.map((item) => ({
       key: item.key,
       label: item.label || item.key,
-      value: item.display_value ?? item.value ?? '—',
+      type: item.type || 'text',
+      value: item.display_value ?? item.value ?? '',
+      display_value: item.display_value ?? item.value ?? '',
+      raw_value: item.value ?? item.display_value ?? '',
     }))
   }
   return []
@@ -144,8 +252,45 @@ const timelineEntries = computed(() => {
   return [...order.value.timelines].reverse()
 })
 
-const latestRejectedAudit = computed(() => {
-  return [...(order.value?.timelines || [])].reverse().find((tl) => tl.audit_status === 'rejected')
+// getTimelineTime 提取 timeline 时间戳用于排序
+const getTimelineTime = (item) => {
+  return new Date(item?.created_at || item?.updated_at || 0).getTime()
+}
+
+// latestAuditTimeline 按时间倒序找到最新的审核相关 timeline（pending/approved/rejected）
+const latestAuditTimeline = computed(() => {
+  const list = order.value?.timelines || []
+  return list
+    .filter((item) => ['pending', 'approved', 'rejected'].includes(item.audit_status))
+    .sort((a, b) => getTimelineTime(b) - getTimelineTime(a))[0]
+})
+
+// activeAuditRejectTimeline 仅当最新审核状态仍为 rejected，且订单未进入后续阶段时返回
+const activeAuditRejectTimeline = computed(() => {
+  const latest = latestAuditTimeline.value
+  if (!latest) return null
+  if (latest.audit_status !== 'rejected') return null
+
+  const currentStage = order.value?.current_stage || ''
+  const macroStatus = order.value?.macro_status || ''
+
+  const forwardStages = [
+    'wait_pay', 'paid', 'processing', 'prepare_material',
+    'external_review', 'approved', 'issued', 'delivering', 'completed',
+  ]
+  const forwardMacroStatuses = [
+    'wait_pay', 'paid', 'processing', 'approved', 'delivering', 'completed',
+  ]
+
+  if (forwardStages.includes(currentStage) || forwardMacroStatuses.includes(macroStatus)) {
+    return null
+  }
+  return latest
+})
+
+const activeAuditRejectRemark = computed(() => {
+  const item = activeAuditRejectTimeline.value
+  return item?.audit_remark || item?.remark || ''
 })
 
 const buttonClickActions = computed(() => actions.value.filter(a => a.action_type === 'button_click'))
@@ -230,6 +375,8 @@ const closeForm = () => {
   formVisible.value = false
   currentAction.value = null
   formData.value = {}
+  localFileMap.value = {}
+  uploadingMap.value = {}
 }
 
 const validateField = (field) => {
@@ -255,12 +402,32 @@ const validateField = (field) => {
 }
 
 const submitForm = async () => {
+  if (submitting.value) return
+
   const fields = currentAction.value?.form_fields || []
+
   for (const field of fields) {
     if (!validateField(field)) return
   }
-  await performAction(currentAction.value, formData.value)
-  closeForm()
+
+  submitting.value = true
+
+  try {
+    uni.showLoading({ title: '提交中...' })
+
+    const finalInputData = await uploadPendingLocalFiles(fields)
+
+    const ok = await performAction(currentAction.value, finalInputData)
+
+    if (ok) {
+      closeForm()
+    }
+  } catch (error) {
+    uni.showToast({ title: error?.message || '提交失败', icon: 'none' })
+  } finally {
+    uni.hideLoading()
+    submitting.value = false
+  }
 }
 
 const executeWxPay = async (action) => {
@@ -326,7 +493,6 @@ const simulateWxPay = async (action, payAmount) => {
 }
 
 const performAction = async (action, inputData) => {
-  submitting.value = true
   try {
     await post(`/v1/client/orders/${orderId.value}/action`, {
       action_name: action.action_name,
@@ -336,10 +502,10 @@ const performAction = async (action, inputData) => {
     safeToast('操作成功', 'success')
     await loadOrderDetail()
     await loadOrderActions()
+    return true
   } catch (err) {
     safeToast(err?.message || '操作失败', 'error')
-  } finally {
-    submitting.value = false
+    return false
   }
 }
 
@@ -412,21 +578,31 @@ onMounted(async () => {
         </view>
       </view>
 
-      <!-- 审核未通过提示 -->
-      <view v-if="latestRejectedAudit" class="audit-reject-card">
+      <!-- 审核未通过提示（仅展示当前仍有效的审核失败） -->
+      <view v-if="activeAuditRejectRemark" class="audit-reject-card">
         <text class="audit-reject-title">资料审核未通过</text>
-        <text class="audit-reject-desc">
-          {{ latestRejectedAudit.audit_remark || '资料未通过平台审核，请根据提示补充资料。' }}
-        </text>
+        <text class="audit-reject-desc">{{ activeAuditRejectRemark }}</text>
       </view>
 
       <!-- 业务表单 -->
       <view class="section-card">
         <view class="section-title"><view class="section-bar"></view>业务资料</view>
         <view v-if="!formEntries.length" class="empty-text">暂无资料</view>
-        <view v-for="entry in formEntries" :key="entry.key" class="form-row">
+        <view v-for="entry in formEntries" :key="entry.key" class="form-row" :class="{ 'form-row-image': isImageEntry(entry) }">
           <text class="form-key">{{ entry.label }}</text>
-          <text class="form-value">{{ entry.value }}</text>
+
+          <view v-if="isImageEntry(entry)" class="form-image-list">
+            <image
+              v-for="url in getFileUrls(entry.raw_value || entry.value)"
+              :key="url"
+              class="form-image"
+              :src="toFullFileUrl(url)"
+              mode="aspectFill"
+              @click.stop="previewUploadedFile(url, getFileUrls(entry.raw_value || entry.value))"
+            />
+          </view>
+
+          <text v-else class="form-value">{{ entry.display_value || entry.value || '—' }}</text>
         </view>
       </view>
 
@@ -492,7 +668,7 @@ onMounted(async () => {
 
     <!-- 表单输入弹窗 -->
     <view v-if="formVisible" class="form-overlay" @click.self="closeForm">
-      <view class="form-sheet">
+      <view class="form-sheet" @click.stop>
         <view class="form-header">
           <text class="form-title">填写 {{ currentAction?.button_label }}</text>
           <view class="form-close" @click="closeForm">✕</view>
@@ -539,7 +715,7 @@ onMounted(async () => {
               @change="(e) => { formData[field.key] = field.options[e.detail.value]?.value ?? field.options[e.detail.value] ?? '' }"
             >
               <view class="field-picker">
-                <text>{{ formData[field.key] || `请选择${field.label}` }}</text>
+                <text>{{ getOptionLabel(field, formData[field.key]) || `请选择${field.label}` }}</text>
                 <text class="arrow">›</text>
               </view>
             </picker>
@@ -547,7 +723,7 @@ onMounted(async () => {
               <view
                 class="upload-box"
                 :class="{ uploading: uploadingMap[field.key] }"
-                @click="chooseAndUploadFile(field)"
+                @click.stop="chooseAndUploadFile(field)"
               >
                 <image
                   v-if="formData[field.key]"
@@ -564,7 +740,7 @@ onMounted(async () => {
                   <text class="upload-loading">上传中...</text>
                 </view>
               </view>
-              <text v-if="formData[field.key]" class="upload-change" @click="chooseAndUploadFile(field)">
+              <text v-if="formData[field.key]" class="upload-change" @click.stop="chooseAndUploadFile(field)">
                 点击更换
               </text>
             </view>
@@ -769,6 +945,26 @@ onMounted(async () => {
   font-size: 13px;
   line-height: 1.55;
   text-align: right;
+}
+
+.form-row-image {
+  align-items: flex-start;
+}
+
+.form-image-list {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12rpx;
+  flex-wrap: wrap;
+  max-width: 380rpx;
+}
+
+.form-image {
+  width: 144rpx;
+  height: 144rpx;
+  border-radius: 16rpx;
+  background: #f3f7f5;
+  border: 1rpx solid #e2eeea;
 }
 
 .timeline-item {

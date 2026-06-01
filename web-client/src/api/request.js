@@ -4,11 +4,18 @@
  * - Web 端：按需动态加载 axios（打包时被 tree-shaking 剔除，不污染小程序）
  */
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL;
+export const BASE_URL = import.meta.env.VITE_API_BASE_URL;
 
 if (!BASE_URL) {
   throw new Error('前端构建配置错误：缺少 VITE_API_BASE_URL 环境变量！');
 }
+
+// ORIGIN_URL 用于拼接静态资源 /material，避免带 /api 前缀
+// 例如：BASE_URL = http://127.0.0.1:7625/api → ORIGIN_URL = http://127.0.0.1:7625
+export const ORIGIN_URL = (() => {
+  const raw = String(BASE_URL || '').replace(/\/+$/, '');
+  return raw.replace(/\/api$/, '');
+})();
 
 const TIMEOUT = 10000;
 const isUniApp = typeof uni !== 'undefined' && typeof uni.request === 'function';
