@@ -230,17 +230,45 @@ const statusMap = {
 
 const statusLabel = (code) => statusMap[code] || code || '未知'
 
+// normalizeTimeline 标准化 timeline 字段，确保中文状态兜底
+const normalizeTimeline = (tl = {}) => {
+  const afterStatus = tl.after_status || tl.afterStatus || ''
+  const beforeStatus = tl.before_status || tl.beforeStatus || ''
+
+  return {
+    ...tl,
+    before_status: beforeStatus,
+    after_status: afterStatus,
+    before_status_text: tl.before_status_text || tl.beforeStatusText || statusLabel(beforeStatus),
+    after_status_text: tl.after_status_text || tl.afterStatusText || statusLabel(afterStatus),
+    audit_status: tl.audit_status || tl.auditStatus || '',
+    audit_status_text: tl.audit_status_text || tl.auditStatusText || '',
+    audit_remark: tl.audit_remark || tl.auditRemark || '',
+    action_name: tl.action_name || tl.actionName || '',
+    created_at: tl.created_at || tl.createdAt || '',
+    updated_at: tl.updated_at || tl.updatedAt || '',
+  }
+}
+
 // normalizeOrder 标准化后端返回字段，保留完整 action_nodes 信息
-const normalizeOrder = (raw = {}) => ({
-  ...raw,
-  action_nodes: raw.action_nodes || raw.actionNodes || [],
-  form_items: raw.form_items || [],
-  form_data: raw.form_data || raw.formData || {},
-  total_amount: raw.total_amount ?? raw.amount ?? 0,
-  amount: raw.amount ?? raw.total_amount ?? 0,
-  payment_status: raw.payment_status || 'unpaid',
-  payment_status_text: raw.payment_status_text || '',
-})
+const normalizeOrder = (raw = {}) => {
+  const timelines = raw.timelines || raw.timeline_items || raw.timelineItems || []
+  return {
+    ...raw,
+    action_nodes: raw.action_nodes || raw.actionNodes || [],
+    form_items: raw.form_items || [],
+    form_data: raw.form_data || raw.formData || {},
+    timelines: timelines.map(normalizeTimeline),
+    current_stage: raw.current_stage || raw.currentStage || '',
+    current_stage_text: raw.current_stage_text || raw.currentStageText || statusLabel(raw.current_stage || raw.currentStage || ''),
+    macro_status: raw.macro_status || raw.current_status || raw.currentStatus || '',
+    macro_status_text: raw.macro_status_text || raw.macroStatusText || statusLabel(raw.macro_status || raw.current_status || raw.currentStatus || ''),
+    total_amount: raw.total_amount ?? raw.amount ?? 0,
+    amount: raw.amount ?? raw.total_amount ?? 0,
+    payment_status: raw.payment_status || 'unpaid',
+    payment_status_text: raw.payment_status_text || '',
+  }
+}
 
 const formatMoney = (amount) => {
   if (amount === null || amount === undefined || amount === '') return '—'
@@ -269,8 +297,8 @@ const formEntries = computed(() => {
 })
 
 const timelineEntries = computed(() => {
-  if (!order.value?.timelines) return []
-  return [...order.value.timelines].reverse()
+  const list = order.value?.timelines || []
+  return [...list].map(normalizeTimeline).reverse()
 })
 
 // getTimelineTime 提取 timeline 时间戳用于排序
@@ -492,6 +520,10 @@ const loadOrderDetail = async () => {
     const payload = unwrapResponse(res)
     const normalized = normalizeOrder(payload.order || payload)
     order.value = normalized
+
+    // 临时调试日志：确认接口返回和本地兜底生效
+    console.log('[order-detail] raw payload:', payload)
+    console.log('[order-detail] normalized timelines:', normalized.timelines)
 
     // 后端订单详情已经返回 action_nodes，先用它兜底渲染按钮
     if (Array.isArray(normalized.action_nodes)) {

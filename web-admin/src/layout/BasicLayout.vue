@@ -23,25 +23,18 @@ const toggleSidebar = () => {
 }
 
 // 路由跳转（替代原来的 selectPanel）
-// 在 BasicLayout.vue 的 <script setup> 中更新 navigateTo
+// router base 是 /admin/，内部路径不带 /admin 前缀。
 const navigateTo = async (path) => {
-  console.log('点击导航，目标路径:', path)
-
   // 如果已经是当前页面，直接返回
   if (route.path === path) return
 
   try {
-    // 强制跳转并等待完成
     await router.push(path)
-    console.log('跳转成功，已导航至:', path)
-
-    // 如果系统管理子菜单的逻辑有问题，强制展开状态同步
-    if (path.startsWith('/admin/system')) {
+    // 系统管理子菜单自动展开
+    if (path.startsWith('/system')) {
       isSystemOpen.value = true
     }
   } catch (err) {
-    console.error('路由跳转拦截/错误:', err)
-    // 关键补救：如果是 NavigationDuplicated 错误，忽略；否则提示
     if (err.name !== 'NavigationDuplicated') {
       ElMessage.error('页面切换失败，请刷新重试')
     }
@@ -52,17 +45,16 @@ const navigateTo = async (path) => {
 const isActive = (path) => route.path === path || route.path.startsWith(path + '/')
 
 const navItems = [
-  { label: '数据看板', path: '/admin/dashboard' },
-  { label: '订单中心', path: '/admin/orders' },
-  { label: '服务管理', path: '/admin/services' },
-  { label: '资讯管理', path: '/admin/articles' },
-  { label: '财务管理', path: '/admin/finance' },
-  { label: '用户管理', path: '/admin/users' },
+  { label: '数据看板', path: '/dashboard' },
+  { label: '订单中心', path: '/orders' },
+  { label: '服务管理', path: '/services' },
+  { label: '资讯管理', path: '/articles' },
+  { label: '财务管理', path: '/finance' },
+  { label: '用户管理', path: '/users' },
 ]
 
 const systemSubItems = [
-  { label: '字典设置', path: '/admin/system/dict' },
-  // 未来可追加：{ label: '菜单管理', path: '/admin/system/menu' },
+  { label: '字典设置', path: '/system/dict' },
 ]
 
 // 系统管理：支持手动展开/收起，同时在子路由激活时自动展开
@@ -79,7 +71,7 @@ const toggleSystemMenu = () => {
 watch(
   () => route.path,
   (path) => {
-    if (path.startsWith('/admin/system')) {
+    if (path.startsWith('/system')) {
       isSystemOpen.value = true
     }
   },

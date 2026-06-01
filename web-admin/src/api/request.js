@@ -1,4 +1,5 @@
 import axios from 'axios'
+import { ElMessage } from 'element-plus'
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
 
@@ -48,7 +49,7 @@ const normalizeErrorMessage = (body, fallback) =>
   body?.message || body?.error || body?.detail || fallback || '网络请求失败'
 
 // ─── 模块级状态：防止多个 401 同时触发时重复弹窗/重复跳转 ────────────────────────────
-let isRedirectingToAdmin = false
+let isHandlingUnauthorized = false
 
 // clearAuthStorage 清理对应端的 token 及用户信息。
 const clearAuthStorage = (isAdminRoute) => {
@@ -64,46 +65,37 @@ const clearAuthStorage = (isAdminRoute) => {
   }
 }
 
-// redirectToAdminEntry 跳转到 B 端后台入口 /admin/。
-// vite.config.js 的 base 是 /admin/，后台入口统一是 /admin/。
-const redirectToAdminEntry = () => {
-  if (isRedirectingToAdmin) return
-  isRedirectingToAdmin = true
-
-  const origin = window.location.origin
-  window.setTimeout(() => {
-    window.location.replace(`${origin}/admin/`)
-  }, 300)
-}
-
-// handleUnauthorized 统一处理所有 401 响应：清理 token、提示用户、跳转后台入口。
+// handleUnauthorized 统一处理所有 401 响应：清理 token、提示用户、静默跳转。
 // 1.意图 -> 无论是 TOKEN_EXPIRED / TOKEN_INVALID / TOKEN_KICKED / TOKEN_MISSING / ACCOUNT_DISABLED，
 //           还是其他后端返回的 401，统一拦截并引导用户重新登录。
-// 2.步骤 -> 判断 B/C 端路由，清理对应 token，弹窗后跳 /admin/（B端）或 /（C端）。
+// 2.步骤 -> 判断 B/C 端路由，清理对应 token，ElMessage 提示一次后静默跳转。
 // 3.返回 -> 无。
 function handleUnauthorized(error) {
+  if (isHandlingUnauthorized) return
+  isHandlingUnauthorized = true
+
   const url = error.config?.url || ''
   const isAdminRoute = url.includes('/v1/admin')
 
   clearAuthStorage(isAdminRoute)
 
-  const message = '登录状态已失效，请重新登录'
-  if (typeof window !== 'undefined') {
-    // 优先尝试 Element Plus 消息提示
-    if (typeof window.$message !== 'undefined') {
-      window.$message.error(message)
-    } else if (typeof window.ElMessage !== 'undefined') {
-      window.ElMessage.error(message)
-    } else {
-      window.alert(message)
-    }
+  const message =
+    error.response?.data?.error ||
+    error.response?.data?.message ||
+    '登录状态已失效，请重新登录'
 
-    // B 端跳后台入口 /admin/，C 端跳首页 /
-    if (isAdminRoute) {
-      redirectToAdminEntry()
-    } else {
-      window.location.href = '/'
-    }
+  ElMessage.closeAll()
+  ElMessage.error({ message, duration: 0 })
+
+  // 0.5s 后静默跳转，不依赖用户点击
+  if (isAdminRoute) {
+    window.setTimeout(() => {
+      window.location.replace(`${window.location.origin}/admin/`)
+    }, 500)
+  } else {
+    window.setTimeout(() => {
+      window.location.replace('/')
+    }, 500)
   }
 }
 
@@ -147,7 +139,10 @@ function createRequest() {
       }
       return Promise.reject({
         response: { status, data: responseBody },
-        message: normalizeErrorMessage(responseBody, '登录状态已失效，请重新登录'),
+        message: normalizeErrorMessage(
+          responseBody,
+          status === 401 ? '登录状态已失效，请重新登录' : `HTTP ${status || 'ERROR'}`
+        ),
       })
     }
   )
