@@ -31,6 +31,56 @@ const removeStorage = (key) => {
   else localStorage.removeItem(key);
 };
 
+// --- 模块级状态：防止多个 401 同时触发时重复提示/重复跳转 ---
+let isRedirecting = false;
+
+// handleUnauthorized 统一处理 401：清理 token、提示用户。
+// B 端走 /admin/login 跳转；C 端清 token 后引导重新进入授权流程。
+function handleUnauthorized(error, isAdminRoute) {
+  if (isRedirecting) return
+  isRedirecting = true
+
+  const message = '登录状态已失效，请重新登录'
+
+  // 清理对应端 token 及本地用户信息
+  if (isAdminRoute) {
+    removeStorage('admin_token')
+    removeStorage('admin_user')
+    removeStorage('admin_token_expire')
+  } else {
+    removeStorage('client_token')
+    removeStorage('client_user')
+  }
+
+  if (isUniApp) {
+    // 小程序/uni-app 环境：弹窗提示后跳转
+    uni.showToast({ title: message, icon: 'none', duration: 2000 })
+    setTimeout(() => {
+      if (isAdminRoute) {
+        uni.redirectTo({ url: '/pages/login/index' })
+      } else {
+        // C 端无独立登录页，引导回首页重新授权
+        uni.switchTab({ url: '/pages/home/index' })
+      }
+      isRedirecting = false
+    }, 2000)
+  } else {
+    // Web 环境
+    if (typeof window !== 'undefined') {
+      if (typeof window.$message !== 'undefined') {
+        window.$message.error(message)
+      } else if (window.alert) {
+        window.alert(message)
+      }
+      if (isAdminRoute) {
+        window.location.href = '/admin/login'
+      } else {
+        window.location.href = '/'
+      }
+    }
+  }
+}
+
 // --- 请求适配逻辑 ---
 async function request(method, url, data, config = {}) {
   const isAdminRoute = url.startsWith('/v1/admin');
@@ -50,8 +100,8 @@ async function request(method, url, data, config = {}) {
         timeout: TIMEOUT,
         success: (res) => {
           if (res.statusCode === 401) {
-            removeStorage(tokenKey)
-            reject(res.data || { message: '登录已失效，请重新登录' })
+            handleUnauthorized(res, isAdminRoute)
+            reject({ status: 401, data: res.data, message: '登录状态已失效，请重新登录' })
             return
           }
           if (res.statusCode < 200 || res.statusCode >= 300) {
@@ -78,7 +128,10 @@ async function request(method, url, data, config = {}) {
       });
       return { data: res.data, status: res.status };
     } catch (err) {
-      if (err.response?.status === 401) removeStorage(tokenKey)
+      const status = err.response?.status
+      if (status === 401) {
+        handleUnauthorized(err, isAdminRoute)
+      }
       throw err
     }
   }

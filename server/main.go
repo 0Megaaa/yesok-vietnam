@@ -40,7 +40,7 @@ func main() {
 		log.Println("跳过数据库表结构迁移与种子数据注入 (如需执行请加上 -migrate 参数)")
 	}
 
-	authMw := middleware.NewAuthMiddleware()
+	authMw := middleware.NewAuthMiddleware(db)
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
@@ -108,7 +108,6 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 	{
 		//B端管理后台路由
 		publicGroup.POST("/admin/auth/login", handlers.AuthAdmin(db))
-		publicGroup.POST("/admin/auth/logout", handlers.AuthLogout())
 
 		//C端客户端路由
 		//publicGroup.GET("/client/state", handlers.GetState(db))
@@ -129,6 +128,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 	authGroup.Use(authMw.RequireAuth())
 	{
 		// B 端管理后台路由
+		authGroup.POST("/admin/auth/logout", handlers.AuthLogout(db))
 		authGroup.GET("/admin/auth/me", handlers.AdminMe(db))
 		authGroup.GET("/admin/dashboard/stats", handlers.DashboardStats(db))
 		authGroup.GET("/admin/orders", handlers.AdminListOrders(db))
@@ -178,7 +178,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		authGroup.GET("/client/orders/:id/actions", handlers.GetClientOrderActions(db))
 		authGroup.POST("/client/orders/:id/action", handlers.PostClientOrderAction(db, orderEngine))
 		authGroup.POST("/client/orders/:id/materials/upload", handlers.ClientUploadOrderMaterial(db))
-		authGroup.POST("/client/auth/logout", handlers.AuthLogout())
+		authGroup.POST("/client/auth/logout", handlers.AuthLogout(db))
 	}
 }
 

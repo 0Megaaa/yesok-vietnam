@@ -1,6 +1,8 @@
 package jwt
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"os"
 	"time"
@@ -24,7 +26,22 @@ type Claims struct {
 // Config holds the signing key and token TTL. In production this should be
 // injected from config.Global.JWT.Secret (set via JWT_SECRET env var).
 var Secret = []byte(getEnv("JWT_SECRET", "/MIGdDnsUBlrxKZxW4loyBWkJCL0yJ6fi9MPZIhuWdqiui5XnpYhRmFWfuP6lnvf"))
-var TokenTTL = 7 * 24 * time.Hour // 7 days
+
+// TokenTTL is for C-end users (7 days, unchanged for backward compatibility).
+var TokenTTL = 7 * 24 * time.Hour
+
+// AdminTokenTTL is for B-end admins, configurable via ADMIN_JWT_TTL env var (default 8 hours).
+var AdminTokenTTL = getDurationEnv("ADMIN_JWT_TTL", 8*time.Hour)
+
+// getDurationEnv parses a duration string from env var, returns fallback on error.
+func getDurationEnv(key string, fallback time.Duration) time.Duration {
+	if val := os.Getenv(key); val != "" {
+		if d, err := time.ParseDuration(val); err == nil && d > 0 {
+			return d
+		}
+	}
+	return fallback
+}
 
 func getEnv(key, fallback string) string {
 	if value := os.Getenv(key); value != "" {
@@ -33,8 +50,15 @@ func getEnv(key, fallback string) string {
 	return fallback
 }
 
-func Sign(uid uint, role string) (string, int64, error) {
-	expireAt := time.Now().Add(TokenTTL)
+// TokenHash returns the SHA256 hex digest of a raw token string.
+func TokenHash(raw string) string {
+	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+// SignWithTTL creates a JWT with a custom TTL.
+func SignWithTTL(uid uint, role string, ttl time.Duration) (string, int64, error) {
+	expireAt := time.Now().Add(ttl)
 	claims := Claims{
 		UID:     uid,
 		Role:    role,
@@ -48,6 +72,16 @@ func Sign(uid uint, role string) (string, int64, error) {
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	signed, err := token.SignedString(Secret)
 	return signed, expireAt.Unix(), err
+}
+
+// SignAdmin creates a JWT for B-end admin using AdminTokenTTL.
+func SignAdmin(uid uint, role string) (string, int64, error) {
+	return SignWithTTL(uid, role, AdminTokenTTL)
+}
+
+// Sign creates a JWT for C-end users using TokenTTL (backward compatible).
+func Sign(uid uint, role string) (string, int64, error) {
+	return SignWithTTL(uid, role, TokenTTL)
 }
 
 func Validate(raw string) (*Claims, error) {

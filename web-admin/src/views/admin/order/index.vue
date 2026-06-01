@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { ORIGIN_URL } from '@/api/request'
+import { auditOrder } from '@/api/admin/orders'
 import DynamicForm from '@/components/DynamicForm.vue'
 
 const router = useRouter()
@@ -138,8 +139,17 @@ const latestRejectedAudit = (order) => {
   return [...(order.timelines || [])].reverse().find((tl) => tl.audit_status === 'rejected')
 }
 
+// pendingAuditTimelineOf 按时间排序取最新一条 pending timeline
 const pendingAuditTimelineOf = (order) => {
-  return (order.timelines || []).find((tl) => tl.audit_status === 'pending')
+  const timelines = order.timelines || []
+  const pending = timelines.filter((tl) => tl.audit_status === 'pending')
+  if (!pending.length) return null
+  return pending.sort((a, b) => {
+    const at = new Date(a.created_at || a.createdAt).getTime()
+    const bt = new Date(b.created_at || b.createdAt).getTime()
+    if (bt !== at) return bt - at
+    return Number(b.id) - Number(a.id)
+  })[0]
 }
 
 // 待审核状态下过滤掉 audit 类动作
@@ -167,7 +177,7 @@ const approveAuditFromList = async (order) => {
       { confirmButtonText: '审核通过', cancelButtonText: '取消', type: 'success' }
     )
 
-    const res = await request.post(`/v1/admin/orders/${order.id}/audit`, {
+    const res = await auditOrder(order.id, {
       timeline_id: pending.id,
       result: 'approved',
       audit_remark: '资料审核通过',
@@ -204,7 +214,7 @@ const rejectAuditFromList = async (order) => {
       }
     )
 
-    const res = await request.post(`/v1/admin/orders/${order.id}/audit`, {
+    const res = await auditOrder(order.id, {
       timeline_id: pending.id,
       result: 'rejected',
       audit_remark: value.trim(),

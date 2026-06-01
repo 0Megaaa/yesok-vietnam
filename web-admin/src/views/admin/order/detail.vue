@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getOrderDetail, getOrderActions, performOrderAction } from '@/api/admin/orders'
+import { getOrderDetail, getOrderActions, performOrderAction, auditOrder } from '@/api/admin/orders'
 import { request, ORIGIN_URL } from '@/api/request'
 import DynamicForm from '@/components/DynamicForm.vue'
 
@@ -130,8 +130,18 @@ const toFullFileUrl = (url) => {
   return `${origin}${path}`
 }
 
+// pendingAuditTimeline 按时间排序取最新一条 pending timeline
+// 防止多条 pending 时误取旧记录
 const pendingAuditTimeline = computed(() => {
-  return (order.value?.timelines || []).find((tl) => tl.audit_status === 'pending')
+  const timelines = order.value?.timelines || []
+  const pending = timelines.filter((tl) => tl.audit_status === 'pending')
+  if (!pending.length) return null
+  return pending.sort((a, b) => {
+    const at = new Date(a.created_at || a.createdAt).getTime()
+    const bt = new Date(b.created_at || b.createdAt).getTime()
+    if (bt !== at) return bt - at
+    return Number(b.id) - Number(a.id)
+  })[0]
 })
 const hasPendingAudit = computed(() => !!pendingAuditTimeline.value)
 
@@ -148,7 +158,7 @@ const approveAudit = async () => {
       { confirmButtonText: '审核通过', cancelButtonText: '取消', type: 'success' }
     )
     auditLoading.value = true
-    const res = await request.post(`/v1/admin/orders/${order.value.id}/audit`, {
+    const res = await auditOrder(order.value.id, {
       timeline_id: pendingAuditTimeline.value.id,
       result: 'approved',
       audit_remark: '资料审核通过',
@@ -182,7 +192,7 @@ const submitRejectAudit = async () => {
   }
   auditLoading.value = true
   try {
-    const res = await request.post(`/v1/admin/orders/${order.value.id}/audit`, {
+    const res = await auditOrder(order.value.id, {
       timeline_id: pendingAuditTimeline.value.id,
       result: 'rejected',
       audit_remark: rejectAuditRemark.value.trim(),

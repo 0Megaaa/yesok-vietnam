@@ -353,9 +353,13 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 		})
 	}
 
-	// actionNodes 中文字段
+	// actionNodes 中文字段（C 端过滤审核动作）
 	actionNodes := make([]gin.H, 0, len(nodes))
 	for _, n := range nodes {
+		// C 端过滤审核动作
+		if role == "client" && (n.ActionName == "audit_approve" || n.ActionName == "audit_reject" || n.ActionName == "audit_rejected") {
+			continue
+		}
 		actionNameText := dictLabel(db, "workflow_action", n.ActionName)
 		if actionNameText == "" {
 			actionNameText = n.ButtonLabel
@@ -544,9 +548,13 @@ func GetClientOrderActions(db *gorm.DB) gin.HandlerFunc {
 			order.ServiceID, order.CurrentStage, "client",
 		).Order("sort_order asc").Find(&nodes)
 
-		// 规范化返回字段
+		// 规范化返回字段，并过滤掉审核相关动作（audit_approve / audit_reject）
+		// C 端绝不允许执行审核动作，这些动作仅供 B 端管理员使用
 		actions := make([]gin.H, 0, len(nodes))
 		for _, n := range nodes {
+			if n.ActionName == "audit_approve" || n.ActionName == "audit_reject" || n.ActionName == "audit_rejected" {
+				continue
+			}
 			actionNameText := dictLabel(db, "workflow_action", n.ActionName)
 			if actionNameText == "" {
 				actionNameText = n.ButtonLabel
@@ -665,6 +673,12 @@ func PostClientOrderAction(db *gorm.DB, engine *workflow.OrderEngine) gin.Handle
 		var req CEndOrderActionRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request: "+err.Error())
+			return
+		}
+
+		// C 端主动拒绝审核动作
+		if req.ActionName == "audit_approve" || req.ActionName == "audit_reject" || req.ActionName == "audit_rejected" {
+			httpError(c, http.StatusForbidden, ErrCodeForbidden, "C端不允许执行审核动作")
 			return
 		}
 

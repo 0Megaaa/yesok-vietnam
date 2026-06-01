@@ -49,6 +49,11 @@ func (e *OrderEngine) AdvanceStage(
 		return errors.New("actionName 不能为空")
 	}
 
+	// 禁止通过普通工作流入口执行审核动作，必须走专用审核接口
+	if actionName == "audit_approve" || actionName == "audit_reject" {
+		return errors.New("审核动作必须通过专用审核接口执行")
+	}
+
 	err := e.db.Transaction(func(tx *gorm.DB) error {
 		// Step 1: 查出当前订单
 		var order models.Order

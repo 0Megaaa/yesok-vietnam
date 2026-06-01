@@ -47,6 +47,54 @@ const buildUrl = (url, data, method) => {
 const normalizeErrorMessage = (body, fallback) =>
   body?.message || body?.error || body?.detail || fallback || '网络请求失败'
 
+// ─── 模块级状态：防止多个 401 同时触发时重复弹窗/重复跳转 ────────────────────────────
+let isRedirectingToLogin = false
+
+// handleUnauthorized 统一处理所有 401 响应：清理 token、提示用户、跳转登录页。
+// 1.意图 -> 无论是 TOKEN_EXPIRED / TOKEN_INVALID / TOKEN_KICKED / TOKEN_MISSING / ACCOUNT_DISABLED，
+//           还是其他后端返回的 401，统一拦截并引导用户重新登录。
+// 2.步骤 -> 读取 error.response.data.code，判断 B/C 端路由，清理对应 token，弹窗后跳转。
+// 3.返回 -> 无。
+function handleUnauthorized(error) {
+  if (isRedirectingToLogin) return
+  isRedirectingToLogin = true
+
+  const responseBody = error.response?.data
+  const errorCode = responseBody?.code
+  const url = error.config?.url
+  const isAdminRoute = url?.includes('/v1/admin')
+
+  // 清理对应端 token 及本地用户信息
+  if (isAdminRoute) {
+    removeStorage('admin_token')
+    removeStorage('admin_user')
+    removeStorage('admin_token_expire')
+  } else {
+    removeStorage('client_token')
+    removeStorage('client_user')
+  }
+
+  // 统一提示
+  const message = '登录状态已失效，请重新登录'
+  if (typeof window !== 'undefined') {
+    // 优先尝试 Element Plus 消息提示
+    if (typeof window.$message !== 'undefined') {
+      window.$message.error(message)
+    } else if (typeof window.ElMessage !== 'undefined') {
+      window.ElMessage.error(message)
+    } else {
+      window.alert(message)
+    }
+
+    // 跳转登录页
+    if (isAdminRoute) {
+      window.location.href = '/login'
+    } else {
+      window.location.href = '/'
+    }
+  }
+}
+
 // createRequest 创建真实后端请求实例。
 // 1.意图 -> 彻底关闭默认 Mock 拦截，让 B/C 端都走 Go API 与数据库。
 // 2.步骤 -> 注入 admin_token/client_token，使用 axios 发送请求。
@@ -68,15 +116,6 @@ function createRequest() {
       const token = readStorage(tokenKey)
       if (token) {
         config.headers.Authorization = `Bearer ${token}`
-        console.log(`[axios 请求拦截] ✅ 已注入 ${tokenKey}，前20字符：${token.substring(0, 20)}...`)
-      } else {
-        console.warn(`[axios 请求拦截] ⚠️ 未找到 ${tokenKey}，请求不带 Authorization`)
-      }
-      console.log(`[axios 请求拦截] ${config.method?.toUpperCase()} ${BASE_URL}${config.url}`)
-      // 规范化 GET 参数
-      if (config.method === 'get' && config.params && Object.keys(config.params).length) {
-        config.url = buildUrl(config.url, { params: config.params }, 'GET')
-        config.params = undefined
       }
       return config
     },
@@ -86,29 +125,23 @@ function createRequest() {
   // 响应拦截器：统一错误处理
   http.interceptors.response.use(
     (response) => {
-      console.log(`[axios 响应拦截] ✅ HTTP ${response.status} ← ${response.config?.method?.toUpperCase()} ${response.config?.url}`)
       return { data: response.data, status: response.status }
     },
     (error) => {
       const status = error.response?.status
       const responseBody = error.response?.data
       const url = error.config?.url
-      console.error(`[axios 响应拦截] ❌ HTTP ${status} ← GET/PUT/POST ${url}`)
-      console.error('[axios 响应拦截] ❌ 响应体：', responseBody)
       if (status === 401) {
-        const isAdminRoute = url?.startsWith('/v1/admin')
-        removeStorage(isAdminRoute ? 'admin_token' : 'client_token')
-        console.warn('[axios 响应拦截] ⚠️ 401 未授权，已清理 token')
+        handleUnauthorized(error)
       }
       return Promise.reject({
         response: { status, data: responseBody },
-        message: normalizeErrorMessage(responseBody, `HTTP ${status}`),
+        message: normalizeErrorMessage(responseBody, '登录状态已失效，请重新登录'),
       })
     }
   )
 
   function request(method, url, data = {}, config = {}) {
-    console.log(`[request.js] 调用 request(${method}, ${url}, data, config)`)
     return http({
       method,
       url,

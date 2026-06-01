@@ -161,6 +161,7 @@ func validateInitData(validator *telegram.Validator, raw string) (*telegram.Init
 // 1.意图 -> 将后台账号从硬编码迁移到数据库，默认种子账号为 admin / 123456。
 // 2.步骤 -> 查询启用员工、校验 bcrypt 密码、签发保留现有中间件兼容的 JWT。
 // 3.返回 -> token、员工信息与过期时间。
+// 4.单点登录 -> 登录成功后写入 current_token_hash，支持后续请求校验。
 func AuthAdmin(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req AuthAdminRequest
@@ -177,10 +178,24 @@ func AuthAdmin(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 			return
 		}
-		jwtToken, expireUnix, err := jwt.Sign(user.ID, user.Role)
+		// 使用 B 端专用 SignAdmin，token 有效期由 ADMIN_JWT_TTL 控制
+		jwtToken, expireUnix, err := jwt.SignAdmin(user.ID, user.Role)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to issue token"})
 			return
+		}
+		now := time.Now()
+		expireTime := time.Unix(expireUnix, 0)
+		// 生成 token hash 并写入 sys_users，支持单点登录校验
+		tokenHash := jwt.TokenHash(jwtToken)
+		if err := db.Model(&user).Updates(map[string]interface{}{
+			"current_token_hash": tokenHash,
+			"token_issued_at":    now,
+			"token_expires_at":   expireTime,
+			"last_login_at":      now,
+			"updated_at":         now,
+		}).Error; err != nil {
+			log.Printf("[AuthAdmin] failed to update token hash: %v", err)
 		}
 		c.JSON(http.StatusOK, gin.H{"token": jwtToken, "user": gin.H{"id": user.ID, "username": user.Username, "real_name": user.RealName, "role": user.Role, "is_admin": user.Role == models.RoleAdmin}, "expire": expireUnix})
 	}
@@ -188,11 +203,18 @@ func AuthAdmin(db *gorm.DB) gin.HandlerFunc {
 
 // ─── Admin auth: POST /api/v1/admin/auth/logout ──────────────────────────────
 
-func AuthLogout() gin.HandlerFunc {
+// AuthLogout 清除 sys_users 的 current_token_hash，实现 B 端单点登录退出。
+func AuthLogout(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid, _ := c.Get("uid")
 		role, _ := c.Get("role")
 		log.Printf("[AuthLogout] uid=%v role=%v", uid, role)
+		// B 端 admin/manager 角色，清空当前 token hash
+		if role == models.RoleAdmin || role == models.RoleManager {
+			if u, ok := uid.(uint); ok && u > 0 {
+				db.Model(&models.SysUser{}).Where("id = ?", u).Update("current_token_hash", "")
+			}
+		}
 		c.JSON(http.StatusOK, gin.H{"message": "logged out"})
 	}
 }

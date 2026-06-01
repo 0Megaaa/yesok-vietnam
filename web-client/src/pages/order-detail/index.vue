@@ -257,40 +257,119 @@ const getTimelineTime = (item) => {
   return new Date(item?.created_at || item?.updated_at || 0).getTime()
 }
 
-// latestAuditTimeline 按时间倒序找到最新的审核相关 timeline（pending/approved/rejected）
-const latestAuditTimeline = computed(() => {
+// ─── 失败类判断工具 ────────────────────────────────────────────────────────────
+const FAILURE_ACTIONS = [
+  'audit_reject',
+  'process_failed',
+  'external_rejected',
+]
+
+const FAILURE_STATUSES = [
+  'rejected',
+  'process_failed',
+]
+
+const FAILURE_KEYWORDS = [
+  '失败',
+  '不通过',
+  '拒绝',
+  '驳回',
+  '异常',
+]
+
+// isFailureTimeline 判断某条 timeline 是否为失败类
+const isFailureTimeline = (item) => {
+  if (!item) return false
+  if (item.audit_status === 'rejected') return true
+  if (FAILURE_ACTIONS.includes(item.action_name)) return true
+  if (FAILURE_STATUSES.includes(item.after_status)) return true
+  const text = [
+    item.remark,
+    item.audit_remark,
+    item.after_status_text,
+  ].filter(Boolean).join(' ')
+  return FAILURE_KEYWORDS.some((keyword) => text.includes(keyword))
+}
+
+// extractFailureReason 统一提取失败原因
+const extractFailureReason = (item) => {
+  if (!item) return ''
+  if (item.audit_remark) return item.audit_remark
+  if (item.payload) {
+    try {
+      const payload = typeof item.payload === 'string' ? JSON.parse(item.payload) : item.payload
+      if (payload.failed_reason) return payload.failed_reason
+      if (payload.external_reject_reason) return payload.external_reject_reason
+      if (payload.audit_remark) return payload.audit_remark
+      if (payload.remark) return payload.remark
+      if (payload.reason) return payload.reason
+    } catch (e) {}
+  }
+  return String(item.remark || '')
+    .replace(/^审核未通过[:：]\s*/, '')
+    .replace(/^办理失败[:：]\s*/, '')
+    .replace(/^审批拒绝[:：]\s*/, '')
+    .trim()
+}
+
+// extractAuditRemarkFromPayload 从 payload 中提取审核备注
+const extractAuditRemarkFromPayload = (payload) => {
+  if (!payload) return ''
+  try {
+    const data = typeof payload === 'string' ? JSON.parse(payload) : payload
+    return data?.audit_remark || data?.remark || data?.reason || ''
+  } catch (e) {
+    return ''
+  }
+}
+
+// auditTimelines 收集所有审核相关 timeline 并按时间倒序
+const auditTimelines = computed(() => {
   const list = order.value?.timelines || []
   return list
     .filter((item) => ['pending', 'approved', 'rejected'].includes(item.audit_status))
-    .sort((a, b) => getTimelineTime(b) - getTimelineTime(a))[0]
+    .sort((a, b) => {
+      const bt = getTimelineTime(b)
+      const at = getTimelineTime(a)
+      if (bt !== at) return bt - at
+      return Number(b.id || 0) - Number(a.id || 0)
+    })
 })
 
-// activeAuditRejectTimeline 仅当最新审核状态仍为 rejected，且订单未进入后续阶段时返回
+// latestAuditTimeline 最近一次审核 timeline
+const latestAuditTimeline = computed(() => auditTimelines.value[0] || null)
+
+// activeAuditRejectTimeline 只有最近一次审核是 rejected 才展示审核失败备注
+// 如果最近一次是 approved 或 pending，说明用户已补资料并审核通过，必须隐藏旧失败备注
 const activeAuditRejectTimeline = computed(() => {
   const latest = latestAuditTimeline.value
   if (!latest) return null
   if (latest.audit_status !== 'rejected') return null
-
-  const currentStage = order.value?.current_stage || ''
-  const macroStatus = order.value?.macro_status || ''
-
-  const forwardStages = [
-    'wait_pay', 'paid', 'processing', 'prepare_material',
-    'external_review', 'approved', 'issued', 'delivering', 'completed',
-  ]
-  const forwardMacroStatuses = [
-    'wait_pay', 'paid', 'processing', 'approved', 'delivering', 'completed',
-  ]
-
-  if (forwardStages.includes(currentStage) || forwardMacroStatuses.includes(macroStatus)) {
-    return null
-  }
   return latest
 })
 
 const activeAuditRejectRemark = computed(() => {
   const item = activeAuditRejectTimeline.value
-  return item?.audit_remark || item?.remark || ''
+  if (!item) return ''
+  return extractFailureReason(item)
+})
+
+// activeExternalRejected 最近一次外部审批拒绝
+const activeExternalRejectedTimeline = computed(() => {
+  const list = order.value?.timelines || []
+  return list
+    .filter((item) => item.action_name === 'external_rejected')
+    .sort((a, b) => getTimelineTime(b) - getTimelineTime(a))[0] || null
+})
+
+const activeExternalRejectRemark = computed(() => {
+  const item = activeExternalRejectedTimeline.value
+  if (!item) return ''
+  const currentStage = order.value?.current_stage || ''
+  const macroStatus = order.value?.macro_status || ''
+  // 只有订单当前仍处于 rejected 状态时才展示
+  if (currentStage !== 'rejected' && macroStatus !== 'rejected') return ''
+  return extractFailureReason(item)
 })
 
 // latestProcessFailedTimeline 找到最新的办理失败 timeline
@@ -357,6 +436,19 @@ const timelineRemarkText = (item) => {
     return item.remark || '办理失败'
   }
   return item.remark || ''
+}
+
+// timelineAuditRejectReason 提取时间线中审核失败的原因
+const timelineAuditRejectReason = (item) => {
+  if (!item || item.audit_status !== 'rejected') return ''
+  return (
+    item.audit_remark ||
+    extractAuditRemarkFromPayload(item.payload) ||
+    String(item.remark || '')
+      .replace(/^审核未通过[:：]\s*/, '')
+      .replace(/^资料审核未通过[:：]\s*/, '')
+      .trim()
+  )
 }
 
 const buttonClickActions = computed(() => actions.value.filter(a => a.action_type === 'button_click'))
@@ -658,6 +750,12 @@ onMounted(async () => {
         <text class="audit-reject-desc">{{ activeAuditRejectRemark }}</text>
       </view>
 
+      <!-- 外部审批拒绝提示（仅当订单仍处于 rejected 状态时展示） -->
+      <view v-else-if="activeExternalRejectRemark" class="audit-reject-card">
+        <text class="audit-reject-title">外部审批拒绝</text>
+        <text class="audit-reject-desc">{{ activeExternalRejectRemark }}</text>
+      </view>
+
       <!-- 业务表单 -->
       <view class="section-card">
         <view class="section-title"><view class="section-bar"></view>业务资料</view>
@@ -684,14 +782,19 @@ onMounted(async () => {
       <view class="section-card">
         <view class="section-title"><view class="section-bar"></view>订单进度</view>
         <view v-if="!timelineEntries.length" class="empty-text">暂无进度记录</view>
-        <view v-for="tl in timelineEntries" :key="tl.id" class="timeline-item">
+        <view
+          v-for="tl in timelineEntries"
+          :key="tl.id"
+          class="timeline-item"
+          :class="{ 'timeline-item-failed': isFailureTimeline(tl) }"
+        >
           <view class="timeline-dot"></view>
           <view class="timeline-body">
             <text class="timeline-title">{{ tl.after_status_text || statusLabel(tl.after_status) || '—' }}</text>
             <text v-if="tl.audit_status === 'pending'" class="audit-status pending">平台审核中</text>
             <text v-if="tl.audit_status === 'approved' && !isProcessFailedTimeline(tl)" class="audit-status approved">审核通过</text>
             <text v-if="tl.audit_status === 'rejected'" class="audit-status rejected">审核未通过</text>
-            <text v-if="tl.audit_status === 'rejected' && tl.audit_remark" class="audit-reason">原因：{{ tl.audit_remark }}</text>
+            <text v-if="tl.audit_status === 'rejected' && timelineAuditRejectReason(tl)" class="audit-reason">原因：{{ timelineAuditRejectReason(tl) }}</text>
             <text v-if="isProcessFailedTimeline(tl)" class="timeline-failed-tag">办理失败</text>
             <text v-if="isProcessFailedTimeline(tl) && timelineRemarkText(tl)" class="timeline-failed-reason">原因：{{ timelineRemarkText(tl) }}</text>
             <text v-if="tl.remark && !isProcessFailedTimeline(tl)" class="timeline-desc">{{ tl.remark }}</text>
@@ -1060,6 +1163,16 @@ onMounted(async () => {
   background: #004d40;
 }
 
+/* 失败类时间线：红色圆点 + 红色标题 */
+.timeline-item-failed .timeline-dot {
+  background: #e53935;
+  border-color: rgba(229, 57, 53, 0.3);
+}
+
+.timeline-item-failed .timeline-title {
+  color: #d93025;
+}
+
 .timeline-body { flex: 1; }
 
 .timeline-title {
@@ -1270,14 +1383,26 @@ onMounted(async () => {
 }
 
 .audit-reject-card {
-  margin: 12px 16px;
-  padding: 14px;
-  border-radius: 16px;
-  background: #fff1f0;
-  border: 1px solid #ffccc7;
+  margin: 24rpx;
+  padding: 28rpx;
+  border-radius: 24rpx;
+  background: #fff5f5;
+  border: 1rpx solid #ffb4b4;
 }
-.audit-reject-title { display: block; color: #cf1322; font-size: 15px; font-weight: 900; }
-.audit-reject-desc { display: block; margin-top: 6px; color: #7a1f1f; font-size: 13px; line-height: 1.6; }
+.audit-reject-title {
+  display: block;
+  color: #d93025;
+  font-size: 30rpx;
+  font-weight: 700;
+  margin-bottom: 12rpx;
+}
+.audit-reject-desc {
+  display: block;
+  color: #9f1c1c;
+  font-size: 26rpx;
+  line-height: 1.6;
+  word-break: break-all;
+}
 
 .audit-status {
   display: inline-flex;
@@ -1289,8 +1414,20 @@ onMounted(async () => {
 }
 .audit-status.pending { background: #fff7e6; color: #ad6800; }
 .audit-status.approved { background: #f6ffed; color: #389e0d; }
-.audit-status.rejected { background: #fff1f0; color: #cf1322; }
-.audit-reason { display: block; margin-top: 4px; color: #7a1f1f; font-size: 12px; line-height: 1.5; }
+.audit-status.rejected {
+  background: #fff0f0;
+  color: #d93025;
+  border: 1rpx solid #ffb4b4;
+}
+.audit-reason,
+.timeline-failed-reason {
+  display: block;
+  margin-top: 8rpx;
+  color: #d93025;
+  font-size: 24rpx;
+  line-height: 1.5;
+  font-weight: 600;
+}
 
 .upload-field { margin-top: 8rpx; }
 

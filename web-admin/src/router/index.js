@@ -1,12 +1,27 @@
 import { createRouter, createWebHistory } from 'vue-router'
 
-// 路由懒加载守卫：检查 admin_token
+// isTokenExpired 检查本地存储的 admin_token_expire 是否已过期。
+const isTokenExpired = () => {
+  if (typeof localStorage === 'undefined') return true
+  const expireStr = localStorage.getItem('admin_token_expire')
+  if (!expireStr) return true
+  const expire = parseInt(expireStr, 10)
+  if (isNaN(expire)) return true
+  return Date.now() / 1000 > expire
+}
+
+// requireAuth 检查 admin_token 存在且未过期。
 const requireAuth = () => {
-  const token =
-    typeof localStorage !== 'undefined'
-      ? localStorage.getItem('admin_token')
-      : ''
-  return !!token
+  if (typeof localStorage === 'undefined') return false
+  const token = localStorage.getItem('admin_token')
+  if (!token) return false
+  if (isTokenExpired()) {
+    localStorage.removeItem('admin_token')
+    localStorage.removeItem('admin_user')
+    localStorage.removeItem('admin_token_expire')
+    return false
+  }
+  return true
 }
 
 const routes = [

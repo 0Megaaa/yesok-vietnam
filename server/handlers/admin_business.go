@@ -60,6 +60,7 @@ const (
 	ErrCodeTransactionFailed = "TRANSACTION_FAILED" // 事务执行失败
 	ErrCodeInternalError     = "INTERNAL_ERROR"     // 内部错误
 	ErrCodeUnauthorized      = "UNAUTHORIZED"       // 未授权
+	ErrCodeForbidden         = "FORBIDDEN"          // 禁止的操作
 )
 
 // userError 包装用户可见的业务错误。
@@ -782,6 +783,28 @@ func AdminAuditOrder(db *gorm.DB) gin.HandlerFunc {
 			}
 			if timeline.AuditStatus != models.AuditStatusPending {
 				return fmt.Errorf("该审核记录已处理，请勿重复审核")
+			}
+
+			// 校验订单当前节点必须仍停留在审核记录的 after_status
+			// 如果订单已经离开该节点（如已支付、已办理、已出签、完成），则拒绝处理过期审核
+			if strings.TrimSpace(order.CurrentStage) != strings.TrimSpace(timeline.AfterStatus) {
+				return fmt.Errorf(
+					"该审核记录已过期，订单当前节点为 %s，审核记录节点为 %s，请刷新页面",
+					order.CurrentStage,
+					timeline.AfterStatus,
+				)
+			}
+
+			// 校验必须是最新一条 pending timeline，防止旧弹窗误审旧记录
+			var latestPending models.OrderTimeline
+			if err := tx.Where(
+				"order_id = ? AND audit_status = ?",
+				order.ID,
+				models.AuditStatusPending,
+			).Order("created_at DESC, id DESC").First(&latestPending).Error; err == nil {
+				if latestPending.ID != timeline.ID {
+					return fmt.Errorf("该审核记录不是最新审核记录，请刷新页面")
+				}
 			}
 
 			// Step 3: 查找原工作流节点（用于获取 audit_reject_status）

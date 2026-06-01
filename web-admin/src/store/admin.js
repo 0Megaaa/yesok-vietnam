@@ -35,12 +35,20 @@ export const useAdminStore = defineStore('admin', {
 
     setUserInfo(userInfo) {
       this.userInfo = userInfo
+      if (userInfo) writeStorage('admin_user', JSON.stringify(userInfo))
+      else removeStorage('admin_user')
+    },
+
+    setExpire(expire) {
+      if (expire) writeStorage('admin_token_expire', String(expire))
+      else removeStorage('admin_token_expire')
     },
 
     async login(username, password) {
       const data = await adminLogin(username, password)
       this.setToken(data.token)
       this.setUserInfo(data.user)
+      this.setExpire(data.expire)
       return data
     },
 
@@ -53,6 +61,8 @@ export const useAdminStore = defineStore('admin', {
       this.token = ''
       this.userInfo = null
       removeStorage('admin_token')
+      removeStorage('admin_user')
+      removeStorage('admin_token_expire')
     },
   },
 })
