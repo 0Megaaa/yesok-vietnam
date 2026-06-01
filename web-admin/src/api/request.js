@@ -48,23 +48,11 @@ const normalizeErrorMessage = (body, fallback) =>
   body?.message || body?.error || body?.detail || fallback || '网络请求失败'
 
 // ─── 模块级状态：防止多个 401 同时触发时重复弹窗/重复跳转 ────────────────────────────
-let isRedirectingToLogin = false
+let isRedirectingToAdmin = false
 
-// handleUnauthorized 统一处理所有 401 响应：清理 token、提示用户、跳转登录页。
-// 1.意图 -> 无论是 TOKEN_EXPIRED / TOKEN_INVALID / TOKEN_KICKED / TOKEN_MISSING / ACCOUNT_DISABLED，
-//           还是其他后端返回的 401，统一拦截并引导用户重新登录。
-// 2.步骤 -> 读取 error.response.data.code，判断 B/C 端路由，清理对应 token，弹窗后跳转。
-// 3.返回 -> 无。
-function handleUnauthorized(error) {
-  if (isRedirectingToLogin) return
-  isRedirectingToLogin = true
-
-  const responseBody = error.response?.data
-  const errorCode = responseBody?.code
-  const url = error.config?.url
-  const isAdminRoute = url?.includes('/v1/admin')
-
-  // 清理对应端 token 及本地用户信息
+// clearAuthStorage 清理对应端的 token 及用户信息。
+const clearAuthStorage = (isAdminRoute) => {
+  if (typeof localStorage === 'undefined') return
   if (isAdminRoute) {
     removeStorage('admin_token')
     removeStorage('admin_user')
@@ -72,9 +60,33 @@ function handleUnauthorized(error) {
   } else {
     removeStorage('client_token')
     removeStorage('client_user')
+    removeStorage('client_token_expire')
   }
+}
 
-  // 统一提示
+// redirectToAdminEntry 跳转到 B 端后台入口 /admin/。
+// vite.config.js 的 base 是 /admin/，后台入口统一是 /admin/。
+const redirectToAdminEntry = () => {
+  if (isRedirectingToAdmin) return
+  isRedirectingToAdmin = true
+
+  const origin = window.location.origin
+  window.setTimeout(() => {
+    window.location.replace(`${origin}/admin/`)
+  }, 300)
+}
+
+// handleUnauthorized 统一处理所有 401 响应：清理 token、提示用户、跳转后台入口。
+// 1.意图 -> 无论是 TOKEN_EXPIRED / TOKEN_INVALID / TOKEN_KICKED / TOKEN_MISSING / ACCOUNT_DISABLED，
+//           还是其他后端返回的 401，统一拦截并引导用户重新登录。
+// 2.步骤 -> 判断 B/C 端路由，清理对应 token，弹窗后跳 /admin/（B端）或 /（C端）。
+// 3.返回 -> 无。
+function handleUnauthorized(error) {
+  const url = error.config?.url || ''
+  const isAdminRoute = url.includes('/v1/admin')
+
+  clearAuthStorage(isAdminRoute)
+
   const message = '登录状态已失效，请重新登录'
   if (typeof window !== 'undefined') {
     // 优先尝试 Element Plus 消息提示
@@ -86,9 +98,9 @@ function handleUnauthorized(error) {
       window.alert(message)
     }
 
-    // 跳转登录页
+    // B 端跳后台入口 /admin/，C 端跳首页 /
     if (isAdminRoute) {
-      window.location.href = '/login'
+      redirectToAdminEntry()
     } else {
       window.location.href = '/'
     }
@@ -130,7 +142,6 @@ function createRequest() {
     (error) => {
       const status = error.response?.status
       const responseBody = error.response?.data
-      const url = error.config?.url
       if (status === 401) {
         handleUnauthorized(error)
       }

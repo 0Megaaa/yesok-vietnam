@@ -61,23 +61,32 @@ const formatTime = (t) => {
 }
 
 // normalizeOrder 标准化后端返回字段
-const normalizeOrder = (raw = {}) => ({
-  ...raw,
-  order_no: raw.order_no || raw.orderNo,
-  service_name: raw.service_name || raw.serviceName,
-  macro_status: raw.macro_status || raw.current_status || raw.currentStatus,
-  macro_status_text: raw.macro_status_text || '',
-  current_stage: raw.current_stage || '',
-  current_stage_text: raw.current_stage_text || '',
-  payment_status: raw.payment_status || 'unpaid',
-  payment_status_text: raw.payment_status_text || '',
-  total_amount: raw.total_amount || raw.amount || 0,
-  form_items: raw.form_items || [],
-  form_data: raw.form_data || raw.formData || {},
-  timelines: raw.timelines || [],
-  payments: raw.payments || [],
-  action_nodes: raw.action_nodes || raw.actionNodes || [],
-})
+const normalizeOrder = (raw = {}) => {
+  const o = raw || {}
+  return {
+    ...o,
+    order_no: o.order_no || o.orderNo || '',
+    service_name: o.service_name || o.serviceName || '',
+    macro_status: o.macro_status || o.current_status || o.currentStatus || '',
+    macro_status_text: o.macro_status_text || '',
+    current_stage: o.current_stage || '',
+    current_stage_text: o.current_stage_text || '',
+    payment_status: o.payment_status || 'unpaid',
+    payment_status_text: o.payment_status_text || '',
+    total_amount: o.total_amount || o.amount || 0,
+    form_items: o.form_items || [],
+    form_data: o.form_data || o.formData || {},
+    timelines: o.timelines || [],
+    payments: o.payments || [],
+    action_nodes: o.action_nodes || o.actionNodes || [],
+  }
+}
+
+// unwrapOrderFromResponse 统一从响应中提取 order 对象
+const unwrapOrderFromResponse = (res) => {
+  const body = res?.data ?? res ?? {}
+  return body.order || body.data?.order || body.data || body
+}
 
 // 业务表单：只使用 form_items
 const formEntries = computed(() => {
@@ -130,18 +139,19 @@ const toFullFileUrl = (url) => {
   return `${origin}${path}`
 }
 
+const getTimelineTime = (item) => new Date(item?.created_at || item?.updated_at || 0).getTime()
+
 // pendingAuditTimeline 按时间排序取最新一条 pending timeline
 // 防止多条 pending 时误取旧记录
 const pendingAuditTimeline = computed(() => {
-  const timelines = order.value?.timelines || []
-  const pending = timelines.filter((tl) => tl.audit_status === 'pending')
-  if (!pending.length) return null
-  return pending.sort((a, b) => {
-    const at = new Date(a.created_at || a.createdAt).getTime()
-    const bt = new Date(b.created_at || b.createdAt).getTime()
-    if (bt !== at) return bt - at
-    return Number(b.id) - Number(a.id)
-  })[0]
+  return [...(order.value?.timelines || [])]
+    .filter((tl) => tl.audit_status === 'pending')
+    .sort((a, b) => {
+      const bt = getTimelineTime(b)
+      const at = getTimelineTime(a)
+      if (bt !== at) return bt - at
+      return Number(b.id || 0) - Number(a.id || 0)
+    })[0] || null
 })
 const hasPendingAudit = computed(() => !!pendingAuditTimeline.value)
 
@@ -163,9 +173,10 @@ const approveAudit = async () => {
       result: 'approved',
       audit_remark: '资料审核通过',
     })
-    const payload = res.data?.order || res.order || res.data || res
-    order.value = normalizeOrder(payload)
-
+    const payload = unwrapOrderFromResponse(res)
+    if (payload?.id) {
+      order.value = normalizeOrder(payload)
+    }
     await loadOrderDetail()
     await loadOrderActions()
 
@@ -197,8 +208,10 @@ const submitRejectAudit = async () => {
       result: 'rejected',
       audit_remark: rejectAuditRemark.value.trim(),
     })
-    const payload = res.data?.order || res.order || res.data || res
-    order.value = normalizeOrder(payload)
+    const payload = unwrapOrderFromResponse(res)
+    if (payload?.id) {
+      order.value = normalizeOrder(payload)
+    }
 
     await loadOrderDetail()
     await loadOrderActions()
@@ -263,6 +276,12 @@ const wxPayActions = computed(() => visibleWorkflowActions.value.filter(a => a.a
 
 // --- button_click 类型：直接执行备注确认 ---
 const executeButtonClick = async (action) => {
+  // 兜底拦截审核动作
+  if (isAuditAction(action)) {
+    showToast('审核动作必须通过审核按钮执行，请刷新页面后重试', 'warning')
+    return
+  }
+
   try {
     const { value: remark } = await ElMessageBox.prompt(
       `执行动作「${action.button_label}」，请输入备注（可选）：`,
@@ -277,7 +296,10 @@ const executeButtonClick = async (action) => {
       action_name: action.action_name,
       remark: remark || '',
     })
-    order.value = normalizeOrder(res)
+    const payload = unwrapOrderFromResponse(res)
+    if (payload?.id) {
+      order.value = normalizeOrder(payload)
+    }
     await loadOrderActions()
     showToast(`「${action.button_label}」已执行`, 'success')
   } catch (err) {
@@ -295,6 +317,12 @@ const openFormInput = (action) => {
 }
 
 const submitFormInput = async () => {
+  // 兜底拦截审核动作
+  if (isAuditAction(formInputAction.value)) {
+    showToast('审核动作必须通过审核按钮执行，请刷新页面后重试', 'warning')
+    return
+  }
+
   // 调用 DynamicForm 的 validateAll()
   if (!dynamicFormRef.value?.validateAll()) return
 
@@ -305,7 +333,10 @@ const submitFormInput = async () => {
       remark: '',
       input_data: formInputData.value,
     })
-    order.value = normalizeOrder(res)
+    const payload = unwrapOrderFromResponse(res)
+    if (payload?.id) {
+      order.value = normalizeOrder(payload)
+    }
     await loadOrderActions()
     formInputVisible.value = false
     showToast(`「${formInputAction.value.button_label}」已执行`, 'success')
@@ -325,7 +356,7 @@ const goBack = () => {
   if (window.history.length > 1) {
     router.back()
   } else {
-    router.push('/admin/order')
+    router.push('/orders')
   }
 }
 

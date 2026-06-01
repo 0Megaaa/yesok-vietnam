@@ -24,21 +24,20 @@ const requireAuth = () => {
   return true
 }
 
+// vite.base = /admin/，router 也必须以 /admin/ 为 base。
+// createWebHistory(import.meta.env.BASE_URL) 等于 /admin/。
+// 所以 next('/login') 实际跳 /admin/login，next('/dashboard') 实际跳 /admin/dashboard。
 const routes = [
   {
     path: '/',
     name: 'Home',
-    redirect: '/admin',
+    redirect: '/dashboard',
   },
   {
-    path: '/admin',
+    path: '/',
     component: () => import('@/layout/BasicLayout.vue'),
     meta: { requiresAuth: true },
     children: [
-      {
-        path: '',
-        redirect: '/admin/dashboard',
-      },
       {
         path: 'dashboard',
         name: 'Dashboard',
@@ -90,12 +89,12 @@ const routes = [
   {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
-    redirect: '/admin/dashboard',
+    redirect: '/dashboard',
   },
 ]
 
 const router = createRouter({
-  history: createWebHistory(),
+  history: createWebHistory(import.meta.env.BASE_URL || '/admin/'),
   routes,
 })
 
@@ -104,7 +103,7 @@ router.beforeEach((to, from, next) => {
   if (to.meta?.requiresAuth && !requireAuth()) {
     next('/login')
   } else if (to.path === '/login' && requireAuth()) {
-    next('/admin')
+    next('/dashboard')
   } else {
     next()
   }

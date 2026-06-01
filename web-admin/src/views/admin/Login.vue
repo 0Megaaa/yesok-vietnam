@@ -25,7 +25,7 @@ const handleLogin = async () => {
     await adminStore.login(loginForm.value.username, loginForm.value.password)
     console.log('[Login] ✅ 登录成功，token 已写入 store')
     showToast('管家登录成功', 'success')
-    router.push('/admin')
+    router.push('/dashboard')
   } catch (error) {
     console.error('[Login] ❌ 登录失败：', error)
     showToast(error?.message || '登录失败', 'error')
