@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getOrderDetail, getOrderActions, performOrderAction } from '@/api/admin/orders'
+import request from '@/api/request'
 import DynamicForm from '@/components/DynamicForm.vue'
 
 const router = useRouter()
@@ -39,6 +40,8 @@ const statusLabel = (code) => {
     cancelled: '已取消',
     refunded: '已退款',
     failed: '异常',
+    wait_supplement: '待补资料',
+    wait_upload_material: '待上传资料',
   }
   return m[code] || code || '未知'
 }
@@ -90,6 +93,71 @@ const formEntries = computed(() => {
 
 const showToast = (title, type = 'info') => {
   ElMessage({ message: title, type })
+}
+
+const pendingAuditTimeline = computed(() => {
+  return (order.value?.timelines || []).find((tl) => tl.audit_status === 'pending')
+})
+const hasPendingAudit = computed(() => !!pendingAuditTimeline.value)
+
+const auditLoading = ref(false)
+const rejectAuditVisible = ref(false)
+const rejectAuditRemark = ref('')
+
+const approveAudit = async () => {
+  if (!pendingAuditTimeline.value || !order.value?.id) return
+  try {
+    await ElMessageBox.confirm(
+      '确认审核通过？通过后订单将进入下一流程。',
+      '审核确认',
+      { confirmButtonText: '审核通过', cancelButtonText: '取消', type: 'success' }
+    )
+    auditLoading.value = true
+    const res = await request.post(`/v1/admin/orders/${order.value.id}/audit`, {
+      timeline_id: pendingAuditTimeline.value.id,
+      result: 'approved',
+      audit_remark: '资料审核通过',
+    })
+    const payload = res.data?.order || res.order || res.data || res
+    order.value = normalizeOrder(payload)
+    showToast('审核已通过', 'success')
+  } catch (error) {
+    if (error !== 'cancel') {
+      showToast(error?.response?.data?.error || error?.message || '审核失败', 'error')
+    }
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+const openRejectAudit = () => {
+  rejectAuditRemark.value = ''
+  rejectAuditVisible.value = true
+}
+
+const submitRejectAudit = async () => {
+  if (!pendingAuditTimeline.value || !order.value?.id) return
+  if (!rejectAuditRemark.value.trim()) {
+    showToast('请填写审核失败原因', 'warning')
+    return
+  }
+  auditLoading.value = true
+  try {
+    const res = await request.post(`/v1/admin/orders/${order.value.id}/audit`, {
+      timeline_id: pendingAuditTimeline.value.id,
+      result: 'rejected',
+      audit_remark: rejectAuditRemark.value.trim(),
+    })
+    const payload = res.data?.order || res.order || res.data || res
+    order.value = normalizeOrder(payload)
+    rejectAuditVisible.value = false
+    rejectAuditRemark.value = ''
+    showToast('已驳回，订单已回到待补资料', 'success')
+  } catch (error) {
+    showToast(error?.response?.data?.error || error?.message || '审核失败', 'error')
+  } finally {
+    auditLoading.value = false
+  }
 }
 
 const loadOrderDetail = async () => {
@@ -262,6 +330,16 @@ onMounted(async () => {
         </div>
       </div>
 
+      <!-- 平台资料审核 -->
+      <div v-if="hasPendingAudit" class="audit-panel">
+        <div class="audit-title">平台资料审核</div>
+        <div class="audit-desc">当前订单有待审核资料，请审核后决定是否进入下一流程。</div>
+        <div class="audit-actions">
+          <el-button type="success" :loading="auditLoading" @click="approveAudit">审核通过</el-button>
+          <el-button type="danger" plain :loading="auditLoading" @click="openRejectAudit">审核不通过</el-button>
+        </div>
+      </div>
+
       <!-- 状态轨迹 -->
       <div class="info-card">
         <div class="section-title">状态轨迹</div>
@@ -273,6 +351,11 @@ onMounted(async () => {
               {{ tl.after_status_text || statusLabel(tl.after_status) || '—' }}
             </span>
             <span v-if="tl.remark" class="timeline-desc">{{ tl.remark }}</span>
+            <span v-if="tl.audit_status === 'pending'" class="audit-tag pending">待平台审核</span>
+            <span v-if="tl.audit_status === 'approved'" class="audit-tag approved">审核通过</span>
+            <span v-if="tl.audit_status === 'rejected'" class="audit-tag rejected">审核未通过</span>
+            <span v-if="tl.audit_remark" class="audit-remark">审核备注：{{ tl.audit_remark }}</span>
+            <span v-if="tl.audited_at" class="audit-time">审核时间：{{ formatTime(tl.audited_at) }}</span>
             <span class="timeline-time">{{ formatTime(tl.created_at || tl.createdAt) }}</span>
           </div>
         </div>
@@ -357,6 +440,24 @@ onMounted(async () => {
       <template #footer>
         <el-button @click="formInputVisible = false">取消</el-button>
         <el-button type="primary" :loading="formInputLoading" @click="submitFormInput">确认执行</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 审核不通过弹窗 -->
+    <el-dialog v-model="rejectAuditVisible" title="审核不通过" width="520px" :close-on-click-modal="false">
+      <el-form label-position="top">
+        <el-form-item label="审核失败原因" required>
+          <el-input
+            v-model="rejectAuditRemark"
+            type="textarea"
+            :rows="4"
+            placeholder="请填写审核失败原因，例如：护照首页照片模糊，请重新上传"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="rejectAuditVisible = false">取消</el-button>
+        <el-button type="danger" :loading="auditLoading" @click="submitRejectAudit">确认驳回</el-button>
       </template>
     </el-dialog>
   </div>
@@ -596,4 +697,20 @@ onMounted(async () => {
   font-size: 11px;
   margin-top: 4px;
 }
+
+.audit-panel {
+  margin: 12px 16px;
+  padding: 16px;
+  border-radius: 16px;
+  background: #fff7e6;
+  border: 1px solid #ffd591;
+}
+.audit-title { font-size: 16px; font-weight: 900; color: #7a3e00; }
+.audit-desc { margin-top: 6px; color: #8a5a16; font-size: 13px; }
+.audit-actions { margin-top: 12px; display: flex; gap: 10px; }
+.audit-tag { display: inline-flex; margin-top: 6px; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; }
+.audit-tag.pending { background: #fff7e6; color: #ad6800; }
+.audit-tag.approved { background: #f6ffed; color: #389e0d; }
+.audit-tag.rejected { background: #fff1f0; color: #cf1322; }
+.audit-remark, .audit-time { display: block; margin-top: 4px; color: #5f6f6a; font-size: 12px; }
 </style>

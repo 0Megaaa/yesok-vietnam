@@ -207,22 +207,23 @@ func AdminGetOrderActions(db *gorm.DB) gin.HandlerFunc {
 				notifyText = n.NotifyType
 			}
 			actions = append(actions, gin.H{
-				"id":                 n.ID,
-				"action_name":        n.ActionName,
-				"action_name_text":   actionNameText,
-				"button_label":       n.ButtonLabel,
-				"action_type":        n.ActionType,
-				"form_fields":        n.FormFields,
-				"target_status":      n.TargetStatus,
-				"target_status_text": targetStatusText,
-				"macro_status":       n.MacroStatus,
-				"macro_status_text":  macroText,
-				"notify_type":        n.NotifyType,
-				"notify_type_text":   notifyText,
-				"need_audit":         n.NeedAudit,
-				"sort_order":         n.SortOrder,
-				"stage_code":         n.StageCode,
-				"stage_name":         n.StageName,
+				"id":                  n.ID,
+				"action_name":         n.ActionName,
+				"action_name_text":    actionNameText,
+				"button_label":        n.ButtonLabel,
+				"action_type":         n.ActionType,
+				"form_fields":         n.FormFields,
+				"target_status":       n.TargetStatus,
+				"target_status_text":  targetStatusText,
+				"macro_status":        n.MacroStatus,
+				"macro_status_text":   macroText,
+				"notify_type":         n.NotifyType,
+				"notify_type_text":    notifyText,
+				"need_audit":          n.NeedAudit,
+				"audit_reject_status": n.AuditRejectStatus,
+				"sort_order":          n.SortOrder,
+				"stage_code":          n.StageCode,
+				"stage_name":          n.StageName,
 			})
 		}
 
@@ -685,6 +686,185 @@ func AdminDeleteSysUser(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true})
+	}
+}
+
+// AdminAuditOrderRequest 审核订单的请求结构。
+type AdminAuditOrderRequest struct {
+	TimelineID  uint   `json:"timeline_id" binding:"required"`
+	Result      string `json:"result" binding:"required"` // approved/rejected
+	AuditRemark string `json:"audit_remark"`
+}
+
+// AdminAuditOrder 处理后台审核订单（审核通过 / 审核失败）。
+func AdminAuditOrder(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		orderID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil || orderID == 0 {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid order id")
+			return
+		}
+
+		var req AdminAuditOrderRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid request: "+err.Error())
+			return
+		}
+
+		if req.Result != models.AuditStatusApproved && req.Result != models.AuditStatusRejected {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "result must be approved or rejected")
+			return
+		}
+
+		var updatedOrder models.Order
+		err = db.Transaction(func(tx *gorm.DB) error {
+			// Step 1: 查出订单
+			var order models.Order
+			if err := tx.First(&order, orderID).Error; err != nil {
+				return fmt.Errorf("订单不存在: %w", err)
+			}
+
+			// Step 2: 查出待审核时间线
+			var timeline models.OrderTimeline
+			if err := tx.First(&timeline, req.TimelineID).Error; err != nil {
+				return fmt.Errorf("时间线记录不存在: %w", err)
+			}
+			if timeline.OrderID != order.ID {
+				return fmt.Errorf("时间线记录与订单不匹配")
+			}
+			if timeline.AuditStatus != models.AuditStatusPending {
+				return fmt.Errorf("该审核记录已处理，请勿重复审核")
+			}
+
+			// Step 3: 查找原工作流节点（用于获取 audit_reject_status）
+			var originNode models.SysWorkflowNode
+			found := tx.Where(
+				"service_id = ? AND action_name = ? AND target_status = ?",
+				order.ServiceID, timeline.ActionName, timeline.AfterStatus,
+			).First(&originNode).Error == nil
+
+			if !found {
+				tx.Where(
+					"service_id = ? AND action_name = ?",
+					order.ServiceID, timeline.ActionName,
+				).First(&originNode)
+			}
+
+			now := time.Now()
+
+			if req.Result == models.AuditStatusApproved {
+				// ======================================================
+				// 审核通过：查找 audit_approve 节点推进到下一状态
+				// ======================================================
+				var approveNode models.SysWorkflowNode
+				if err := tx.Where(
+					"service_id = ? AND stage_code = ? AND action_name = ? AND executor_role IN ?",
+					order.ServiceID, order.CurrentStage, "audit_approve",
+					[]string{"admin", "both"},
+				).Order("sort_order ASC, id ASC").First(&approveNode).Error; err != nil {
+					return fmt.Errorf("缺少审核通过工作流节点 audit_approve")
+				}
+
+				// 更新原 timeline
+				auditRemark := strings.TrimSpace(req.AuditRemark)
+				if auditRemark == "" {
+					auditRemark = "资料审核通过"
+				}
+				tx.Model(&timeline).Updates(map[string]interface{}{
+					"audit_status":   models.AuditStatusApproved,
+					"audit_remark":   auditRemark,
+					"audit_operator": "后台审核",
+					"audited_at":     now,
+					"updated_at":     now,
+				})
+
+				// 更新订单状态
+				tx.Model(&order).Updates(map[string]interface{}{
+					"current_stage": approveNode.TargetStatus,
+					"macro_status":  approveNode.MacroStatus,
+					"updated_at":    now,
+				})
+
+				// 写入审核通过 timeline
+				tx.Create(&models.OrderTimeline{
+					OrderID:       order.ID,
+					BeforeStatus:  order.CurrentStage,
+					AfterStatus:   approveNode.TargetStatus,
+					Operator:      "后台审核",
+					Remark:        "审核通过：" + auditRemark,
+					ActionName:    "audit_approve",
+					AuditStatus:   models.AuditStatusApproved,
+					AuditRemark:   auditRemark,
+					AuditOperator: "后台审核",
+					AuditedAt:     &now,
+					CreatedAt:     &now,
+					UpdatedAt:     &now,
+				})
+
+				tx.First(&order, order.ID)
+				updatedOrder = order
+				return nil
+			}
+
+			// ======================================================
+			// 审核失败：回退到配置的回退节点
+			// ======================================================
+			auditRemark := strings.TrimSpace(req.AuditRemark)
+			if auditRemark == "" {
+				return fmt.Errorf("审核失败原因不能为空")
+			}
+
+			// 更新原 timeline
+			tx.Model(&timeline).Updates(map[string]interface{}{
+				"audit_status":   models.AuditStatusRejected,
+				"audit_remark":   auditRemark,
+				"audit_operator": "后台审核",
+				"audited_at":     now,
+				"updated_at":     now,
+			})
+
+			// 计算回退节点
+			rejectStatus := strings.TrimSpace(originNode.AuditRejectStatus)
+			if rejectStatus == "" {
+				rejectStatus = "wait_supplement"
+			}
+
+			// 更新订单状态（macro_status 固定为 reviewing，表示待补资料状态）
+			tx.Model(&order).Updates(map[string]interface{}{
+				"current_stage": rejectStatus,
+				"macro_status":  "reviewing",
+				"updated_at":    now,
+			})
+
+			// 写入审核失败 timeline
+			tx.Create(&models.OrderTimeline{
+				OrderID:       order.ID,
+				BeforeStatus:  order.CurrentStage,
+				AfterStatus:   rejectStatus,
+				Operator:      "后台审核",
+				Remark:        "审核未通过：" + auditRemark,
+				ActionName:    "audit_reject",
+				AuditStatus:   models.AuditStatusRejected,
+				AuditRemark:   auditRemark,
+				AuditOperator: "后台审核",
+				AuditedAt:     &now,
+				CreatedAt:     &now,
+				UpdatedAt:     &now,
+			})
+
+			tx.First(&order, order.ID)
+			updatedOrder = order
+			return nil
+		})
+
+		if err != nil {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, err.Error())
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"order": buildOrderPayloadForRole(db, updatedOrder, "admin"),
+		})
 	}
 }
 

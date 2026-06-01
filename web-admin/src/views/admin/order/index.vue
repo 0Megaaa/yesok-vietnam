@@ -61,6 +61,7 @@ const normalizeOrder = (order) => ({
   totalAmountText: formatMoney(order.total_amount || order.amount || 0),
   form_items: order.form_items || [],
   form_data: order.form_data || order.formData || {},
+  timelines: order.timelines || [],
   // action_nodes 完整字段
   action_nodes: (order.action_nodes || order.actionNodes || []).map((node) => ({
     id: node.id,
@@ -76,8 +77,17 @@ const normalizeOrder = (order) => ({
     notify_type: node.notify_type || '',
     notify_type_text: node.notify_type_text || '',
     need_audit: node.need_audit || false,
+    audit_reject_status: node.audit_reject_status || '',
   })),
 })
+
+const hasPendingAudit = (order) => {
+  return (order.timelines || []).some((tl) => tl.audit_status === 'pending')
+}
+
+const latestRejectedAudit = (order) => {
+  return [...(order.timelines || [])].reverse().find((tl) => tl.audit_status === 'rejected')
+}
 
 const loadOrders = async () => {
   loading.value = true
@@ -276,6 +286,8 @@ onUnmounted(() => {
             </span>
           </div>
           <div class="status-badges">
+            <span v-if="hasPendingAudit(order)" class="audit-badge pending">待审核</span>
+            <span v-else-if="latestRejectedAudit(order)" class="audit-badge rejected">审核未通过</span>
             <span class="status">{{ order.macro_status_text || statusMap[order.current_status] || order.current_status }}</span>
             <span v-if="order.current_stage_text && order.current_stage_text !== order.current_status" class="stage-tag">{{ order.current_stage_text }}</span>
             <span class="payment-tag" :class="order.payment_status">{{ order.payment_status_text || paymentStatusMap[order.payment_status] || order.payment_status }}</span>
@@ -481,6 +493,16 @@ onUnmounted(() => {
   color: #7a2a2a;
   background: rgba(200, 80, 80, 0.15);
 }
+
+.audit-badge {
+  display: inline-flex;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 800;
+}
+.audit-badge.pending { background: #fff7e6; color: #ad6800; }
+.audit-badge.rejected { background: #fff1f0; color: #cf1322; }
 
 .order-meta {
   display: flex;

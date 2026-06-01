@@ -81,47 +81,49 @@ func (e *OrderEngine) AdvanceStage(
 		beforeStage := order.CurrentStage
 		payloadBytes, _ := json.Marshal(inputData)
 
-		// Step 4a: NeedAudit=true → 停在当前节点，标记待审核
-		if node.NeedAudit && operatorRole == "client" {
-			// 合并 inputData 到 form_data，并添加上下文信息
-			extra := map[string]interface{}{
-				"_last_action_name":   actionName,
-				"_last_notify_type":   node.NotifyType,
-				"_last_operator_role": operatorRole,
-				"_last_submitted_at":  time.Now().Format(time.RFC3339),
-			}
-			var updates map[string]interface{}
-			if node.ActionType == models.ActionTypeFormInput && inputData != nil {
-				updates = map[string]interface{}{
-					"form_data": mergeJSONMap(order.FormData, inputData, extra),
-				}
-			} else {
-				updates = map[string]interface{}{
-					"form_data": mergeJSONMap(order.FormData, nil, extra),
-				}
+		// Step 4a: NeedAudit=true → 进入审核中节点，timeline 标记 pending，等待后台审核
+		if node.NeedAudit {
+			now := time.Now()
+			timelineRemark := strings.TrimSpace(remark)
+			if timelineRemark == "" {
+				timelineRemark = defaultPendingAuditRemark(actionName, node.ButtonLabel, operatorRole)
 			}
 
-			auditRemark := strings.TrimSpace(remark)
-			if auditRemark == "" {
-				auditRemark = defaultTimelineRemark(actionName, node.ButtonLabel, operatorRole)
+			payloadBytes, _ := json.Marshal(inputData)
+
+			updates := map[string]interface{}{
+				"current_stage": node.TargetStatus,
+				"macro_status":  node.MacroStatus,
+				"updated_at":    now,
 			}
-			auditRemark = auditRemark + "，待后台审核"
+
+			// 合并 inputData 到 form_data
+			if node.ActionType == models.ActionTypeFormInput && inputData != nil {
+				extra := map[string]interface{}{
+					"_last_action_name":   actionName,
+					"_last_notify_type":   node.NotifyType,
+					"_last_operator_role": operatorRole,
+					"_last_submitted_at":  time.Now().Format(time.RFC3339),
+				}
+				updates["form_data"] = mergeJSONMap(order.FormData, inputData, extra)
+			}
+
+			if err := tx.Model(&order).Updates(updates).Error; err != nil {
+				return fmt.Errorf("更新订单状态失败: %w", err)
+			}
 
 			timeline := models.OrderTimeline{
 				OrderID:      order.ID,
 				BeforeStatus: beforeStage,
-				AfterStatus:  beforeStage,
+				AfterStatus:  node.TargetStatus,
 				Operator:     operator,
-				Remark:       auditRemark,
+				Remark:       timelineRemark,
 				ActionName:   actionName,
 				Payload:      payloadBytes,
 				AuditStatus:  models.AuditStatusPending,
 			}
 			if err := tx.Create(&timeline).Error; err != nil {
 				return fmt.Errorf("写入时间线记录失败: %w", err)
-			}
-			if err := tx.Model(&order).Updates(updates).Error; err != nil {
-				return fmt.Errorf("更新订单状态失败: %w", err)
 			}
 			return nil
 		}
@@ -352,6 +354,26 @@ func defaultTimelineRemark(actionName, buttonLabel, operatorRole string) string 
 			return buttonLabel
 		}
 		return "流程状态已更新"
+	}
+}
+
+// defaultPendingAuditRemark 根据动作名称返回待审核时间线备注。
+func defaultPendingAuditRemark(actionName, buttonLabel, operatorRole string) string {
+	switch actionName {
+	case "upload_material":
+		return "客户已提交资料，等待平台审核"
+	case "supplement_material":
+		return "客户已补充资料，等待平台审核"
+	case "submit_request":
+		return "客户提交需求，等待平台处理"
+	default:
+		if buttonLabel != "" {
+			if operatorRole == "client" {
+				return "客户已提交「" + buttonLabel + "」，等待平台审核"
+			}
+			return "已提交「" + buttonLabel + "」，等待平台审核"
+		}
+		return "资料已提交，等待平台审核"
 	}
 }
 

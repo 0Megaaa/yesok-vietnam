@@ -345,6 +345,11 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 			"remark":             tl.Remark,
 			"action_name":        tl.ActionName,
 			"created_at":         tl.CreatedAt,
+			"audit_status":       tl.AuditStatus,
+			"audit_status_text":  auditStatusText(tl.AuditStatus),
+			"audit_remark":       tl.AuditRemark,
+			"audit_operator":     tl.AuditOperator,
+			"audited_at":         tl.AuditedAt,
 		})
 	}
 
@@ -368,22 +373,23 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 			notifyText = n.NotifyType
 		}
 		actionNodes = append(actionNodes, gin.H{
-			"id":                 n.ID,
-			"action_name":        n.ActionName,
-			"action_name_text":   actionNameText,
-			"button_label":       n.ButtonLabel,
-			"action_type":        n.ActionType,
-			"form_fields":        n.FormFields,
-			"target_status":      n.TargetStatus,
-			"target_status_text": targetStatusText,
-			"macro_status":       n.MacroStatus,
-			"macro_status_text":  macroText,
-			"notify_type":        n.NotifyType,
-			"notify_type_text":   notifyText,
-			"need_audit":         n.NeedAudit,
-			"sort_order":         n.SortOrder,
-			"stage_code":         n.StageCode,
-			"stage_name":         n.StageName,
+			"id":                  n.ID,
+			"action_name":         n.ActionName,
+			"action_name_text":    actionNameText,
+			"button_label":        n.ButtonLabel,
+			"action_type":         n.ActionType,
+			"form_fields":         n.FormFields,
+			"target_status":       n.TargetStatus,
+			"target_status_text":  targetStatusText,
+			"macro_status":        n.MacroStatus,
+			"macro_status_text":   macroText,
+			"notify_type":         n.NotifyType,
+			"notify_type_text":    notifyText,
+			"need_audit":          n.NeedAudit,
+			"audit_reject_status": n.AuditRejectStatus,
+			"sort_order":          n.SortOrder,
+			"stage_code":          n.StageCode,
+			"stage_name":          n.StageName,
 		})
 	}
 
@@ -426,6 +432,20 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 		"timelines":           timelineItems,
 		"payments":            payments,
 		"action_nodes":        actionNodes,
+	}
+}
+
+// auditStatusText 将审核状态码转换为中文描述。
+func auditStatusText(status string) string {
+	switch status {
+	case models.AuditStatusPending:
+		return "待审核"
+	case models.AuditStatusApproved:
+		return "审核通过"
+	case models.AuditStatusRejected:
+		return "审核未通过"
+	default:
+		return ""
 	}
 }
 

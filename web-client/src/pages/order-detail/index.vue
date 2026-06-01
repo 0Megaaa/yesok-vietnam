@@ -79,6 +79,10 @@ const timelineEntries = computed(() => {
   return [...order.value.timelines].reverse()
 })
 
+const latestRejectedAudit = computed(() => {
+  return [...(order.value?.timelines || [])].reverse().find((tl) => tl.audit_status === 'rejected')
+})
+
 const buttonClickActions = computed(() => actions.value.filter(a => a.action_type === 'button_click'))
 const formInputActions = computed(() => actions.value.filter(a => a.action_type === 'form_input'))
 const wxPayActions = computed(() => actions.value.filter(a => a.action_type === 'wx_pay'))
@@ -332,6 +336,14 @@ onMounted(async () => {
         </view>
       </view>
 
+      <!-- 审核未通过提示 -->
+      <view v-if="latestRejectedAudit" class="audit-reject-card">
+        <text class="audit-reject-title">资料审核未通过</text>
+        <text class="audit-reject-desc">
+          {{ latestRejectedAudit.audit_remark || '资料未通过平台审核，请根据提示补充资料。' }}
+        </text>
+      </view>
+
       <!-- 业务表单 -->
       <view class="section-card">
         <view class="section-title"><view class="section-bar"></view>业务资料</view>
@@ -350,6 +362,10 @@ onMounted(async () => {
           <view class="timeline-dot"></view>
           <view class="timeline-body">
             <text class="timeline-title">{{ tl.after_status_text || statusLabel(tl.after_status) || '—' }}</text>
+            <text v-if="tl.audit_status === 'pending'" class="audit-status pending">平台审核中</text>
+            <text v-if="tl.audit_status === 'approved'" class="audit-status approved">审核通过</text>
+            <text v-if="tl.audit_status === 'rejected'" class="audit-status rejected">审核未通过</text>
+            <text v-if="tl.audit_status === 'rejected' && tl.audit_remark" class="audit-reason">原因：{{ tl.audit_remark }}</text>
             <text v-if="tl.remark" class="timeline-desc">{{ tl.remark }}</text>
             <text class="timeline-time">{{ formatTime(tl.created_at) }}</text>
           </view>
@@ -886,4 +902,27 @@ onMounted(async () => {
   font-weight: 900;
   line-height: 46px;
 }
+
+.audit-reject-card {
+  margin: 12px 16px;
+  padding: 14px;
+  border-radius: 16px;
+  background: #fff1f0;
+  border: 1px solid #ffccc7;
+}
+.audit-reject-title { display: block; color: #cf1322; font-size: 15px; font-weight: 900; }
+.audit-reject-desc { display: block; margin-top: 6px; color: #7a1f1f; font-size: 13px; line-height: 1.6; }
+
+.audit-status {
+  display: inline-flex;
+  margin-top: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 800;
+}
+.audit-status.pending { background: #fff7e6; color: #ad6800; }
+.audit-status.approved { background: #f6ffed; color: #389e0d; }
+.audit-status.rejected { background: #fff1f0; color: #cf1322; }
+.audit-reason { display: block; margin-top: 4px; color: #7a1f1f; font-size: 12px; line-height: 1.5; }
 </style>

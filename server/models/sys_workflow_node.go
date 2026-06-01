@@ -65,22 +65,23 @@ func (f *FormFields) Scan(value interface{}) error {
 //   - form_input   : 需弹窗收集 inputData 后推进
 //   - wx_pay       : 唤起微信支付
 type SysWorkflowNode struct {
-	ID           uint       `json:"id" gorm:"primaryKey"`
-	ServiceID    uint       `json:"service_id" gorm:"not null;index:idx_service_id;comment:'关联服务ID'"`
-	StageCode    string     `json:"stage_code" gorm:"size:64;not null;index:idx_stage_code;comment:'当前节点编码'"`
-	StageName    string     `json:"stage_name" gorm:"size:64;not null;comment:'当前节点名称'"`
-	MacroStatus  string     `json:"macro_status" gorm:"size:32;not null;comment:'映射主状态 (对应sys_dict_data)'"`
-	ActionName   string     `json:"action_name" gorm:"size:64;not null;comment:'动作标识 (内部使用，唯一键)'"`
-	ButtonLabel  string     `json:"button_label" gorm:"size:64;not null;comment:'按钮名称 (UI显示)'"`
-	ExecutorRole string     `json:"executor_role" gorm:"size:32;not null;default:admin;comment:'admin/client/both'"`
-	ActionType   string     `json:"action_type" gorm:"size:32;not null;default:button_click;comment:'button_click/form_input/wx_pay'"`
-	FormFields   FormFields `json:"form_fields" gorm:"type:json;comment:'JSON: [{key,label,type,required,options}]'"`
-	NeedAudit    bool       `json:"need_audit" gorm:"default:false;comment:'提交后是否需人工审核确认才推进'"`
-	NotifyType   string     `json:"notify_type" gorm:"size:32;comment:'触发通知类型，对应 notify_type 字典'"`
-	TargetStatus string     `json:"target_status" gorm:"size:64;not null;comment:'流转目标状态'"`
-	SortOrder    int64      `json:"sort_order" gorm:"default:0;comment:'排序'"`
-	CreatedAt    *time.Time `json:"created_at" gorm:"datetime(3);"`
-	UpdatedAt    *time.Time `json:"updated_at" gorm:"datetime(3);"`
+	ID                uint       `json:"id" gorm:"primaryKey"`
+	ServiceID         uint       `json:"service_id" gorm:"not null;index:idx_service_id;comment:'关联服务ID'"`
+	StageCode         string     `json:"stage_code" gorm:"size:64;not null;index:idx_stage_code;comment:'当前节点编码'"`
+	StageName         string     `json:"stage_name" gorm:"size:64;not null;comment:'当前节点名称'"`
+	MacroStatus       string     `json:"macro_status" gorm:"size:32;not null;comment:'映射主状态 (对应sys_dict_data)'"`
+	ActionName        string     `json:"action_name" gorm:"size:64;not null;comment:'动作标识 (内部使用，唯一键)'"`
+	ButtonLabel       string     `json:"button_label" gorm:"size:64;not null;comment:'按钮名称 (UI显示)'"`
+	ExecutorRole      string     `json:"executor_role" gorm:"size:32;not null;default:admin;comment:'admin/client/both'"`
+	ActionType        string     `json:"action_type" gorm:"size:32;not null;default:button_click;comment:'button_click/form_input/wx_pay'"`
+	FormFields        FormFields `json:"form_fields" gorm:"type:json;comment:'JSON: [{key,label,type,required,options}]'"`
+	NeedAudit         bool       `json:"need_audit" gorm:"default:false;comment:'提交后是否需人工审核确认才推进'"`
+	NotifyType        string     `json:"notify_type" gorm:"size:32;comment:'触发通知类型，对应 notify_type 字典'"`
+	TargetStatus      string     `json:"target_status" gorm:"size:64;not null;comment:'流转目标状态'"`
+	AuditRejectStatus string     `json:"audit_reject_status" gorm:"size:64;comment:'审核拒绝后的回退节点编码'"`
+	SortOrder         int64      `json:"sort_order" gorm:"default:0;comment:'排序'"`
+	CreatedAt         *time.Time `json:"created_at" gorm:"datetime(3);"`
+	UpdatedAt         *time.Time `json:"updated_at" gorm:"datetime(3);"`
 }
 
 func (SysWorkflowNode) TableName() string { return "sys_workflow_nodes" }

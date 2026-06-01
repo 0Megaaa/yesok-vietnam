@@ -128,6 +128,7 @@ const blankNode = () => ({
   macro_status: '',
   notify_type: '',
   need_audit: false,
+  audit_reject_status: '',
   sort_order: 0,
 })
 
@@ -306,6 +307,7 @@ const openEditDialog = async (row) => {
         macro_status: n.macro_status || '',
         notify_type: n.notify_type || '',
         need_audit: n.need_audit ?? false,
+        audit_reject_status: n.audit_reject_status || '',
         sort_order: n.sort_order ?? 0,
       })),
     }
@@ -331,7 +333,13 @@ const saveService = async () => {
         ...form.value.service_info,
         base_price: Number(form.value.service_info.base_price) || 0,
       },
-      workflow_nodes: form.value.workflow_nodes,
+      workflow_nodes: form.value.workflow_nodes.map((node) => ({
+        ...node,
+        need_audit: !!node.need_audit,
+        audit_reject_status: node.need_audit
+          ? (node.audit_reject_status || 'wait_supplement')
+          : (node.audit_reject_status || ''),
+      })),
     }
     if (dialogType.value === 'add') {
       await request.post('/v1/admin/services', payload)
@@ -722,6 +730,27 @@ onUnmounted(() => { loading.value = false })
               <el-tooltip content="需人工审核后才推进" placement="top">
                 <el-switch v-model="row.need_audit" size="small" :disabled="row.action_type === 'wx_pay'" />
               </el-tooltip>
+            </template>
+          </el-table-column>
+
+          <!-- 审核失败回退节点 -->
+          <el-table-column label="审核失败回退" min-width="140">
+            <template #default="{ row }">
+              <el-select
+                v-model="row.audit_reject_status"
+                clearable
+                placeholder="默认 wait_supplement"
+                size="small"
+                style="width: 100%"
+                :disabled="!row.need_audit"
+              >
+                <el-option
+                  v-for="item in nodeStageOptions"
+                  :key="item.dict_value || item.value"
+                  :label="item.dict_label || item.label"
+                  :value="item.dict_value || item.value"
+                />
+              </el-select>
             </template>
           </el-table-column>
 
