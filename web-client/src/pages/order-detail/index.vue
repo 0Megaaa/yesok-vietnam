@@ -293,6 +293,72 @@ const activeAuditRejectRemark = computed(() => {
   return item?.audit_remark || item?.remark || ''
 })
 
+// latestProcessFailedTimeline 找到最新的办理失败 timeline
+const latestProcessFailedTimeline = computed(() => {
+  const list = order.value?.timelines || []
+  return list
+    .filter((item) => item.action_name === 'process_failed')
+    .sort((a, b) => getTimelineTime(b) - getTimelineTime(a))[0] || null
+})
+
+// processFailedReason 提取办理失败原因：优先 payload.failed_reason，其次 form_data.failed_reason，其次 timeline.remark
+const processFailedReason = computed(() => {
+  const timeline = latestProcessFailedTimeline.value
+  if (!timeline) return ''
+
+  if (timeline.payload) {
+    try {
+      const payload = typeof timeline.payload === 'string'
+        ? JSON.parse(timeline.payload)
+        : timeline.payload
+      if (payload?.failed_reason) return payload.failed_reason
+      if (payload?.remark) return payload.remark
+    } catch (e) {
+      console.warn('[processFailedReason] payload parse failed:', e)
+    }
+  }
+
+  const formData = order.value?.form_data || order.value?.formData || {}
+  if (formData.failed_reason) return formData.failed_reason
+
+  if (timeline.remark) {
+    return String(timeline.remark)
+      .replace(/^后台执行[:：]\s*/, '')
+      .replace(/^办理失败[:：]\s*/, '')
+      .trim()
+  }
+
+  return ''
+})
+
+// hasProcessFailed 判断当前是否需要展示办理失败提示（仅在售后/管家介入阶段展示）
+const hasProcessFailed = computed(() => {
+  if (!latestProcessFailedTimeline.value) return false
+  const currentStage = order.value?.current_stage || ''
+  const macroStatus = order.value?.macro_status || ''
+  return ['aftersale_butler_contact', 'aftersale_processing'].includes(currentStage) || macroStatus === 'aftersale'
+})
+
+// isProcessFailedTimeline 判断某条 timeline 是否为办理失败
+const isProcessFailedTimeline = (item) => item?.action_name === 'process_failed'
+
+// timelineRemarkText 生成 timeline 展示文本：办理失败时显示 failed_reason
+const timelineRemarkText = (item) => {
+  if (!item) return ''
+  if (isProcessFailedTimeline(item)) {
+    if (item.payload) {
+      try {
+        const payload = typeof item.payload === 'string' ? JSON.parse(item.payload) : item.payload
+        if (payload?.failed_reason) return payload.failed_reason
+      } catch (e) {}
+    }
+    const formData = order.value?.form_data || order.value?.formData || {}
+    if (formData.failed_reason) return formData.failed_reason
+    return item.remark || '办理失败'
+  }
+  return item.remark || ''
+}
+
 const buttonClickActions = computed(() => actions.value.filter(a => a.action_type === 'button_click'))
 const formInputActions = computed(() => actions.value.filter(a => a.action_type === 'form_input'))
 const wxPayActions = computed(() => actions.value.filter(a => a.action_type === 'wx_pay'))
@@ -578,8 +644,16 @@ onMounted(async () => {
         </view>
       </view>
 
+      <!-- 办理失败提示（优先级最高，发生在支付后/办理中阶段） -->
+      <view v-if="hasProcessFailed" class="process-failed-alert">
+        <view class="process-failed-title">办理失败</view>
+        <view class="process-failed-reason">
+          {{ processFailedReason || '办理失败，管家将介入沟通处理' }}
+        </view>
+      </view>
+
       <!-- 审核未通过提示（仅展示当前仍有效的审核失败） -->
-      <view v-if="activeAuditRejectRemark" class="audit-reject-card">
+      <view v-else-if="activeAuditRejectRemark" class="audit-reject-card">
         <text class="audit-reject-title">资料审核未通过</text>
         <text class="audit-reject-desc">{{ activeAuditRejectRemark }}</text>
       </view>
@@ -615,10 +689,12 @@ onMounted(async () => {
           <view class="timeline-body">
             <text class="timeline-title">{{ tl.after_status_text || statusLabel(tl.after_status) || '—' }}</text>
             <text v-if="tl.audit_status === 'pending'" class="audit-status pending">平台审核中</text>
-            <text v-if="tl.audit_status === 'approved'" class="audit-status approved">审核通过</text>
+            <text v-if="tl.audit_status === 'approved' && !isProcessFailedTimeline(tl)" class="audit-status approved">审核通过</text>
             <text v-if="tl.audit_status === 'rejected'" class="audit-status rejected">审核未通过</text>
             <text v-if="tl.audit_status === 'rejected' && tl.audit_remark" class="audit-reason">原因：{{ tl.audit_remark }}</text>
-            <text v-if="tl.remark" class="timeline-desc">{{ tl.remark }}</text>
+            <text v-if="isProcessFailedTimeline(tl)" class="timeline-failed-tag">办理失败</text>
+            <text v-if="isProcessFailedTimeline(tl) && timelineRemarkText(tl)" class="timeline-failed-reason">原因：{{ timelineRemarkText(tl) }}</text>
+            <text v-if="tl.remark && !isProcessFailedTimeline(tl)" class="timeline-desc">{{ tl.remark }}</text>
             <text class="timeline-time">{{ formatTime(tl.created_at) }}</text>
           </view>
         </view>
@@ -1241,4 +1317,45 @@ onMounted(async () => {
   display: flex; align-items: center; justify-content: center;
 }
 .upload-loading { color: #fff; font-size: 24rpx; }
+
+/* 办理失败红色提示 */
+.process-failed-alert {
+  margin: 24rpx 32rpx;
+  padding: 28rpx 30rpx;
+  border-radius: 24rpx;
+  background: #fff1f1;
+  border: 2rpx solid #ffb6b6;
+}
+.process-failed-title {
+  font-size: 34rpx;
+  font-weight: 800;
+  color: #d93025;
+  margin-bottom: 14rpx;
+}
+.process-failed-reason {
+  font-size: 28rpx;
+  line-height: 1.6;
+  color: #9f2f2f;
+  font-weight: 600;
+}
+
+/* 时间线办理失败标签 */
+.timeline-failed-tag {
+  display: inline-flex;
+  align-items: center;
+  margin-top: 10rpx;
+  padding: 6rpx 16rpx;
+  border-radius: 999rpx;
+  background: #ffe8e8;
+  color: #d93025;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+.timeline-failed-reason {
+  margin-top: 10rpx;
+  color: #9f2f2f;
+  font-size: 26rpx;
+  line-height: 1.5;
+  font-weight: 600;
+}
 </style>

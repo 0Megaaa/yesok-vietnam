@@ -165,6 +165,35 @@ func AdminGetOrder(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// resolveTargetStatusByPayment 根据订单支付状态决定是否跳过支付节点。
+// 如果 target 是 wait_pay/wait_deposit_pay/wait_final_pay，但订单已支付，则跳过到对应已支付状态。
+func resolveTargetStatusByPayment(order models.Order, targetStatus string) string {
+	normalized := strings.TrimSpace(targetStatus)
+	if normalized == "" {
+		return targetStatus
+	}
+
+	paymentStatus := strings.TrimSpace(order.PaymentStatus)
+	macroStatus := strings.TrimSpace(order.MacroStatus)
+
+	switch normalized {
+	case "wait_pay":
+		if paymentStatus == "paid" || macroStatus == "paid" {
+			return "paid"
+		}
+	case "wait_deposit_pay":
+		if paymentStatus == "deposit_paid" || paymentStatus == "paid" || macroStatus == "paid" {
+			return "deposit_paid"
+		}
+	case "wait_final_pay":
+		if paymentStatus == "paid" || macroStatus == "paid" {
+			return "paid"
+		}
+	}
+
+	return normalized
+}
+
 // resolveMacroStatusByStage 根据服务ID和阶段编码查找节点的宏状态，用于审核失败时推导回退节点对应的 macro_status
 func resolveMacroStatusByStage(db *gorm.DB, serviceID uint, stageCode string, fallback string) string {
 	var node models.SysWorkflowNode
@@ -797,20 +826,37 @@ func AdminAuditOrder(db *gorm.DB) gin.HandlerFunc {
 					"updated_at":     now,
 				})
 
+				// 根据支付状态决定是否跳过支付节点
+				skippedPayNode := ""
+				rawTarget := strings.TrimSpace(approveNode.TargetStatus)
+				targetStage := resolveTargetStatusByPayment(order, rawTarget)
+				if targetStage != rawTarget {
+					skippedPayNode = rawTarget
+				}
+				approveMacroStatus := resolveMacroStatusByStage(tx, order.ServiceID, targetStage, approveNode.MacroStatus)
+
 				// 更新订单状态
 				tx.Model(&order).Updates(map[string]interface{}{
-					"current_stage": approveNode.TargetStatus,
-					"macro_status":  approveNode.MacroStatus,
+					"current_stage": targetStage,
+					"macro_status":  approveMacroStatus,
 					"updated_at":    now,
 				})
+
+				// 生成 timeline 备注（跳过支付节点时体现）
+				tlRemark := "审核通过：" + auditRemark
+				if skippedPayNode != "" && targetStage == "paid" {
+					tlRemark = fmt.Sprintf("审核通过，订单已支付，自动跳过%s节点", skippedPayNode)
+				} else if skippedPayNode != "" && targetStage == "deposit_paid" {
+					tlRemark = fmt.Sprintf("审核通过，订单已付定金，自动跳过%s节点", skippedPayNode)
+				}
 
 				// 写入审核通过 timeline
 				tx.Create(&models.OrderTimeline{
 					OrderID:       order.ID,
 					BeforeStatus:  order.CurrentStage,
-					AfterStatus:   approveNode.TargetStatus,
+					AfterStatus:   targetStage,
 					Operator:      "后台审核",
-					Remark:        "审核通过：" + auditRemark,
+					Remark:        tlRemark,
 					ActionName:    "audit_approve",
 					AuditStatus:   models.AuditStatusApproved,
 					AuditRemark:   auditRemark,

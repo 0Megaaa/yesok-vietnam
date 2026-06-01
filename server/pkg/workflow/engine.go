@@ -129,9 +129,18 @@ func (e *OrderEngine) AdvanceStage(
 		}
 
 		// Step 4b: NeedAudit=false → 正常推进
+		// 根据支付状态决定是否跳过支付节点
+		skippedPayNode := ""
+		rawTarget := strings.TrimSpace(node.TargetStatus)
+		targetStage := resolveTargetStatusByPayment(order, rawTarget)
+		if targetStage != rawTarget {
+			skippedPayNode = rawTarget
+		}
+		macroStatus := resolveMacroStatusByStage(tx, order.ServiceID, targetStage, node.MacroStatus)
+
 		updates := map[string]interface{}{
-			"current_stage": node.TargetStatus,
-			"macro_status":  node.MacroStatus,
+			"current_stage": targetStage,
+			"macro_status":  macroStatus,
 		}
 
 		// wx_pay：第一阶段模拟支付成功
@@ -206,10 +215,16 @@ func (e *OrderEngine) AdvanceStage(
 		if timelineRemark == "" {
 			timelineRemark = defaultTimelineRemark(actionName, node.ButtonLabel, operatorRole)
 		}
+		// 跳过支付节点时，备注要体现已支付
+		if skippedPayNode != "" && targetStage == "paid" {
+			timelineRemark += "，订单已支付，自动跳过支付节点"
+		} else if skippedPayNode != "" && targetStage == "deposit_paid" {
+			timelineRemark += "，订单已付定金，自动跳过定金支付节点"
+		}
 		timeline := models.OrderTimeline{
 			OrderID:      order.ID,
 			BeforeStatus: beforeStage,
-			AfterStatus:  node.TargetStatus,
+			AfterStatus:  targetStage,
 			Operator:     operator,
 			Remark:       timelineRemark,
 			ActionName:   actionName,
@@ -224,6 +239,52 @@ func (e *OrderEngine) AdvanceStage(
 	})
 
 	return err
+}
+
+// resolveMacroStatusByStage 根据服务ID和阶段编码查找节点的宏状态。
+func resolveMacroStatusByStage(tx *gorm.DB, serviceID uint, stageCode string, fallback string) string {
+	var node models.SysWorkflowNode
+	if err := tx.Where(
+		"service_id = ? AND stage_code = ?",
+		serviceID, stageCode,
+	).Order("sort_order ASC, id ASC").First(&node).Error; err == nil {
+		if strings.TrimSpace(node.MacroStatus) != "" {
+			return strings.TrimSpace(node.MacroStatus)
+		}
+	}
+	if strings.TrimSpace(fallback) != "" {
+		return fallback
+	}
+	return "supplement"
+}
+
+// resolveTargetStatusByPayment 根据订单支付状态决定是否跳过支付节点。
+// 如果 target 是 wait_pay/wait_deposit_pay/wait_final_pay，但订单已支付，则跳过到对应已支付状态。
+func resolveTargetStatusByPayment(order models.Order, targetStatus string) string {
+	normalized := strings.TrimSpace(targetStatus)
+	if normalized == "" {
+		return targetStatus
+	}
+
+	paymentStatus := strings.TrimSpace(order.PaymentStatus)
+	macroStatus := strings.TrimSpace(order.MacroStatus)
+
+	switch normalized {
+	case "wait_pay":
+		if paymentStatus == "paid" || macroStatus == "paid" {
+			return "paid"
+		}
+	case "wait_deposit_pay":
+		if paymentStatus == "deposit_paid" || paymentStatus == "paid" || macroStatus == "paid" {
+			return "deposit_paid"
+		}
+	case "wait_final_pay":
+		if paymentStatus == "paid" || macroStatus == "paid" {
+			return "paid"
+		}
+	}
+
+	return normalized
 }
 
 // toFloat64 将任意数值类型转为 float64。
@@ -274,6 +335,12 @@ func (e *OrderEngine) ApproveAudit(orderID, timelineID uint, operator string, re
 			return fmt.Errorf("节点配置未找到: %w", err)
 		}
 
+		// 查出订单用于支付状态判断
+		var order models.Order
+		if err := tx.First(&order, orderID).Error; err != nil {
+			return fmt.Errorf("订单不存在: %w", err)
+		}
+
 		// 更新 timeline 状态
 		if err := tx.Model(&timeline).Updates(map[string]interface{}{
 			"audit_status": models.AuditStatusApproved,
@@ -282,22 +349,39 @@ func (e *OrderEngine) ApproveAudit(orderID, timelineID uint, operator string, re
 			return fmt.Errorf("更新时间线状态失败: %w", err)
 		}
 
+		// 根据支付状态决定是否跳过支付节点
+		skippedPayNode := ""
+		rawTarget := strings.TrimSpace(node.TargetStatus)
+		targetStage := resolveTargetStatusByPayment(order, rawTarget)
+		if targetStage != rawTarget {
+			skippedPayNode = rawTarget
+		}
+		macroStatus := resolveMacroStatusByStage(tx, order.ServiceID, targetStage, node.MacroStatus)
+
 		// 推进订单状态
 		updates := map[string]interface{}{
-			"current_stage": node.TargetStatus,
-			"macro_status":  node.MacroStatus,
+			"current_stage": targetStage,
+			"macro_status":  macroStatus,
 		}
 		if err := tx.Model(&models.Order{}).Where("id = ?", orderID).Updates(updates).Error; err != nil {
 			return fmt.Errorf("更新订单状态失败: %w", err)
+		}
+
+		// 生成 timeline 备注（跳过支付节点时体现）
+		tlRemark := strings.TrimSpace(remark)
+		if skippedPayNode != "" && targetStage == "paid" {
+			tlRemark += "，订单已支付，自动跳过支付节点"
+		} else if skippedPayNode != "" && targetStage == "deposit_paid" {
+			tlRemark += "，订单已付定金，自动跳过定金支付节点"
 		}
 
 		// 写入新的时间线
 		newTimeline := models.OrderTimeline{
 			OrderID:      orderID,
 			BeforeStatus: timeline.BeforeStatus,
-			AfterStatus:  node.TargetStatus,
+			AfterStatus:  targetStage,
 			Operator:     operator,
-			Remark:       remark,
+			Remark:       tlRemark,
 			ActionName:   "audit_approved",
 			Payload:      timeline.Payload,
 			AuditStatus:  models.AuditStatusApproved,
@@ -343,6 +427,8 @@ func defaultTimelineRemark(actionName, buttonLabel, operatorRole string) string 
 		return "后台已确认资料收齐"
 	case "approve":
 		return "后台审核通过"
+	case "process_failed":
+		return "办理失败"
 	default:
 		if buttonLabel != "" {
 			if operatorRole == "admin" {
