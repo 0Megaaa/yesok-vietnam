@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
 import { get, post } from '@/api/request'
+import { uploadOrderMaterial } from '@/api/order'
 
 const client = useClientStore()
 const orderId = ref('')
@@ -14,6 +15,70 @@ const formData = ref({})
 const formVisible = ref(false)
 const currentAction = ref(null)
 const submitting = ref(false)
+
+// 图片上传中状态（key = field.key）
+const uploadingMap = ref({})
+
+// BASE_URL 用于拼接文件 URL
+const BASE_URL = (() => {
+  if (typeof import_meta !== 'undefined' && import_meta?.env?.VITE_API_BASE_URL) {
+    return import_meta.env.VITE_API_BASE_URL
+  }
+  return ''
+})()
+
+// toFullFileUrl 将相对路径转为完整 URL
+const toFullFileUrl = (url) => {
+  if (!url) return ''
+  if (/^https?:\/\//.test(url)) return url
+  return `${BASE_URL}${url.startsWith('/') ? url : `/${url}`}`
+}
+
+// chooseAndUploadFile 选择图片并上传
+const chooseAndUploadFile = async (field) => {
+  if (!order.value?.id) {
+    uni.showToast({ title: '订单不存在', icon: 'none' })
+    return
+  }
+
+  uni.chooseImage({
+    count: 1,
+    sizeType: ['compressed'],
+    sourceType: ['album', 'camera'],
+    success: async (res) => {
+      const tempFilePath = res.tempFilePaths?.[0]
+      if (!tempFilePath) return
+
+      uploadingMap.value[field.key] = true
+      try {
+        const uploadRes = await uploadOrderMaterial(order.value.id, tempFilePath, field.key)
+
+        if (!uploadRes?.url) {
+          throw new Error('上传失败')
+        }
+
+        formData.value[field.key] = uploadRes.url
+        uni.showToast({ title: '上传成功', icon: 'success' })
+      } catch (error) {
+        uni.showToast({
+          title: error?.message || '上传失败',
+          icon: 'none',
+        })
+      } finally {
+        uploadingMap.value[field.key] = false
+      }
+    },
+    fail: (err) => {
+      console.warn('[chooseAndUploadFile] cancelled or failed:', err)
+    },
+  })
+}
+
+// previewUploadedFile 预览已上传图片
+const previewUploadedFile = (url) => {
+  const fullUrl = toFullFileUrl(url)
+  uni.previewImage({ urls: [fullUrl], current: fullUrl })
+}
 
 // unwrapResponse 统一解包 request.js 返回的 { data: ... } 结构
 const unwrapResponse = (res) => {
@@ -168,12 +233,23 @@ const closeForm = () => {
 }
 
 const validateField = (field) => {
-  if (field.required) {
-    const val = (formData.value[field.key] || '').toString().trim()
-    if (!val) {
-      safeToast(`请填写 ${field.label}`, 'none')
+  if (!field.required) return true
+  const val = formData.value[field.key]
+
+  // image/file 类型：检查是否有非空 URL 值
+  if (field.type === 'image' || field.type === 'file') {
+    if (!val || typeof val !== 'string' || val.trim() === '') {
+      safeToast(`请上传${field.label}`, 'none')
       return false
     }
+    return true
+  }
+
+  // 其他类型：检查字符串非空
+  const str = (val || '').toString().trim()
+  if (!str) {
+    safeToast(`请填写 ${field.label}`, 'none')
+    return false
   }
   return true
 }
@@ -467,12 +543,30 @@ onMounted(async () => {
                 <text class="arrow">›</text>
               </view>
             </picker>
-            <view v-else-if="field.type === 'image' || field.type === 'file'" class="field-input image-field">
-              <input
-                v-model="formData[field.key]"
-                class="field-url-input"
-                placeholder="请输入文件URL，或联系管家上传"
-              />
+            <view v-else-if="field.type === 'image' || field.type === 'file'" class="upload-field">
+              <view
+                class="upload-box"
+                :class="{ uploading: uploadingMap[field.key] }"
+                @click="chooseAndUploadFile(field)"
+              >
+                <image
+                  v-if="formData[field.key]"
+                  :src="toFullFileUrl(formData[field.key])"
+                  class="upload-preview"
+                  mode="aspectFill"
+                  @click.stop="previewUploadedFile(formData[field.key])"
+                />
+                <view v-else class="upload-placeholder">
+                  <text class="upload-plus">+</text>
+                  <text class="upload-text">上传图片</text>
+                </view>
+                <view v-if="uploadingMap[field.key]" class="upload-mask">
+                  <text class="upload-loading">上传中...</text>
+                </view>
+              </view>
+              <text v-if="formData[field.key]" class="upload-change" @click="chooseAndUploadFile(field)">
+                点击更换
+              </text>
             </view>
             <view v-else class="field-input">
               <text class="placeholder-text">暂不支持此字段类型：{{ field.type }}</text>
@@ -925,4 +1019,30 @@ onMounted(async () => {
 .audit-status.approved { background: #f6ffed; color: #389e0d; }
 .audit-status.rejected { background: #fff1f0; color: #cf1322; }
 .audit-reason { display: block; margin-top: 4px; color: #7a1f1f; font-size: 12px; line-height: 1.5; }
+
+.upload-field { margin-top: 8rpx; }
+
+.upload-box {
+  position: relative;
+  width: 180rpx;
+  height: 180rpx;
+  border-radius: 20rpx;
+  border: 2rpx dashed #d8e8e3;
+  background: #f8fbfa;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.upload-preview { width: 100%; height: 100%; }
+.upload-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.upload-plus { font-size: 48rpx; line-height: 1; color: #0b6b55; font-weight: 800; }
+.upload-text { margin-top: 8rpx; color: #7d918c; font-size: 24rpx; }
+.upload-change { display: block; margin-top: 8rpx; color: #0b6b55; font-size: 24rpx; }
+.upload-mask {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.4);
+  display: flex; align-items: center; justify-content: center;
+}
+.upload-loading { color: #fff; font-size: 24rpx; }
 </style>

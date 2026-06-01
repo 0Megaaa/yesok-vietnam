@@ -6,3 +6,5 @@ dist/
 server/*.db
 .env
 .env.*
+server/uploads/
+server/material/

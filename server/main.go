@@ -17,6 +17,7 @@ import (
 	"yesok-vietnam/server/handlers"
 	"yesok-vietnam/server/middleware"
 	"yesok-vietnam/server/models"
+	"yesok-vietnam/server/pkg/storage"
 	"yesok-vietnam/server/pkg/workflow"
 )
 
@@ -176,6 +177,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		authGroup.GET("/client/orders/:id", handlers.ClientGetOrder(db))
 		authGroup.GET("/client/orders/:id/actions", handlers.GetClientOrderActions(db))
 		authGroup.POST("/client/orders/:id/action", handlers.PostClientOrderAction(db, orderEngine))
+		authGroup.POST("/client/orders/:id/materials/upload", handlers.ClientUploadOrderMaterial(db))
 		authGroup.POST("/client/auth/logout", handlers.AuthLogout())
 	}
 }
@@ -196,6 +198,8 @@ func registerStaticRoutes(r *gin.Engine) {
 
 	// 1. 最高优先级：上传目录托管
 	r.Static("/uploads", "./uploads")
+	// 2. 资料文件目录（/material -> 存储根目录）
+	r.Static("/material", storage.MaterialStorageRoot())
 
 	// 2. 挂载 C 端（用户端 Mini App）的静态产物根目录
 	r.Static("/client", clientDir)

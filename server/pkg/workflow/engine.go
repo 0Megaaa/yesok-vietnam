@@ -418,15 +418,40 @@ func mergeJSONMap(old []byte, input map[string]interface{}, extra map[string]int
 	return out
 }
 
-// validateRequiredFields 校验必填字段
+// validateRequiredFields 校验必填字段。
+// image/file 类型字段支持 URL 字符串或 {url:"..."} 对象。
 func validateRequiredFields(fields models.FormFields, input map[string]interface{}) error {
 	for _, f := range fields {
 		if f.Required {
 			val, ok := input[f.Key]
-			if !ok || isEmptyValue(val) {
+			if !ok || isEmptyFormValue(val) {
 				return fmt.Errorf("缺少必填字段：%s", f.Label)
 			}
 		}
 	}
 	return nil
+}
+
+// isEmptyFormValue 判断表单值是否为空，支持 string / object / array。
+func isEmptyFormValue(v interface{}) bool {
+	if v == nil {
+		return true
+	}
+	switch val := v.(type) {
+	case string:
+		return strings.TrimSpace(val) == ""
+	case map[string]interface{}:
+		if url, ok := val["url"].(string); ok && url != "" {
+			return false
+		}
+		return true
+	case []interface{}:
+		if len(val) == 0 {
+			return true
+		}
+		// 非空数组视为有值
+		return false
+	default:
+		return false
+	}
 }

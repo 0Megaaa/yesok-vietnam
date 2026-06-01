@@ -95,6 +95,24 @@ const showToast = (title, type = 'info') => {
   ElMessage({ message: title, type })
 }
 
+const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || ''
+
+const isMaterialFile = (value) => {
+  if (!value || typeof value !== 'string') return false
+  return value.includes('/material/') || value.includes('/uploads/')
+}
+
+const isImageFile = (value) => {
+  if (!isMaterialFile(value)) return false
+  return /\.(jpg|jpeg|png)$/i.test(value)
+}
+
+const toFullFileUrl = (url) => {
+  if (!url) return ''
+  if (/^https?:\/\//.test(url)) return url
+  return `${apiBaseUrl}${url.startsWith('/') ? url : `/${url}`}`
+}
+
 const pendingAuditTimeline = computed(() => {
   return (order.value?.timelines || []).find((tl) => tl.audit_status === 'pending')
 })
@@ -326,7 +344,20 @@ onMounted(async () => {
         <div v-if="!formEntries.length" class="empty-line">暂无表单数据</div>
         <div v-for="entry in formEntries" :key="entry.key" class="json-row">
           <span class="json-key">{{ entry.label }}</span>
-          <span class="json-value">{{ entry.value }}</span>
+          <span v-if="isImageFile(entry.value)" class="json-value image-cell">
+            <el-image
+              :src="toFullFileUrl(entry.value)"
+              :preview-src-list="[toFullFileUrl(entry.value)]"
+              fit="cover"
+              class="material-thumb"
+            />
+          </span>
+          <span v-else-if="isMaterialFile(entry.value)" class="json-value">
+            <el-link :href="toFullFileUrl(entry.value)" target="_blank" type="primary">
+              查看文件
+            </el-link>
+          </span>
+          <span v-else class="json-value">{{ entry.value }}</span>
         </div>
       </div>
 
@@ -713,4 +744,7 @@ onMounted(async () => {
 .audit-tag.approved { background: #f6ffed; color: #389e0d; }
 .audit-tag.rejected { background: #fff1f0; color: #cf1322; }
 .audit-remark, .audit-time { display: block; margin-top: 4px; color: #5f6f6a; font-size: 12px; }
+
+.material-thumb { width: 88px; height: 88px; border-radius: 8px; border: 1px solid #edf2f0; display: block; }
+.image-cell { display: inline-flex; }
 </style>
