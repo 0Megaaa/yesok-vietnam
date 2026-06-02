@@ -152,44 +152,45 @@ func (e *OrderEngine) AdvanceStage(
 			"macro_status":  macroStatus,
 		}
 
-		// wx_pay：第一阶段模拟支付成功
+		// wx_pay：模拟支付成功
 		if node.ActionType == models.ActionTypeWxPay {
-			// payment_status=paid 表示订单已支付过第一笔费用（全额或定金）
+			formData := parseOrderFormData(order)
+
+			// paid 表示订单已支付过首笔费用；定金模式下也表示已支付定金。
 			updates["payment_status"] = "paid"
 
-			// 提取支付金额：根据 actionName 和 form_data 决定
 			payAmount := order.TotalAmount
 
 			switch actionName {
 			case "pay_order":
-				// 客户首次支付：全额模式取 full_amount（回退 quote_amount/amount），定金模式取 deposit_amount
+				// C 端点击支付时不传金额，必须从 order.FormData 读取。
+				// 全额模式取 full_amount（回退 quote_amount），定金模式取 deposit_amount。
 				paymentType := getPaymentType(order)
 				if paymentType == "deposit" {
-					if amt := getNumberFromMap(inputData, "deposit_amount"); amt > 0 {
+					if amt := getNumberFromMap(formData, "deposit_amount"); amt > 0 {
 						payAmount = amt
 					}
 				} else {
-					if amt := getNumberFromMap(inputData, "full_amount"); amt > 0 {
+					if amt := getNumberFromMap(formData, "full_amount"); amt > 0 {
 						payAmount = amt
-					} else if amt := getNumberFromMap(inputData, "quote_amount", "amount"); amt > 0 {
+					} else if amt := getNumberFromMap(formData, "quote_amount"); amt > 0 {
 						payAmount = amt
 					}
 				}
 
 			case "pay_final":
-				// 客户支付尾款：取 final_amount
-				if amt := getNumberFromMap(inputData, "final_amount"); amt > 0 {
+				// 支付尾款：从 order.FormData 取 final_amount
+				if amt := getNumberFromMap(formData, "final_amount"); amt > 0 {
 					payAmount = amt
 				}
 
 			default:
-				// 其他 wx_pay 动作兜底取 quote_amount/amount
-				if amt := getNumberFromMap(inputData, "quote_amount", "amount"); amt > 0 {
+				// 其他 wx_pay 动作兜底取 quote_amount
+				if amt := getNumberFromMap(formData, "quote_amount"); amt > 0 {
 					payAmount = amt
 				}
 			}
 
-			// 创建支付记录
 			tradeNo := fmt.Sprintf("MOCKWX%s%d", time.Now().Format("20060102150405"), order.ID)
 			payment := models.PaymentRecord{
 				OrderID:      order.ID,

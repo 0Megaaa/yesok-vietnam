@@ -96,6 +96,19 @@ const formatMoney = (amount) => {
   return `¥${n.toLocaleString('zh-CN')}`
 }
 
+const paymentInfoOf = (order) => order.payment_info || order.paymentInfo || {}
+
+const paymentSummaryText = (order) => {
+  const p = paymentInfoOf(order)
+  if (!p || !p.payment_type) {
+    return order.totalAmountText || formatMoney(order.total_amount || 0)
+  }
+  if (p.payment_type === 'deposit') {
+    return `定金 ${formatMoney(p.deposit_amount || 0)} / 尾款 ${formatMoney(p.final_amount || 0)}`
+  }
+  return formatMoney(p.full_amount || p.quote_amount || order.total_amount || 0)
+}
+
 const normalizeOrder = (raw = {}) => {
   const order = raw || {}
   return {
@@ -115,6 +128,7 @@ const normalizeOrder = (raw = {}) => {
     total_amount: order.total_amount || order.amount || 0,
     totalAmountText: formatMoney(order.total_amount || order.amount || 0),
     form_items: order.form_items || [],
+    payment_info: order.payment_info || order.paymentInfo || {},
     form_data: order.form_data || order.formData || {},
     timelines: order.timelines || [],
     action_nodes: (order.action_nodes || order.actionNodes || []).map((node = {}) => ({
@@ -619,7 +633,10 @@ onUnmounted(() => {
         </div>
 
         <div class="order-meta">
-          <span>金额：{{ order.totalAmountText }}</span>
+          <span>支付：{{ paymentSummaryText(order) }}</span>
+          <span v-if="order.payment_info?.payment_type === 'deposit'" class="payment-type-tag">
+            定金尾款
+          </span>
           <span>时间：{{ order.created_at }}</span>
         </div>
 
@@ -849,6 +866,15 @@ onUnmounted(() => {
 .payment-tag.unpaid {
   color: #7a2a2a;
   background: rgba(200, 80, 80, 0.15);
+}
+
+.payment-type-tag {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  background: #e8f4ff;
+  color: #409eff;
+  font-weight: 700;
 }
 
 .audit-badge {

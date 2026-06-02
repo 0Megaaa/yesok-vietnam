@@ -296,6 +296,107 @@ func buildOrderPayload(db *gorm.DB, order models.Order) gin.H {
 	return buildOrderPayloadForRole(db, order, "client")
 }
 
+// toInt64FromMap 从 data 中按 keys 顺序查找第一个大于 0 的整数。
+func toInt64FromMap(data map[string]interface{}, keys ...string) int64 {
+	for _, key := range keys {
+		if v, ok := data[key]; ok && v != nil {
+			switch val := v.(type) {
+			case float64:
+				return int64(val)
+			case float32:
+				return int64(val)
+			case int:
+				return int64(val)
+			case int64:
+				return val
+			case int32:
+				return int64(val)
+			case json.Number:
+				f, _ := val.Float64()
+				return int64(f)
+			case string:
+				var f float64
+				if _, err := fmt.Sscanf(strings.TrimSpace(val), "%f", &f); err == nil {
+					return int64(f)
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// buildPaymentInfo 根据订单 form_data 和支付记录构建支付信息。
+// 统一返回给前端，避免各端从 form_data 猜测字段。
+func buildPaymentInfo(order models.Order, payments []models.PaymentRecord) gin.H {
+	formData := map[string]interface{}{}
+	if len(order.FormData) > 0 {
+		_ = json.Unmarshal(order.FormData, &formData)
+	}
+
+	paymentType := strings.TrimSpace(fmt.Sprintf("%v", formData["payment_type"]))
+	if paymentType == "" {
+		paymentType = strings.TrimSpace(fmt.Sprintf("%v", formData["payment_mode"]))
+	}
+	if paymentType == "" {
+		paymentType = "full"
+	}
+
+	fullAmount := toInt64FromMap(formData, "full_amount")
+	depositAmount := toInt64FromMap(formData, "deposit_amount")
+	finalAmount := toInt64FromMap(formData, "final_amount")
+	quoteAmount := toInt64FromMap(formData, "quote_amount", "amount")
+
+	if paymentType == "full" && fullAmount <= 0 {
+		fullAmount = quoteAmount
+	}
+	if paymentType == "deposit" && quoteAmount <= 0 {
+		quoteAmount = depositAmount + finalAmount
+	}
+	if quoteAmount <= 0 {
+		quoteAmount = order.TotalAmount
+	}
+
+	paidAmount := int64(0)
+	for _, p := range payments {
+		if p.Status == "success" {
+			paidAmount += p.PayAmount
+		}
+	}
+
+	firstPayAmount := quoteAmount
+	if paymentType == "deposit" {
+		firstPayAmount = depositAmount
+	}
+
+	nextPayAmount := int64(0)
+	switch order.CurrentStage {
+	case "wait_pay":
+		nextPayAmount = firstPayAmount
+	case "wait_final_pay":
+		nextPayAmount = finalAmount
+	}
+
+	paymentTypeText := "全款支付"
+	if paymentType == "deposit" {
+		paymentTypeText = "定金尾款支付"
+	}
+
+	return gin.H{
+		"payment_type":      paymentType,
+		"payment_type_text": paymentTypeText,
+		"full_amount":       fullAmount,
+		"deposit_amount":    depositAmount,
+		"final_amount":      finalAmount,
+		"quote_amount":      quoteAmount,
+		"first_pay_amount":  firstPayAmount,
+		"final_pay_amount":  finalAmount,
+		"next_pay_amount":   nextPayAmount,
+		"paid_amount":       paidAmount,
+		"is_deposit_mode":   paymentType == "deposit",
+		"is_final_paid":     order.CurrentStage == "final_paid" || order.CurrentStage == "completed",
+	}
+}
+
 // buildOrderPayloadForRole 按角色返回订单详情，role 可以是 "client" 或 "admin"。
 // client 只返回 client/both 角色的动作节点，admin 返回 admin/both 角色的动作节点。
 func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.H {
@@ -355,6 +456,9 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 		})
 	}
 
+	// paymentInfo：支付拆分信息，供前端列表/详情/支付弹窗直接使用
+	paymentInfo := buildPaymentInfo(order, payments)
+
 	// actionNodes 中文字段（C 端过滤审核动作）
 	actionNodes := make([]gin.H, 0, len(nodes))
 	for _, n := range nodes {
@@ -375,11 +479,38 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 		if notifyText == "" {
 			notifyText = n.NotifyType
 		}
+
+		// wx_pay 动作根据 payment_type 动态决定支付金额和按钮文案
+		payAmount := int64(0)
+		buttonLabel := n.ButtonLabel
+		if n.ActionType == models.ActionTypeWxPay {
+			if n.ActionName == "pay_order" {
+				if v, ok := paymentInfo["first_pay_amount"].(int64); ok {
+					payAmount = v
+				}
+				if paymentInfo["payment_type"] == "deposit" {
+					buttonLabel = "支付定金"
+				} else {
+					buttonLabel = "支付全款"
+				}
+			}
+			if n.ActionName == "pay_final" {
+				if v, ok := paymentInfo["final_pay_amount"].(int64); ok {
+					payAmount = v
+				}
+				buttonLabel = "支付尾款"
+			}
+		}
+		payAmountText := ""
+		if payAmount > 0 {
+			payAmountText = fmt.Sprintf("¥%d", payAmount)
+		}
+
 		actionNodes = append(actionNodes, gin.H{
 			"id":                  n.ID,
 			"action_name":         n.ActionName,
 			"action_name_text":    actionNameText,
-			"button_label":        n.ButtonLabel,
+			"button_label":        buttonLabel,
 			"action_type":         n.ActionType,
 			"form_fields":         n.FormFields,
 			"target_status":       n.TargetStatus,
@@ -393,6 +524,8 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 			"sort_order":          n.SortOrder,
 			"stage_code":          n.StageCode,
 			"stage_name":          n.StageName,
+			"pay_amount":          payAmount,
+			"pay_amount_text":     payAmountText,
 		})
 	}
 
@@ -435,6 +568,7 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 		"timelines":           timelineItems,
 		"payments":            payments,
 		"action_nodes":        actionNodes,
+		"payment_info":        paymentInfo,
 	}
 }
 
@@ -547,6 +681,10 @@ func GetClientOrderActions(db *gorm.DB) gin.HandlerFunc {
 			order.ServiceID, order.CurrentStage, "client",
 		).Order("sort_order asc").Find(&nodes)
 
+		var payments []models.PaymentRecord
+		db.Where("order_id = ?", order.ID).Order("created_at desc").Find(&payments)
+		paymentInfo := buildPaymentInfo(order, payments)
+
 		// 规范化返回字段，并过滤掉审核相关动作（audit_approve / audit_reject）
 		// C 端绝不允许执行审核动作，这些动作仅供 B 端管理员使用
 		actions := make([]gin.H, 0, len(nodes))
@@ -570,11 +708,37 @@ func GetClientOrderActions(db *gorm.DB) gin.HandlerFunc {
 			if notifyText == "" {
 				notifyText = n.NotifyType
 			}
+
+			payAmount := int64(0)
+			buttonLabel := n.ButtonLabel
+			if n.ActionType == models.ActionTypeWxPay {
+				if n.ActionName == "pay_order" {
+					if v, ok := paymentInfo["first_pay_amount"].(int64); ok {
+						payAmount = v
+					}
+					if paymentInfo["payment_type"] == "deposit" {
+						buttonLabel = "支付定金"
+					} else {
+						buttonLabel = "支付全款"
+					}
+				}
+				if n.ActionName == "pay_final" {
+					if v, ok := paymentInfo["final_pay_amount"].(int64); ok {
+						payAmount = v
+					}
+					buttonLabel = "支付尾款"
+				}
+			}
+			payAmountText := ""
+			if payAmount > 0 {
+				payAmountText = fmt.Sprintf("¥%d", payAmount)
+			}
+
 			actions = append(actions, gin.H{
 				"id":                 n.ID,
 				"action_name":        n.ActionName,
 				"action_name_text":   actionNameText,
-				"button_label":       n.ButtonLabel,
+				"button_label":       buttonLabel,
 				"action_type":        n.ActionType,
 				"form_fields":        n.FormFields,
 				"target_status":      n.TargetStatus,
@@ -587,6 +751,8 @@ func GetClientOrderActions(db *gorm.DB) gin.HandlerFunc {
 				"sort_order":         n.SortOrder,
 				"stage_code":         n.StageCode,
 				"stage_name":         n.StageName,
+				"pay_amount":         payAmount,
+				"pay_amount_text":    payAmountText,
 			})
 		}
 

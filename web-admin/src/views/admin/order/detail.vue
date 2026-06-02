@@ -60,6 +60,28 @@ const formatTime = (t) => {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
+const paymentInfoOf = (order) => order.payment_info || order.paymentInfo || {}
+
+const paymentSummaryRows = (order) => {
+  const p = paymentInfoOf(order)
+  if (!p || !p.payment_type) {
+    return [{ label: '金额', value: formatMoney(order.total_amount || order.amount) }]
+  }
+  if (p.payment_type === 'deposit') {
+    return [
+      { label: '支付类型', value: p.payment_type_text || '定金尾款支付' },
+      { label: '定金', value: formatMoney(p.deposit_amount || 0) },
+      { label: '尾款', value: formatMoney(p.final_amount || 0) },
+      { label: '已付', value: formatMoney(p.paid_amount || 0) },
+    ]
+  }
+  return [
+    { label: '支付类型', value: p.payment_type_text || '全款支付' },
+    { label: '全款', value: formatMoney(p.full_amount || p.quote_amount || 0) },
+    { label: '已付', value: formatMoney(p.paid_amount || 0) },
+  ]
+}
+
 // normalizeOrder 标准化后端返回字段
 const normalizeOrder = (raw = {}) => {
   const o = raw || {}
@@ -78,6 +100,7 @@ const normalizeOrder = (raw = {}) => {
     form_data: o.form_data || o.formData || {},
     timelines: o.timelines || [],
     payments: o.payments || [],
+    payment_info: o.payment_info || o.paymentInfo || {},
     action_nodes: o.action_nodes || o.actionNodes || [],
   }
 }
@@ -597,12 +620,15 @@ onMounted(async () => {
             <span class="value">{{ order.contact_phone || order.appUserPhone || '—' }}</span>
           </div>
           <div>
-            <span class="label">金额</span>
-            <span class="value price">{{ formatMoney(order.total_amount || order.amount) }}</span>
-          </div>
-          <div>
             <span class="label">当前节点</span>
             <span class="value">{{ order.current_stage_text || statusLabel(order.current_stage) || '—' }}</span>
+          </div>
+          <div
+            v-for="row in paymentSummaryRows(order)"
+            :key="row.label"
+          >
+            <span class="label">{{ row.label }}</span>
+            <span class="value price">{{ row.value }}</span>
           </div>
         </div>
       </div>

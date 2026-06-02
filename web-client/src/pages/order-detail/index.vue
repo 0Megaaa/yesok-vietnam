@@ -267,6 +267,7 @@ const normalizeOrder = (raw = {}) => {
     amount: raw.amount ?? raw.total_amount ?? 0,
     payment_status: raw.payment_status || 'unpaid',
     payment_status_text: raw.payment_status_text || '',
+    payment_info: raw.payment_info || {},
   }
 }
 
@@ -279,6 +280,67 @@ const formatMoney = (amount) => {
 const formatTime = (t) => {
   if (!t) return ''
   return new Date(t).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+const paymentInfo = computed(() => order.value?.payment_info || {})
+
+// paymentSummaryRows 订单摘要中的支付行
+const paymentSummaryRows = computed(() => {
+  const p = paymentInfo.value
+  if (!p || !p.payment_type) {
+    return [{ label: '订单金额', value: formatMoney(order.value?.total_amount || 0) }]
+  }
+  if (p.payment_type === 'deposit') {
+    return [
+      { label: '支付类型', value: p.payment_type_text || '定金尾款支付' },
+      { label: '定金金额', value: formatMoney(p.deposit_amount || 0) },
+      { label: '尾款金额', value: formatMoney(p.final_amount || 0) },
+      { label: '已付金额', value: formatMoney(p.paid_amount || 0) },
+    ]
+  }
+  return [
+    { label: '支付类型', value: p.payment_type_text || '全款支付' },
+    { label: '全款金额', value: formatMoney(p.full_amount || p.quote_amount || 0) },
+    { label: '已付金额', value: formatMoney(p.paid_amount || 0) },
+  ]
+})
+
+// getActionPayAmount 从 action.pay_amount 优先取金额，兜底从 payment_info 算
+const getActionPayAmount = (action) => {
+  if (action?.pay_amount || action?.payAmount) {
+    return Number(action.pay_amount || action.payAmount || 0)
+  }
+  const p = paymentInfo.value
+  if (action?.action_name === 'pay_final') {
+    return Number(p.final_amount || 0)
+  }
+  if (action?.action_name === 'pay_order') {
+    if (p.payment_type === 'deposit') {
+      return Number(p.deposit_amount || 0)
+    }
+    return Number(p.full_amount || p.quote_amount || order.value?.total_amount || 0)
+  }
+  return Number(order.value?.total_amount || 0)
+}
+
+// ─── 条件字段支持 ────────────────────────────────────────────────────────────
+const matchCondition = (condition) => {
+  if (!condition) return true
+  const expected = condition.value
+  const actual = formData.value[condition.key]
+  if (Array.isArray(expected)) return expected.includes(actual)
+  return actual === expected
+}
+
+const isFieldVisible = (field) => {
+  if (!field.visible_when) return true
+  return matchCondition(field.visible_when)
+}
+
+const isFieldRequired = (field) => {
+  if (field.required === true) return true
+  if (field.required_when) return matchCondition(field.required_when)
+  return false
 }
 
 // 业务资料：保留 type/raw_value/display_value 以支持图片识别
@@ -617,7 +679,8 @@ const closeForm = () => {
 }
 
 const validateField = (field) => {
-  if (!field.required) return true
+  if (!isFieldVisible(field)) return true
+  if (!isFieldRequired(field)) return true
   const val = formData.value[field.key]
 
   // image/file 类型：检查是否有非空 URL 值
@@ -671,7 +734,7 @@ const executeWxPay = async (action) => {
   if (submitting.value) return
 
   const uniApi = typeof uni !== 'undefined' ? uni : null
-  const payAmount = Number(order.value?.total_amount || order.value?.amount || 0)
+  const payAmount = getActionPayAmount(action)
 
   const confirmPay = async () => {
     await simulateWxPay(action, payAmount)
@@ -709,10 +772,7 @@ const simulateWxPay = async (action, payAmount) => {
     await post(`/v1/client/orders/${orderId.value}/action`, {
       action_name: action.action_name,
       remark: '客户已完成支付',
-      input_data: {
-        amount: payAmount,
-        pay_channel: 'mock_wx_pay',
-      },
+      input_data: {},
     })
 
     if (uniApi?.hideLoading) uniApi.hideLoading()
@@ -804,13 +864,13 @@ onMounted(async () => {
             <text class="label">联系电话</text>
             <text class="value">{{ order.contact_phone || '—' }}</text>
           </view>
-          <view class="grid-item">
-            <text class="label">订单金额</text>
-            <text class="value price">{{ formatMoney(order.total_amount || order.totalAmount) }}</text>
-          </view>
-          <view class="grid-item">
-            <text class="label">支付状态</text>
-            <text class="value">{{ order.payment_status_text || (order.payment_status === 'paid' ? '已支付' : '未支付') }}</text>
+          <view
+            v-for="row in paymentSummaryRows"
+            :key="row.label"
+            class="grid-item"
+          >
+            <text class="label">{{ row.label }}</text>
+            <text class="value price">{{ row.value }}</text>
           </view>
         </view>
       </view>
@@ -926,7 +986,7 @@ onMounted(async () => {
             :disabled="submitting"
             @click="executeWxPay(action)"
           >
-            {{ submitting ? '处理中...' : (action.button_label || '立即支付') }}
+            {{ submitting ? '处理中...' : `${action.button_label || '立即支付'}${action.pay_amount_text ? ' ' + action.pay_amount_text : ''}` }}
           </button>
         </view>
       </view>
@@ -944,10 +1004,15 @@ onMounted(async () => {
           <view class="form-close" @click="closeForm">✕</view>
         </view>
         <scroll-view scroll-y class="form-body">
-          <view v-for="field in currentAction?.form_fields || []" :key="field.key" class="field-wrap">
+          <view
+            v-for="field in currentAction?.form_fields || []"
+            v-show="isFieldVisible(field)"
+            :key="field.key"
+            class="field-wrap"
+          >
             <view class="field-label">
               <text>{{ field.label }}</text>
-              <text v-if="field.required" class="required">*</text>
+              <text v-if="isFieldRequired(field)" class="required">*</text>
             </view>
             <input
               v-if="field.type === 'text' || field.type === 'phone' || field.type === 'number'"
