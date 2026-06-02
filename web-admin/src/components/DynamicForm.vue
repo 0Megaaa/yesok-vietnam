@@ -9,13 +9,16 @@
  * {
  *   key:       string                // 字段标识，用于 v-model 绑定
  *   label:     string                // 前端显示标签
- *   type:      string               // input | textarea | number | date | select | image
+ *   type:      string               // input | textarea | number | date | select | image | file
  *   required:  boolean               // 是否必填
  *   options?:  [{ label, value }]    // select 类型专用选项列表
  *   multiple?: boolean               // select / image 是否支持多选
  * }
+ *
+ * image / file 类型由父组件接管上传，通过 @upload-order-material 事件触发。
+ * 选择文件后立即 emit，父组件调用接口后调用 onSuccess(url) 写回 localValue。
  */
-import { computed, ref, watch } from 'vue'
+import { ref, watch } from 'vue'
 import {
   ElInput,
   ElSelect,
@@ -36,21 +39,27 @@ const fieldTypeComponents = {
   date: ElDatePicker,
   datetime: ElDatePicker,
   select: ElSelect,
-  file: null, // file 使用 el-input URL 输入独立处理
+}
+
+// image / file 类型统一渲染为上传组件，由父组件处理上传
+const fieldTypeComponentsForNormal = {
+  input: ElInput,
+  textarea: ElInput,
+  number: ElInput,
+  phone: ElInput,
+  select: ElSelect,
 }
 
 // 判断是否为 DatePicker 类型
 const isDatePicker = (field) => field.type === 'date' || field.type === 'datetime'
 
-// 判断是否为 File 类型
-const isFile = (field) => field.type === 'file'
+// 判断是否为上传类型（image 或 file）
+const isUploadField = (field) => field.type === 'image' || field.type === 'file'
 
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
   fields: { type: Array, default: () => [] },
   validateOnChange: { type: Boolean, default: true },
-  // 可选：指定当前订单 ID，image/file 类型上传时会触发 upload-order-material 事件
-  orderId: { type: [Number, String], default: null },
 })
 
 const emit = defineEmits(['update:modelValue', 'validate', 'upload-order-material'])
@@ -68,14 +77,29 @@ const inputType = (field) => {
   return 'text'
 }
 
+// 统一把值转为数组
+const asArray = (value) => {
+  if (!value) return []
+  if (Array.isArray(value)) return value
+  return [value]
+}
+
 // 校验单个字段
 const validateField = (field) => {
   const val = localValue.value[field.key]
-  const strVal = val == null ? '' : Array.isArray(val) ? val.join(',') : String(val)
-  if (field.required && !strVal.trim()) {
+
+  let hasValue = false
+  if (Array.isArray(val)) {
+    hasValue = val.filter(Boolean).length > 0
+  } else {
+    hasValue = val !== null && val !== undefined && String(val).trim() !== ''
+  }
+
+  if (field.required && !hasValue) {
     errors.value[field.key] = `请填写「${field.label}」`
     return false
   }
+
   delete errors.value[field.key]
   return true
 }
@@ -91,34 +115,93 @@ const validateAll = () => {
   return ok
 }
 
-// onImageSuccess 追加图片 URL 到 localValue
-const onImageSuccess = (field, res) => {
-  const urls = localValue.value[field.key] || []
-  const url = res?.data?.url || res?.url || ''
-  if (url) localValue.value[field.key] = [...urls, url]
+// 把本地已有 URL 转为 el-upload 需要的 file-list 格式
+const getUploadFileList = (field) => {
+  return asArray(localValue.value[field.key])
+    .filter(Boolean)
+    .map((url, index) => ({
+      name: `${field.key}_${index + 1}`,
+      url,
+      uid: `${field.key}_${index}`,
+    }))
 }
 
-// onImageRemove 更新 URL 列表
-const onImageRemove = (field, file, fileList) => {
-  localValue.value[field.key] = fileList.map(f => f.response?.data?.url || f.url || '').filter(Boolean)
-}
+// 上传成功后追加 URL 到 localValue
+// multiple=false 时替换，单图模式；multiple=true 时追加
+const appendUploadedUrl = (field, url) => {
+  if (!url) return
 
-// handleImageHttpRequest 拦截 el-upload 默认上传，改为触发父组件自定义上传
-// 父组件通过 @upload-order-material 事件处理
-const handleImageHttpRequest = (options, field) => {
-  emit('upload-order-material', { options, field })
-}
-
-// exposeUploadedUrls 暴露给父组件，用于上传成功后追加 URL 到图片数组
-// 支持单个 URL 字符串或 URL 数组
-const exposeUploadedUrls = (fieldKey, urls) => {
-  const existing = localValue.value[fieldKey] || []
-  if (Array.isArray(urls)) {
-    localValue.value[fieldKey] = [...existing, ...urls]
-  } else if (urls) {
-    localValue.value[fieldKey] = [...existing, urls]
+  if (field.multiple === false) {
+    localValue.value[field.key] = url
+  } else {
+    const current = asArray(localValue.value[field.key])
+    localValue.value[field.key] = [...current, url]
   }
+
+  delete errors.value[field.key]
 }
+
+// 移除文件后更新 URL 列表
+const removeUploadedUrl = (field, file, fileList) => {
+  const urls = (fileList || [])
+    .map((item) => item.response?.url || item.response?.data?.url || item.url || '')
+    .filter(Boolean)
+
+  if (field.multiple === false) {
+    localValue.value[field.key] = urls[0] || ''
+  } else {
+    localValue.value[field.key] = urls
+  }
+
+  if (props.validateOnChange) validateField(field)
+}
+
+// 选择文件后立即触发父组件上传事件
+// auto-upload="false" 时 on-change 在选文件后触发，然后 emit 给父组件
+const handleUploadChange = (uploadFile, uploadFiles, field) => {
+  const rawFile = uploadFile?.raw
+  if (!rawFile) {
+    ElMessage.error('请选择要上传的文件')
+    return
+  }
+
+  const fileName = (rawFile.name || uploadFile.name || '').toLowerCase()
+  if (!/\.(jpg|jpeg|png)$/.test(fileName)) {
+    ElMessage.error('仅支持 JPG、JPEG、PNG 格式')
+    return
+  }
+
+  emit('upload-order-material', {
+    file: rawFile,
+    field,
+    onSuccess: (url) => {
+      appendUploadedUrl(field, url)
+    },
+    onError: (message) => {
+      ElMessage.error(message || '上传失败，请重试')
+      // 移除刚添加的文件（el-upload 已选中，file-list 会显示，取消选中即可）
+    },
+  })
+}
+
+// 暴露给父组件：父组件上传成功后主动写入 URL（兼容新旧两种写法）
+const exposeUploadedUrls = (fieldKey, urls) => {
+  const field = props.fields.find((item) => item.key === fieldKey)
+  if (!field) return
+
+  if (Array.isArray(urls)) {
+    if (field.multiple === false) {
+      localValue.value[fieldKey] = urls[0] || ''
+    } else {
+      localValue.value[fieldKey] = [...asArray(localValue.value[fieldKey]), ...urls]
+    }
+  } else if (urls) {
+    appendUploadedUrl(field, urls)
+  }
+
+  delete errors.value[fieldKey]
+}
+
 defineExpose({ validateAll, exposeUploadedUrls })
 </script>
 
@@ -135,29 +218,24 @@ defineExpose({ validateAll, exposeUploadedUrls })
         <span v-if="field.required" class="required-mark">*</span>
       </div>
 
-      <!-- image 单独处理（el-upload + http-request 拦截上传） -->
-      <template v-if="field.type === 'image'">
+      <!-- image / file 类型：统一渲染为上传组件，由父组件处理上传 -->
+      <template v-if="isUploadField(field)">
         <el-upload
-          :file-list="(localValue[field.key] || []).map((url, i) => ({ url, uid: i }))"
-          :http-request="(opts) => handleImageHttpRequest(opts, field)"
-          :on-remove="(file, fileList) => onImageRemove(field, file, fileList)"
-          :on-error="() => ElMessage.error('图片上传失败，请重试')"
+          action="#"
+          :auto-upload="false"
+          :file-list="getUploadFileList(field)"
+          :on-change="(uploadFile, uploadFiles) => handleUploadChange(uploadFile, uploadFiles, field)"
+          :on-remove="(file, fileList) => removeUploadedUrl(field, file, fileList)"
           :accept="'.jpg,.jpeg,.png'"
           list-type="picture-card"
           :multiple="field.multiple !== false"
+          :limit="field.multiple === false ? 1 : 10"
         >
           <el-icon class="upload-icon"><Plus /></el-icon>
         </el-upload>
-        <div class="upload-hint">支持 JPG/PNG，最多 {{ field.multiple === false ? 1 : 10 }} 张</div>
-      </template>
-
-      <!-- file 使用 el-input URL 输入 -->
-      <template v-else-if="isFile(field)">
-        <el-input
-          v-model="localValue[field.key]"
-          placeholder="请输入文件URL，或联系管理员上传"
-          clearable
-        />
+        <div class="upload-hint">
+          支持 JPG/PNG，最多 {{ field.multiple === false ? 1 : 10 }} 张
+        </div>
       </template>
 
       <!-- date / datetime 使用 el-date-picker -->
@@ -177,7 +255,7 @@ defineExpose({ validateAll, exposeUploadedUrls })
       <!-- 其他类型通过 component :is 动态渲染 -->
       <component
         v-else
-        :is="fieldTypeComponents[field.type] || ElInput"
+        :is="fieldTypeComponentsForNormal[field.type] || ElInput"
         v-model="localValue[field.key]"
         :type="inputType(field)"
         :rows="field.type === 'textarea' ? 3 : undefined"

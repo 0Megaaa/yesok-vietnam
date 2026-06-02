@@ -458,7 +458,7 @@ const submitFormInput = async () => {
     const res = await performOrderAction(order.value.id, {
       action_name: formInputAction.value.action_name,
       remark: buildActionRemark(formInputAction.value, formInputData.value),
-      input_data: formInputData.value,
+      input_data: { ...formInputData.value },
     })
     const payload = unwrapOrderFromResponse(res)
     if (payload?.id) {
@@ -481,24 +481,64 @@ const triggerWxPay = (action) => {
 
 // handleOrderMaterialUpload 处理订单资料图片上传
 // image/file 类型字段不再手填 URL，直接调用 /admin/orders/:id/materials/upload
-const handleOrderMaterialUpload = async ({ options, field }) => {
+// 兼容新旧两种 emit payload 格式：
+// - 旧版：{ options, field }（http-request 触发）
+// - 新版：{ file, field, onSuccess, onError }（on-change 触发）
+const handleOrderMaterialUpload = async (payload) => {
+  const field = payload?.field
+  // 兼容新旧两种触发方式
+  const file = payload?.file || payload?.options?.file || payload?.options?.raw
+
   if (!order.value?.id) {
-    showToast('订单不存在', 'error')
+    const msg = '订单不存在'
+    showToast(msg, 'error')
+    payload?.onError?.(msg)
     return
   }
+
+  if (!field?.key) {
+    const msg = '字段配置缺少 key'
+    showToast(msg, 'error')
+    payload?.onError?.(msg)
+    return
+  }
+
+  if (!file) {
+    const msg = '请选择要上传的文件'
+    showToast(msg, 'error')
+    payload?.onError?.(msg)
+    return
+  }
+
   try {
-    const res = await uploadAdminOrderMaterial(order.value.id, options.file, field.key)
-    const payload = res?.data || res
-    if (!payload?.url) {
+    const res = await uploadAdminOrderMaterial(order.value.id, file, field.key)
+    const body = res?.data || res || {}
+    const uploadResult = body?.data || body
+
+    if (!uploadResult?.url) {
       throw new Error('上传失败，后端未返回文件地址')
     }
-    // 写入父组件 formInputData
-    formInputData.value[field.key] = payload.url
-    // 同时更新 DynamicForm 内部 localValue（避免显示不一致）
-    dynamicFormRef.value?.exposeUploadedUrls?.(field.key, payload.url)
+
+    // 优先交给 DynamicForm 写入 localValue，v-model 自动同步 formInputData
+    if (payload?.onSuccess) {
+      payload.onSuccess(uploadResult.url)
+    } else {
+      // 兼容旧逻辑（http-request 触发方式）
+      if (field.multiple === false) {
+        formInputData.value[field.key] = uploadResult.url
+      } else {
+        const old = formInputData.value[field.key]
+        const arr = Array.isArray(old) ? old : old ? [old] : []
+        formInputData.value[field.key] = [...arr, uploadResult.url]
+      }
+      dynamicFormRef.value?.exposeUploadedUrls?.(field.key, uploadResult.url)
+    }
+
     showToast('上传成功', 'success')
   } catch (error) {
-    showToast(error?.response?.data?.error || error?.message || '上传失败', 'error')
+    const msg = error?.response?.data?.error || error?.message || '上传失败'
+    showToast(msg, 'error')
+    payload?.onError?.(msg)
   }
 }
 
