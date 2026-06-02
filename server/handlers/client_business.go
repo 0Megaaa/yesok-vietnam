@@ -327,6 +327,15 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 	for _, tl := range timelines {
 		afterText := workflowStageLabel(db, order.ServiceID, tl.AfterStatus)
 		beforeText := workflowStageLabel(db, order.ServiceID, tl.BeforeStatus)
+
+		// is_audit_timeline：仅真正的审核类动作需要显示审核状态
+		// upload_delivery_material 是普通交付动作，B端上传，C端查看，不属于审核动作
+		isAuditTimeline := tl.AuditStatus == models.AuditStatusPending ||
+			tl.ActionName == "audit_approve" ||
+			tl.ActionName == "audit_reject" ||
+			tl.ActionName == "upload_material" ||
+			tl.ActionName == "supplement_material"
+
 		timelineItems = append(timelineItems, gin.H{
 			"id":                 tl.ID,
 			"before_status":      tl.BeforeStatus,
@@ -335,12 +344,14 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 			"after_status_text":  afterText,
 			"remark":             tl.Remark,
 			"action_name":        tl.ActionName,
+			"payload":            tl.Payload,
 			"created_at":         tl.CreatedAt,
 			"audit_status":       tl.AuditStatus,
 			"audit_status_text":  auditStatusText(tl.AuditStatus),
 			"audit_remark":       tl.AuditRemark,
 			"audit_operator":     tl.AuditOperator,
 			"audited_at":         tl.AuditedAt,
+			"is_audit_timeline":  isAuditTimeline,
 		})
 	}
 

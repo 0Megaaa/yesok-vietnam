@@ -88,6 +88,106 @@ const unwrapOrderFromResponse = (res) => {
   return body.order || body.data?.order || body.data || body
 }
 
+// isAuditTimeline 判断是否为真正的审核类动作
+const isAuditTimeline = (tl) => {
+  if (!tl) return false
+  if (tl.is_audit_timeline === true) return true
+  return (
+    tl.audit_status === 'pending' ||
+    tl.action_name === 'audit_approve' ||
+    tl.action_name === 'audit_reject' ||
+    tl.action_name === 'upload_material' ||
+    tl.action_name === 'supplement_material' ||
+    tl.action_name === 'upload_delivery_material'
+  )
+}
+
+// isFailureTimeline 判断是否为失败/补资料类动作
+const isFailureTimeline = (tl) => {
+  if (!tl) return false
+  return [
+    'audit_reject',
+    'external_rejected',
+    'process_failed',
+    'request_supplement',
+    'external_supplement',
+  ].includes(tl.action_name) ||
+  ['rejected', 'wait_supplement', 'aftersale_butler_contact'].includes(tl.after_status)
+}
+
+// shouldShowAuditApproved 仅在真正的审核类动作且审核通过时显示绿色"审核通过"
+const shouldShowAuditApproved = (tl) => {
+  if (!tl) return false
+  if (isFailureTimeline(tl)) return false
+  if (!isAuditTimeline(tl)) return false
+  return tl.audit_status === 'approved'
+}
+
+// ─── 全局失败类判断工具 ──────────────────────────────────────────────────────────
+const FAILURE_ACTIONS = [
+  'audit_reject',
+  'external_rejected',
+  'process_failed',
+  'request_supplement',
+  'external_supplement',
+]
+
+const FAILURE_STATUSES = [
+  'rejected',
+  'process_failed',
+  'wait_supplement',
+  'aftersale_butler_contact',
+]
+
+const FAILURE_KEYWORDS = [
+  '失败',
+  '不通过',
+  '拒绝',
+  '驳回',
+  '异常',
+  '补资料',
+  '需补',
+  '补充资料',
+]
+
+// failureTitleOf 返回失败/异常类型的展示标题
+const failureTitleOf = (item) => {
+  const action = item?.action_name || ''
+  const afterStatus = item?.after_status || ''
+  if (action === 'audit_reject' || item?.audit_status === 'rejected') return '审核未通过'
+  if (action === 'external_rejected' || afterStatus === 'rejected') return '审批拒绝'
+  if (action === 'process_failed' || afterStatus === 'process_failed') return '办理失败'
+  if (action === 'request_supplement' || action === 'external_supplement' || afterStatus === 'wait_supplement') return '需补资料'
+  if (afterStatus === 'aftersale_butler_contact') return '管家介入'
+  return '异常'
+}
+
+// extractFailureReason 统一提取失败原因
+const extractFailureReason = (item) => {
+  if (!item) return ''
+  if (item.audit_remark) return item.audit_remark
+  if (item.payload) {
+    try {
+      const payload = typeof item.payload === 'string' ? JSON.parse(item.payload) : item.payload
+      if (payload.failed_reason) return payload.failed_reason
+      if (payload.external_reject_reason) return payload.external_reject_reason
+      if (payload.external_supplement_reason) return payload.external_supplement_reason
+      if (payload.supplement_reason) return payload.supplement_reason
+      if (payload.audit_remark) return payload.audit_remark
+      if (payload.remark) return payload.remark
+      if (payload.reason) return payload.reason
+    } catch (e) {}
+  }
+  return String(item.remark || '')
+    .replace(/^审核未通过[:：]\s*/, '')
+    .replace(/^审核不通过[:：]\s*/, '')
+    .replace(/^办理失败[:：]\s*/, '')
+    .replace(/^审批拒绝[:：]\s*/, '')
+    .replace(/^审批需补资料[:：]\s*/, '')
+    .replace(/^要求补资料[:：]\s*/, '')
+    .trim()
+}
+
 // 业务表单：只使用 form_items
 const formEntries = computed(() => {
   if (Array.isArray(order.value?.form_items) && order.value.form_items.length) {
@@ -274,6 +374,33 @@ const buttonClickActions = computed(() => visibleWorkflowActions.value.filter(a 
 const formInputActions = computed(() => visibleWorkflowActions.value.filter(a => a.action_type === 'form_input'))
 const wxPayActions = computed(() => visibleWorkflowActions.value.filter(a => a.action_type === 'wx_pay'))
 
+// buildActionRemark 根据 action 类型构建 remark 文案
+const buildActionRemark = (action, inputData = {}) => {
+  const actionName = action?.action_name || ''
+
+  if (actionName === 'request_supplement') {
+    return inputData.supplement_reason || inputData.reason || inputData.remark || '要求补资料'
+  }
+
+  if (actionName === 'external_supplement') {
+    return inputData.external_supplement_reason || inputData.supplement_reason || inputData.reason || inputData.remark || '审批需补资料'
+  }
+
+  if (actionName === 'external_rejected') {
+    return inputData.external_reject_reason || inputData.reason || inputData.remark || '审批拒绝'
+  }
+
+  if (actionName === 'process_failed') {
+    return inputData.failed_reason || inputData.reason || inputData.remark || '办理失败'
+  }
+
+  if (actionName === 'upload_delivery_material') {
+    return inputData.delivery_remark || '后台已上传交付资料'
+  }
+
+  return inputData.remark || ''
+}
+
 // --- button_click 类型：直接执行备注确认 ---
 const executeButtonClick = async (action) => {
   // 兜底拦截审核动作
@@ -330,7 +457,7 @@ const submitFormInput = async () => {
   try {
     const res = await performOrderAction(order.value.id, {
       action_name: formInputAction.value.action_name,
-      remark: '',
+      remark: buildActionRemark(formInputAction.value, formInputData.value),
       input_data: formInputData.value,
     })
     const payload = unwrapOrderFromResponse(res)
@@ -444,18 +571,25 @@ onMounted(async () => {
       <div class="info-card">
         <div class="section-title">状态轨迹</div>
         <div v-if="!order.timelines?.length" class="empty-line">暂无轨迹记录</div>
-        <div v-for="tl in order.timelines" :key="tl.id" class="timeline-row">
+        <div
+          v-for="tl in order.timelines"
+          :key="tl.id"
+          class="timeline-row"
+          :class="{ 'timeline-row-failed': isFailureTimeline(tl) }"
+        >
           <div class="timeline-dot"></div>
           <div class="timeline-body">
             <span class="timeline-title">
               {{ tl.after_status_text || statusLabel(tl.after_status) || '—' }}
             </span>
-            <span v-if="tl.remark" class="timeline-desc">{{ tl.remark }}</span>
+            <span v-if="tl.remark && !isFailureTimeline(tl)" class="timeline-desc">{{ tl.remark }}</span>
             <span v-if="tl.audit_status === 'pending'" class="audit-tag pending">待平台审核</span>
-            <span v-if="tl.audit_status === 'approved'" class="audit-tag approved">审核通过</span>
+            <span v-if="shouldShowAuditApproved(tl)" class="audit-tag approved">审核通过</span>
             <span v-if="tl.audit_status === 'rejected'" class="audit-tag rejected">审核未通过</span>
-            <span v-if="tl.audit_remark" class="audit-remark">审核备注：{{ tl.audit_remark }}</span>
-            <span v-if="tl.audited_at" class="audit-time">审核时间：{{ formatTime(tl.audited_at) }}</span>
+            <span v-if="isFailureTimeline(tl) && tl.audit_status !== 'rejected'" class="audit-tag failed">{{ failureTitleOf(tl) }}</span>
+            <span v-if="isFailureTimeline(tl) && extractFailureReason(tl)" class="audit-remark">原因：{{ extractFailureReason(tl) }}</span>
+            <span v-if="tl.audit_remark && !isFailureTimeline(tl)" class="audit-remark">审核备注：{{ tl.audit_remark }}</span>
+            <span v-if="tl.audited_at && !isFailureTimeline(tl)" class="audit-time">审核时间：{{ formatTime(tl.audited_at) }}</span>
             <span class="timeline-time">{{ formatTime(tl.created_at || tl.createdAt) }}</span>
           </div>
         </div>
@@ -511,7 +645,7 @@ onMounted(async () => {
             <!-- button_click -->
             <button
               v-for="action in buttonClickActions"
-              :key="action.id"
+              :key="`${action.id || action.action_name}-${action.target_status || ''}-${action.sort_order || ''}`"
               class="action-btn"
               :title="`${action.button_label}（${action.stage_name}）`"
               @click="executeButtonClick(action)"
@@ -521,7 +655,7 @@ onMounted(async () => {
             <!-- form_input -->
             <button
               v-for="action in formInputActions"
-              :key="action.id"
+              :key="`${action.id || action.action_name}-${action.target_status || ''}-${action.sort_order || ''}`"
               class="action-btn action-material"
               :title="`${action.button_label}（需填写表单）`"
               @click="openFormInput(action)"
@@ -531,7 +665,7 @@ onMounted(async () => {
             <!-- wx_pay -->
             <button
               v-for="action in wxPayActions"
-              :key="action.id"
+              :key="`${action.id || action.action_name}-${action.target_status || ''}-${action.sort_order || ''}`"
               class="action-btn action-payment"
               :title="`${action.button_label}（微信支付）`"
               @click="triggerWxPay(action)"
@@ -836,8 +970,16 @@ onMounted(async () => {
 .audit-tag { display: inline-flex; margin-top: 6px; padding: 3px 8px; border-radius: 999px; font-size: 12px; font-weight: 800; }
 .audit-tag.pending { background: #fff7e6; color: #ad6800; }
 .audit-tag.approved { background: #f6ffed; color: #389e0d; }
-.audit-tag.rejected { background: #fff1f0; color: #cf1322; }
+.audit-tag.rejected, .audit-tag.failed { background: #fff1f0; color: #cf1322; }
 .audit-remark, .audit-time { display: block; margin-top: 4px; color: #5f6f6a; font-size: 12px; }
+
+.timeline-row-failed .timeline-dot {
+  background: #e53935;
+  border-color: rgba(229, 57, 53, 0.3);
+}
+.timeline-row-failed .timeline-title {
+  color: #d93025;
+}
 
 .material-thumb { width: 88px; height: 88px; border-radius: 8px; border: 1px solid #edf2f0; display: block; }
 .image-cell { display: inline-flex; }

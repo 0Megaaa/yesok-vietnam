@@ -808,6 +808,7 @@ func AdminAuditOrder(db *gorm.DB) gin.HandlerFunc {
 			}
 
 			// Step 3: 查找原工作流节点（用于获取 audit_reject_status）
+			// 精确查找：service_id + action_name + target_status = timeline.AfterStatus
 			var originNode models.SysWorkflowNode
 			found := tx.Where(
 				"service_id = ? AND action_name = ? AND target_status = ?",
@@ -815,9 +816,10 @@ func AdminAuditOrder(db *gorm.DB) gin.HandlerFunc {
 			).First(&originNode).Error == nil
 
 			if !found {
+				// 回退查找：service_id + action_name（仍需匹配 stage_code 避免跨阶段误匹配）
 				tx.Where(
-					"service_id = ? AND action_name = ?",
-					order.ServiceID, timeline.ActionName,
+					"service_id = ? AND action_name = ? AND stage_code = ?",
+					order.ServiceID, timeline.ActionName, order.CurrentStage,
 				).First(&originNode)
 			}
 
@@ -911,25 +913,34 @@ func AdminAuditOrder(db *gorm.DB) gin.HandlerFunc {
 				"updated_at":     now,
 			})
 
-			// 计算回退节点优先级：
-			// 1. originNode.AuditRejectStatus（当前审核节点的专属回退目标）
-			// 2. 当前 stage 中 audit_reject 节点的 target_status
+			// 计算回退节点优先级（从高到低）：
+			// 1. 当前 stage 的 audit_reject 节点的 target_status（最优先）
+			// 2. originNode.AuditRejectStatus（当前审核节点的专属回退目标）
 			// 3. timeline.BeforeStatus（审核前的节点）
 			// 4. fallback: wait_supplement
-			rejectStatus := strings.TrimSpace(originNode.AuditRejectStatus)
-			if rejectStatus == "" {
-				var rejectNode models.SysWorkflowNode
-				if err := tx.Where(
-					"service_id = ? AND stage_code = ? AND action_name = ? AND executor_role IN ?",
-					order.ServiceID, order.CurrentStage, "audit_reject",
-					[]string{"admin", "both"},
-				).Order("sort_order ASC, id ASC").First(&rejectNode).Error; err == nil {
-					rejectStatus = strings.TrimSpace(rejectNode.TargetStatus)
-				}
+			rejectStatus := ""
+
+			// 1. 优先：当前 stage 的 audit_reject 节点
+			var rejectNode models.SysWorkflowNode
+			if err := tx.Where(
+				"service_id = ? AND stage_code = ? AND action_name = ? AND executor_role IN ?",
+				order.ServiceID, order.CurrentStage, "audit_reject",
+				[]string{"admin", "both"},
+			).Order("sort_order ASC, id ASC").First(&rejectNode).Error; err == nil {
+				rejectStatus = strings.TrimSpace(rejectNode.TargetStatus)
 			}
+
+			// 2. 其次：originNode.AuditRejectStatus
+			if rejectStatus == "" {
+				rejectStatus = strings.TrimSpace(originNode.AuditRejectStatus)
+			}
+
+			// 3. 再次：审核前的节点
 			if rejectStatus == "" {
 				rejectStatus = strings.TrimSpace(timeline.BeforeStatus)
 			}
+
+			// 4. 最终兜底
 			if rejectStatus == "" {
 				rejectStatus = "wait_supplement"
 			}

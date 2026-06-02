@@ -234,7 +234,7 @@ func (e *OrderEngine) AdvanceStage(
 			Remark:       timelineRemark,
 			ActionName:   actionName,
 			Payload:      payloadBytes,
-			AuditStatus:  models.AuditStatusApproved,
+			AuditStatus:  "", // 普通工作流动作不写 audit_status，避免前端误显示"审核通过"
 		}
 		if err := tx.Create(&timeline).Error; err != nil {
 			return fmt.Errorf("写入时间线记录失败: %w", err)

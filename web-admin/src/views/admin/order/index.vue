@@ -183,6 +183,41 @@ const visibleActionNodes = (order) => {
   return (order.action_nodes || []).filter((a) => !isAuditAction(a))
 }
 
+// isAuditTimeline 判断是否为真正的审核类动作
+const isAuditTimeline = (tl) => {
+  if (!tl) return false
+  if (tl.is_audit_timeline === true) return true
+  return (
+    tl.audit_status === 'pending' ||
+    tl.action_name === 'audit_approve' ||
+    tl.action_name === 'audit_reject' ||
+    tl.action_name === 'upload_material' ||
+    tl.action_name === 'supplement_material' ||
+    tl.action_name === 'upload_delivery_material'
+  )
+}
+
+// isFailureTimeline 判断是否为失败/补资料类动作
+const isFailureTimeline = (tl) => {
+  if (!tl) return false
+  return [
+    'audit_reject',
+    'external_rejected',
+    'process_failed',
+    'request_supplement',
+    'external_supplement',
+  ].includes(tl.action_name) ||
+  ['rejected', 'wait_supplement', 'aftersale_butler_contact'].includes(tl.after_status)
+}
+
+// shouldShowAuditApproved 仅在真正的审核类动作且审核通过时显示绿色"审核通过"
+const shouldShowAuditApproved = (tl) => {
+  if (!tl) return false
+  if (isFailureTimeline(tl)) return false
+  if (!isAuditTimeline(tl)) return false
+  return tl.audit_status === 'approved'
+}
+
 const approveAuditFromList = async (order) => {
   const pending = pendingAuditTimelineOf(order)
   if (!pending || !order?.id) return
@@ -334,6 +369,33 @@ const executeButtonClick = async (order, node) => {
   }
 }
 
+// buildActionRemark 根据 action 类型构建 remark 文案
+const buildActionRemark = (action, inputData = {}) => {
+  const actionName = action?.action_name || ''
+
+  if (actionName === 'request_supplement') {
+    return inputData.supplement_reason || inputData.reason || inputData.remark || '要求补资料'
+  }
+
+  if (actionName === 'external_supplement') {
+    return inputData.external_supplement_reason || inputData.supplement_reason || inputData.reason || inputData.remark || '审批需补资料'
+  }
+
+  if (actionName === 'external_rejected') {
+    return inputData.external_reject_reason || inputData.reason || inputData.remark || '审批拒绝'
+  }
+
+  if (actionName === 'process_failed') {
+    return inputData.failed_reason || inputData.reason || inputData.remark || '办理失败'
+  }
+
+  if (actionName === 'upload_delivery_material') {
+    return inputData.delivery_remark || '后台已上传交付资料'
+  }
+
+  return inputData.remark || ''
+}
+
 // 打开 form_input 弹窗
 const openFormInput = (order, node) => {
   formInputOrder.value = order
@@ -358,28 +420,33 @@ const submitFormInput = async () => {
 
   formInputLoading.value = true
   try {
+    const remark = buildActionRemark(formInputAction.value, formInputData.value)
+
     const res = await request.post(`/v1/admin/orders/${formInputOrder.value.id}/action`, {
       action_name: formInputAction.value.action_name,
-      remark: '',
+      remark,
       input_data: formInputData.value,
     })
 
     const nextRaw = unwrapOrderFromResponse(res)
+    let nextOrder = null
+
     if (!nextRaw || !nextRaw.id) {
       await loadOrders()
     } else {
-      const next = normalizeOrder(nextRaw)
+      nextOrder = normalizeOrder(nextRaw)
       orders.value = orders.value.map((item) =>
-        item.id === formInputOrder.value.id ? next : item
+        item.id === formInputOrder.value.id ? nextOrder : item
       )
     }
 
+    const actionLabel = formInputAction.value?.button_label || formInputAction.value?.action_name || '流程'
     formInputVisible.value = false
     formInputOrder.value = null
     formInputAction.value = null
     formInputData.value = {}
 
-    showToast(`「${next.service_name || '订单'}」流程已推进`, 'success')
+    showToast(`「${actionLabel}」已推进`, 'success')
   } catch (error) {
     showToast(error?.response?.data?.error || error?.message || '流程推进失败', 'error')
   } finally {
@@ -538,7 +605,7 @@ onUnmounted(() => {
           <template v-else>
             <el-button
               v-for="node in visibleActionNodes(order)"
-              :key="node.id"
+              :key="`${node.id || node.action_name}-${node.target_status || ''}-${node.sort_order || ''}`"
               class="action-btn"
               :class="{ payment: node.need_audit }"
               type="default"
