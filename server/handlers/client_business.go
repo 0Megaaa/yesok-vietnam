@@ -696,7 +696,7 @@ func GetClientOrderActions(db *gorm.DB) gin.HandlerFunc {
 			if actionNameText == "" {
 				actionNameText = n.ButtonLabel
 			}
-			targetStatusText := dictLabel(db, "node_stage", n.TargetStatus)
+			targetStatusText := workflowStageLabel(db, order.ServiceID, n.TargetStatus)
 			if targetStatusText == "" {
 				targetStatusText = n.TargetStatus
 			}
@@ -980,59 +980,64 @@ func dictLabel(db *gorm.DB, dictCode, dictValue string) string {
 
 // workflowStageLabel 返回工作流节点的中文标签。
 // 1.意图 -> 字典缺失时从服务工作流节点取 stage_name，仍缺失时用兜底映射。
-// 2.步骤 -> 优先字典 → 查 SysWorkflowNode.stage_name → 兜底 map → 返回原始 code。
-// 3.返回 -> 中文标签或原始 stage_code。
+// workflowStageLabel 返回订单状态展示名称。
+// 订单状态展示必须优先使用当前服务工作流节点 stage_name。
+// node_stage 字典只作为服务配置下拉和兜底，不优先用于订单轨迹展示。
 func workflowStageLabel(db *gorm.DB, serviceID uint, stageCode string) string {
 	stageCode = strings.TrimSpace(stageCode)
 	if stageCode == "" {
 		return ""
 	}
 
-	// 1. 优先查字典
+	// 1. 优先从当前服务工作流节点读取 stage_name
+	// 同一个 stage_code 可能在不同服务里有不同业务含义，例如：
+	// wait_upload_material 在工作签证叫“待上传资料”，在租房叫“待上传租房资料”。
+	var node models.SysWorkflowNode
+	if serviceID > 0 {
+		if err := db.Where(
+			"service_id = ? AND stage_code = ?",
+			serviceID, stageCode,
+		).Order("sort_order ASC, id ASC").First(&node).Error; err == nil {
+			if strings.TrimSpace(node.StageName) != "" {
+				return strings.TrimSpace(node.StageName)
+			}
+		}
+	}
+
+	// 2. 再查 node_stage 字典作为兜底
 	if label := dictLabel(db, "node_stage", stageCode); label != "" {
 		return label
 	}
 
-	// 2. 从当前服务工作流节点里取 stage_name
-	var node models.SysWorkflowNode
-	if err := db.Where(
-		"service_id = ? AND stage_code = ?",
-		serviceID, stageCode,
-	).Order("sort_order ASC, id ASC").First(&node).Error; err == nil {
-		if strings.TrimSpace(node.StageName) != "" {
-			return strings.TrimSpace(node.StageName)
-		}
-	}
-
-	// 3. 常用兜底映射
+	// 3. 最后兜底映射
 	fallback := map[string]string{
 		"start":                    "开始",
 		"wait_butler_contact":      "待管家沟通",
 		"wait_quote":               "待报价",
 		"wait_confirm":             "待用户确认",
-		"wait_pay":                 "待支付",
-		"wait_deposit_pay":         "待支付定金",
-		"deposit_paid":             "定金已支付",
-		"paid":                     "尾款已支付",
+		"wait_pay":                 "待支付首笔费用",
+		"paid":                     "已支付首笔费用",
 		"wait_final_pay":           "待支付尾款",
+		"final_paid":               "用户已支付尾款",
 		"wait_upload_material":     "待上传资料",
 		"material_review":          "平台资料初审",
 		"wait_supplement":          "待补资料",
 		"prepare_material":         "准备办理资料",
 		"external_review":          "外部审批中",
-		"approved":                 "审批通过",
-		"rejected":                 "审批拒绝",
 		"issued":                   "已出签/已交付",
 		"processing":               "办理中",
-		"service_following":        "服务跟进中",
-		"delivering":               "交付中",
+		"service_following":        "管家沟通跟进",
+		"delivery_completed":       "交付完成",
+		"order_done":               "订单完成待收尾款",
 		"wait_delivery_upload":     "待上传交付资料",
-		"delivery_review":          "交付资料审核",
-		"delivery_confirmed":       "交付资料已审核",
+		"delivery_confirmed":       "交付资料已上传",
 		"aftersale_butler_contact": "待管家沟通",
 		"aftersale_processing":     "管家介入中",
+		"dispatching":              "派车中",
+		"in_progress":              "服务中",
 		"completed":                "已完成",
 	}
+
 	if label, ok := fallback[stageCode]; ok {
 		return label
 	}

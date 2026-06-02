@@ -1,6 +1,7 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
+import AuthPopup from '@/components/AuthPopup.vue'
 import { useClientStore } from '@/store/client'
 
 const client = useClientStore()
@@ -66,6 +67,14 @@ const statusLabel = (order) => {
     cancelled: '已取消',
   }
   return map[code] || code || '未知'
+}
+
+const ensureProfileLogin = () => {
+  if (client.isLoggedIn) return true
+
+  client.setOrders?.([])
+  client.openLoginSheet('查看我的页面')
+  return false
 }
 
 const loadProfile = async () => {
@@ -159,18 +168,25 @@ const sendMessage = () => {
 }
 
 onMounted(async () => {
-  if (client.isLoggedIn) {
-    await loadProfile()
-    await loadOrders('all')
-  }
+  if (!ensureProfileLogin()) return
+  await loadProfile()
+  await loadOrders('all')
 })
 
 onShow(async () => {
-  if (client.isLoggedIn) {
+  if (!ensureProfileLogin()) return
+  await loadProfile()
+  await loadOrders(activeOrderTab.value)
+})
+
+watch(
+  () => client.isLoggedIn,
+  async (loggedIn) => {
+    if (!loggedIn) return
     await loadProfile()
     await loadOrders(activeOrderTab.value)
   }
-})
+)
 </script>
 
 <template>
@@ -329,6 +345,8 @@ onShow(async () => {
     <view v-if="client.isLoggedIn" class="logout-wrap">
       <view class="logout-btn" @click="client.logout()">退出登录</view>
     </view>
+
+    <AuthPopup />
   </view>
 </template>
 

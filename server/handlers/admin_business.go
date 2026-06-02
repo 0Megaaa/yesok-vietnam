@@ -241,7 +241,7 @@ func AdminGetOrderActions(db *gorm.DB) gin.HandlerFunc {
 			if actionNameText == "" {
 				actionNameText = n.ButtonLabel
 			}
-			targetStatusText := dictLabel(db, "node_stage", n.TargetStatus)
+			targetStatusText := workflowStageLabel(db, order.ServiceID, n.TargetStatus)
 			if targetStatusText == "" {
 				targetStatusText = n.TargetStatus
 			}
