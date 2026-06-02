@@ -81,6 +81,10 @@ func (e *OrderEngine) AdvanceStage(
 			if err := validateRequiredFields(node.FormFields, inputData); err != nil {
 				return err
 			}
+			// send_quote 动作额外校验支付模式和金额
+			if err := validatePaymentQuoteFields(actionName, inputData); err != nil {
+				return err
+			}
 		}
 
 		beforeStage := order.CurrentStage
@@ -150,19 +154,38 @@ func (e *OrderEngine) AdvanceStage(
 
 		// wx_pay：第一阶段模拟支付成功
 		if node.ActionType == models.ActionTypeWxPay {
+			// payment_status=paid 表示订单已支付过第一笔费用（全额或定金）
 			updates["payment_status"] = "paid"
 
-			// 提取支付金额
+			// 提取支付金额：根据 actionName 和 form_data 决定
 			payAmount := order.TotalAmount
-			if inputData != nil {
-				if amt, ok := inputData["amount"]; ok {
-					if f, err := toFloat64(amt); err == nil && f > 0 {
-						payAmount = int64(f)
+
+			switch actionName {
+			case "pay_order":
+				// 客户首次支付：全额模式取 full_amount（回退 quote_amount/amount），定金模式取 deposit_amount
+				paymentType := getPaymentType(order)
+				if paymentType == "deposit" {
+					if amt := getNumberFromMap(inputData, "deposit_amount"); amt > 0 {
+						payAmount = amt
 					}
-				} else if amt, ok := inputData["quote_amount"]; ok {
-					if f, err := toFloat64(amt); err == nil && f > 0 {
-						payAmount = int64(f)
+				} else {
+					if amt := getNumberFromMap(inputData, "full_amount"); amt > 0 {
+						payAmount = amt
+					} else if amt := getNumberFromMap(inputData, "quote_amount", "amount"); amt > 0 {
+						payAmount = amt
 					}
+				}
+
+			case "pay_final":
+				// 客户支付尾款：取 final_amount
+				if amt := getNumberFromMap(inputData, "final_amount"); amt > 0 {
+					payAmount = amt
+				}
+
+			default:
+				// 其他 wx_pay 动作兜底取 quote_amount/amount
+				if amt := getNumberFromMap(inputData, "quote_amount", "amount"); amt > 0 {
+					payAmount = amt
 				}
 			}
 
@@ -263,8 +286,10 @@ func resolveMacroStatusByStage(tx *gorm.DB, serviceID uint, stageCode string, fa
 	return "supplement"
 }
 
-// resolveTargetStatusByPayment 根据订单支付状态决定是否跳过支付节点。
-// 如果 target 是 wait_pay/wait_deposit_pay/wait_final_pay，但订单已支付，则跳过到对应已支付状态。
+// resolveTargetStatusByPayment 根据订单支付状态和支付模式决定是否跳过支付节点。
+// payment_status=paid 表示订单已支付过第一笔费用。
+//   - 全额模式：paid → 进入 paid
+//   - 定金模式：paid → 进入 paid（第一笔为定金），外部审批通过后由 wait_final_pay 处理尾款
 func resolveTargetStatusByPayment(order models.Order, targetStatus string) string {
 	normalized := strings.TrimSpace(targetStatus)
 	if normalized == "" {
@@ -272,24 +297,83 @@ func resolveTargetStatusByPayment(order models.Order, targetStatus string) strin
 	}
 
 	paymentStatus := strings.TrimSpace(order.PaymentStatus)
-	macroStatus := strings.TrimSpace(order.MacroStatus)
+	paymentType := getPaymentType(order)
 
 	switch normalized {
 	case "wait_pay":
-		if paymentStatus == "paid" || macroStatus == "paid" {
+		// 第一笔费用支付节点。
+		// 如果已支付过第一笔费用（全额或定金），直接进入 paid。
+		if paymentStatus == "paid" {
 			return "paid"
 		}
-	case "wait_deposit_pay":
-		if paymentStatus == "deposit_paid" || paymentStatus == "paid" || macroStatus == "paid" {
-			return "deposit_paid"
-		}
+		return "wait_pay"
+
 	case "wait_final_pay":
-		if paymentStatus == "paid" || macroStatus == "paid" {
-			return "paid"
+		// 外部审批通过后的尾款分流。
+		// 全额模式不需要尾款，外部审批通过后直接进入 final_paid。
+		if paymentType != "deposit" {
+			return "final_paid"
 		}
+		// 定金模式必须进入待支付尾款。
+		return "wait_final_pay"
 	}
 
 	return normalized
+}
+
+// parseOrderFormData 将 orders.form_data JSON 字段解析为 map[string]interface{}。
+func parseOrderFormData(order models.Order) map[string]interface{} {
+	result := make(map[string]interface{})
+	if len(order.FormData) == 0 {
+		return result
+	}
+	_ = json.Unmarshal(order.FormData, &result)
+	return result
+}
+
+// getStringFromMap 从 data 中按 keys 顺序查找第一个非空字符串值。
+func getStringFromMap(data map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if v, ok := data[key]; ok && v != nil {
+			s := strings.TrimSpace(fmt.Sprintf("%v", v))
+			if s != "" {
+				return s
+			}
+		}
+	}
+	return ""
+}
+
+// getNumberFromMap 从 data 中按 keys 顺序查找第一个大于 0 的数值。
+func getNumberFromMap(data map[string]interface{}, keys ...string) int64 {
+	for _, key := range keys {
+		if v, ok := data[key]; ok && v != nil {
+			if f, err := toFloat64(v); err == nil && f > 0 {
+				return int64(f)
+			}
+		}
+	}
+	return 0
+}
+
+// getPaymentMode 从订单 form_data 中读取 payment_mode，默认为 "full"。
+func getPaymentMode(order models.Order) string {
+	formData := parseOrderFormData(order)
+	mode := getStringFromMap(formData, "payment_mode", "pay_mode")
+	if mode == "" {
+		return "full"
+	}
+	return mode
+}
+
+// getPaymentType 从订单 form_data 中读取 payment_type（优先级最高），默认为 "full"。
+func getPaymentType(order models.Order) string {
+	formData := parseOrderFormData(order)
+	paymentType := getStringFromMap(formData, "payment_type", "payment_mode", "pay_mode")
+	if paymentType == "" {
+		return "full"
+	}
+	return paymentType
 }
 
 // toFloat64 将任意数值类型转为 float64。
@@ -420,6 +504,10 @@ func defaultTimelineRemark(actionName, buttonLabel, operatorRole string) string 
 		return "后台已发送报价"
 	case "pay_order":
 		return "客户已完成支付"
+	case "pay_final":
+		return "客户已支付尾款"
+	case "external_approved":
+		return "外部审批通过"
 	case "dispatch_driver":
 		return "后台已安排司机"
 	case "start_service":
@@ -509,11 +597,114 @@ func mergeJSONMap(old []byte, input map[string]interface{}, extra map[string]int
 	return out
 }
 
+// validatePaymentQuoteFields 校验 send_quote 动作的支付类型和金额字段。
+// 支持 payment_type: full（全款）/ deposit（定金+尾款）。
+func validatePaymentQuoteFields(actionName string, inputData map[string]interface{}) error {
+	if actionName != "send_quote" {
+		return nil
+	}
+
+	paymentType := getStringFromMap(inputData, "payment_type", "payment_mode", "pay_mode")
+	if paymentType == "" {
+		return errors.New("请选择支付类型")
+	}
+
+	switch paymentType {
+	case "full":
+		// 全款模式：必须填写全款金额
+		fullAmount := getNumberFromMap(inputData, "full_amount")
+		if fullAmount <= 0 {
+			return errors.New("选择全款支付时，请填写全款金额")
+		}
+		// 统一写入 quote_amount，方便后续支付金额读取
+		inputData["quote_amount"] = fullAmount
+
+	case "deposit":
+		// 定金+尾款模式：必须填写定金和尾款金额
+		depositAmount := getNumberFromMap(inputData, "deposit_amount")
+		finalAmount := getNumberFromMap(inputData, "final_amount")
+
+		if depositAmount <= 0 {
+			return errors.New("选择定金尾款支付时，请填写定金金额")
+		}
+
+		if finalAmount <= 0 {
+			return errors.New("选择定金尾款支付时，请填写尾款金额")
+		}
+
+		// 统一写入 quote_amount = 定金 + 尾款
+		inputData["quote_amount"] = depositAmount + finalAmount
+
+	default:
+		return errors.New("支付类型不合法")
+	}
+
+	return nil
+}
+
+// matchFormCondition 判断 input[key] 是否满足 condition。
+// condition 格式：{"key": "payment_type", "value": "full"}
+// value 支持单值或数组：{"key": "x", "value": ["a","b"]}
+func matchFormCondition(input map[string]interface{}, condition map[string]interface{}) bool {
+	if condition == nil {
+		return true
+	}
+
+	keyRaw, ok := condition["key"]
+	if !ok {
+		return true
+	}
+
+	key := strings.TrimSpace(fmt.Sprintf("%v", keyRaw))
+	if key == "" {
+		return true
+	}
+
+	expected, ok := condition["value"]
+	if !ok {
+		return true
+	}
+
+	actual, ok := input[key]
+	if !ok {
+		return false
+	}
+
+	// expected 为数组时，actual 在数组中即匹配
+	if arr, isArr := expected.([]interface{}); isArr {
+		actualStr := fmt.Sprintf("%v", actual)
+		for _, e := range arr {
+			if fmt.Sprintf("%v", e) == actualStr {
+				return true
+			}
+		}
+		return false
+	}
+
+	return fmt.Sprintf("%v", actual) == fmt.Sprintf("%v", expected)
+}
+
+// isFormFieldRequired 判断字段在当前 input 下是否为必填。
+// 满足 required=true 或 required_when 条件之一即为必填。
+func isFormFieldRequired(field models.FormFieldDef, input map[string]interface{}) bool {
+	if field.Required {
+		return true
+	}
+	if field.RequiredWhen != nil {
+		return matchFormCondition(input, field.RequiredWhen)
+	}
+	return false
+}
+
 // validateRequiredFields 校验必填字段。
-// image/file 类型字段支持 URL 字符串或 {url:"..."} 对象。
+// 跳过 visible_when 条件不满足的字段；满足 required_when 条件才算必填。
 func validateRequiredFields(fields models.FormFields, input map[string]interface{}) error {
 	for _, f := range fields {
-		if f.Required {
+		// visible_when 条件不满足时跳过
+		if f.VisibleWhen != nil && !matchFormCondition(input, f.VisibleWhen) {
+			continue
+		}
+		if isFormFieldRequired(f, input) {
 			val, ok := input[f.Key]
 			if !ok || isEmptyFormValue(val) {
 				return fmt.Errorf("缺少必填字段：%s", f.Label)

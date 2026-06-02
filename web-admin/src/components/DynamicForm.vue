@@ -7,12 +7,14 @@
  *
  * fields 元素结构：
  * {
- *   key:       string                // 字段标识，用于 v-model 绑定
- *   label:     string                // 前端显示标签
- *   type:      string               // input | textarea | number | date | select | image | file
- *   required:  boolean               // 是否必填
- *   options?:  [{ label, value }]    // select 类型专用选项列表
- *   multiple?: boolean               // select / image 是否支持多选
+ *   key:            string                // 字段标识，用于 v-model 绑定
+ *   label:          string                // 前端显示标签
+ *   type:           string               // input | textarea | number | date | select | image | file
+ *   required:       boolean               // 是否必填
+ *   required_when:  { key, value }        // 条件必填
+ *   visible_when:   { key, value }        // 条件显示
+ *   options?:       [{ label, value }]    // select 类型专用选项列表
+ *   multiple?:      boolean               // select / image 是否支持多选
  * }
  *
  * image / file 类型由父组件接管上传，通过 @upload-order-material 事件触发。
@@ -56,6 +58,36 @@ const isDatePicker = (field) => field.type === 'date' || field.type === 'datetim
 // 判断是否为上传类型（image 或 file）
 const isUploadField = (field) => field.type === 'image' || field.type === 'file'
 
+// 判断条件是否满足
+// condition 格式：{ key: "payment_type", value: "full" }
+// value 支持数组：{ key: "x", value: ["a","b"] }
+const matchCondition = (condition) => {
+  if (!condition) return true
+
+  const key = condition.key
+  const expected = condition.value
+  const actual = localValue.value[key]
+
+  if (Array.isArray(expected)) {
+    return expected.includes(actual)
+  }
+
+  return actual === expected
+}
+
+// 字段在当前表单值下是否可见
+const isFieldVisible = (field) => {
+  if (!field.visible_when) return true
+  return matchCondition(field.visible_when)
+}
+
+// 字段在当前表单值下是否为必填（required=true 或满足 required_when 条件）
+const isFieldRequired = (field) => {
+  if (field.required === true) return true
+  if (field.required_when) return matchCondition(field.required_when)
+  return false
+}
+
 const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
   fields: { type: Array, default: () => [] },
@@ -68,6 +100,15 @@ const errors = ref({})
 const localValue = ref({ ...props.modelValue })
 
 watch(localValue, (val) => emit('update:modelValue', { ...val }), { deep: true })
+
+// 条件显示变化时，清除不可见字段的校验错误
+watch(localValue, () => {
+  for (const field of props.fields) {
+    if (!isFieldVisible(field)) {
+      delete errors.value[field.key]
+    }
+  }
+}, { deep: true })
 
 // 解析字段类型对应的 el-input type 属性
 const inputType = (field) => {
@@ -86,6 +127,12 @@ const asArray = (value) => {
 
 // 校验单个字段
 const validateField = (field) => {
+  // 不可见字段跳过校验
+  if (!isFieldVisible(field)) {
+    delete errors.value[field.key]
+    return true
+  }
+
   const val = localValue.value[field.key]
 
   let hasValue = false
@@ -95,7 +142,7 @@ const validateField = (field) => {
     hasValue = val !== null && val !== undefined && String(val).trim() !== ''
   }
 
-  if (field.required && !hasValue) {
+  if (isFieldRequired(field) && !hasValue) {
     errors.value[field.key] = `请填写「${field.label}」`
     return false
   }
@@ -109,6 +156,7 @@ const validateAll = () => {
   let ok = true
   errors.value = {}
   for (const f of props.fields) {
+    if (!isFieldVisible(f)) continue
     if (!validateField(f)) ok = false
   }
   emit('validate', { ok, errors: { ...errors.value } })
@@ -209,13 +257,14 @@ defineExpose({ validateAll, exposeUploadedUrls })
   <div class="dynamic-form">
     <div
       v-for="field in fields"
+      v-show="isFieldVisible(field)"
       :key="field.key"
       class="field-item"
     >
       <!-- 标签 -->
       <div class="field-label">
         <span>{{ field.label }}</span>
-        <span v-if="field.required" class="required-mark">*</span>
+        <span v-if="isFieldRequired(field)" class="required-mark">*</span>
       </div>
 
       <!-- image / file 类型：统一渲染为上传组件，由父组件处理上传 -->

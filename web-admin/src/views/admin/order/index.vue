@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import request, { ORIGIN_URL } from '@/api/request'
-import { auditOrder } from '@/api/admin/orders'
+import { auditOrder, uploadAdminOrderMaterial } from '@/api/admin/orders'
 import DynamicForm from '@/components/DynamicForm.vue'
 
 const router = useRouter()
@@ -396,6 +396,66 @@ const buildActionRemark = (action, inputData = {}) => {
   return inputData.remark || ''
 }
 
+// handleOrderMaterialUpload 处理订单资料图片上传（列表页）
+// 选文件后立即触发，调用 /admin/orders/:id/materials/upload
+const handleOrderMaterialUpload = async (payload) => {
+  console.log('[OrdersList] upload material event:', payload)
+
+  const orderId = formInputOrder.value?.id
+  const field = payload?.field
+  const file = payload?.file || payload?.options?.file || payload?.options?.raw
+
+  if (!orderId) {
+    const msg = '订单不存在'
+    showToast(msg, 'error')
+    payload?.onError?.(msg)
+    return
+  }
+
+  if (!field?.key) {
+    const msg = '字段配置缺少 key'
+    showToast(msg, 'error')
+    payload?.onError?.(msg)
+    return
+  }
+
+  if (!file) {
+    const msg = '请选择要上传的文件'
+    showToast(msg, 'error')
+    payload?.onError?.(msg)
+    return
+  }
+
+  try {
+    const res = await uploadAdminOrderMaterial(orderId, file, field.key)
+    const body = res?.data || res || {}
+    const uploadResult = body?.data || body
+
+    if (!uploadResult?.url) {
+      throw new Error('上传失败，后端未返回文件地址')
+    }
+
+    if (payload?.onSuccess) {
+      payload.onSuccess(uploadResult.url)
+    } else {
+      if (field.multiple === false) {
+        formInputData.value[field.key] = uploadResult.url
+      } else {
+        const old = formInputData.value[field.key]
+        const arr = Array.isArray(old) ? old : old ? [old] : []
+        formInputData.value[field.key] = [...arr, uploadResult.url]
+      }
+      dynamicFormRef.value?.exposeUploadedUrls?.(field.key, uploadResult.url)
+    }
+
+    showToast('上传成功', 'success')
+  } catch (error) {
+    const msg = error?.response?.data?.error || error?.message || '上传失败'
+    showToast(msg, 'error')
+    payload?.onError?.(msg)
+  }
+}
+
 // 打开 form_input 弹窗
 const openFormInput = (order, node) => {
   formInputOrder.value = order
@@ -425,7 +485,7 @@ const submitFormInput = async () => {
     const res = await request.post(`/v1/admin/orders/${formInputOrder.value.id}/action`, {
       action_name: formInputAction.value.action_name,
       remark,
-      input_data: formInputData.value,
+      input_data: { ...formInputData.value },
     })
 
     const nextRaw = unwrapOrderFromResponse(res)
@@ -639,6 +699,7 @@ onUnmounted(() => {
         ref="dynamicFormRef"
         v-model="formInputData"
         :fields="formInputAction?.form_fields || []"
+        @upload-order-material="handleOrderMaterialUpload"
       />
 
       <template #footer>

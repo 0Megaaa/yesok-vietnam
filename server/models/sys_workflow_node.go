@@ -9,11 +9,13 @@ import (
 // FormFieldDef 描述动态表单中的单个字段。
 // 支持的 type：text|textarea|number|date|datetime|select|image|file|phone
 type FormFieldDef struct {
-	Key      string `json:"key"`      // 字段标识
-	Label    string `json:"label"`    // 前端显示标签
-	Type     string `json:"type"`     // text|textarea|number|date|datetime|select|image|file|phone
-	Required bool   `json:"required"` // 是否必填
-	Options  []struct {
+	Key          string                 `json:"key"`                     // 字段标识
+	Label        string                 `json:"label"`                   // 前端显示标签
+	Type         string                 `json:"type"`                    // text|textarea|number|date|datetime|select|image|file|phone
+	Required     bool                   `json:"required"`                // 是否必填
+	RequiredWhen map[string]interface{} `json:"required_when,omitempty"` // 条件必填
+	VisibleWhen  map[string]interface{} `json:"visible_when,omitempty"`  // 条件显示
+	Options      []struct {
 		Label string `json:"label"`
 		Value string `json:"value"`
 	} `json:"options,omitempty"` // select 类型时的选项
