@@ -137,6 +137,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		authGroup.PUT("/admin/orders/:id", handlers.AdminUpdateOrder(db, orderEngine))
 		authGroup.POST("/admin/orders/:id/action", handlers.AdminPostOrderAction(db, orderEngine))
 		authGroup.POST("/admin/orders/:id/audit", handlers.AdminAuditOrder(db))
+		authGroup.POST("/admin/orders/:id/materials/upload", handlers.AdminUploadOrderMaterial(db))
 		authGroup.GET("/admin/services", handlers.AdminListServices(db))
 		authGroup.GET("/admin/services/:id", handlers.AdminGetServiceDetail(db))
 		authGroup.GET("/admin/services/:id/workflow", handlers.AdminGetServiceWorkflow(db))

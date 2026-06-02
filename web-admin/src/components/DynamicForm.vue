@@ -49,9 +49,11 @@ const props = defineProps({
   modelValue: { type: Object, default: () => ({}) },
   fields: { type: Array, default: () => [] },
   validateOnChange: { type: Boolean, default: true },
+  // 可选：指定当前订单 ID，image/file 类型上传时会触发 upload-order-material 事件
+  orderId: { type: [Number, String], default: null },
 })
 
-const emit = defineEmits(['update:modelValue', 'validate'])
+const emit = defineEmits(['update:modelValue', 'validate', 'upload-order-material'])
 
 const errors = ref({})
 const localValue = ref({ ...props.modelValue })
@@ -89,20 +91,35 @@ const validateAll = () => {
   return ok
 }
 
-// el-upload on-success：追加图片 URL 到 localValue
+// onImageSuccess 追加图片 URL 到 localValue
 const onImageSuccess = (field, res) => {
   const urls = localValue.value[field.key] || []
   const url = res?.data?.url || res?.url || ''
   if (url) localValue.value[field.key] = [...urls, url]
 }
 
-// el-upload on-remove：更新 URL 列表
+// onImageRemove 更新 URL 列表
 const onImageRemove = (field, file, fileList) => {
   localValue.value[field.key] = fileList.map(f => f.response?.data?.url || f.url || '').filter(Boolean)
 }
 
-// 暴露 validateAll 给父组件
-defineExpose({ validateAll })
+// handleImageHttpRequest 拦截 el-upload 默认上传，改为触发父组件自定义上传
+// 父组件通过 @upload-order-material 事件处理
+const handleImageHttpRequest = (options, field) => {
+  emit('upload-order-material', { options, field })
+}
+
+// exposeUploadedUrls 暴露给父组件，用于上传成功后追加 URL 到图片数组
+// 支持单个 URL 字符串或 URL 数组
+const exposeUploadedUrls = (fieldKey, urls) => {
+  const existing = localValue.value[fieldKey] || []
+  if (Array.isArray(urls)) {
+    localValue.value[fieldKey] = [...existing, ...urls]
+  } else if (urls) {
+    localValue.value[fieldKey] = [...existing, urls]
+  }
+}
+defineExpose({ validateAll, exposeUploadedUrls })
 </script>
 
 <template>
@@ -118,18 +135,16 @@ defineExpose({ validateAll })
         <span v-if="field.required" class="required-mark">*</span>
       </div>
 
-      <!-- image 单独处理（el-upload） -->
+      <!-- image 单独处理（el-upload + http-request 拦截上传） -->
       <template v-if="field.type === 'image'">
         <el-upload
-          :file-list="localValue[`_${field.key}_files`]"
-          @update:file-list="(list) => { localValue[`_${field.key}_files`] = list }"
-          action="/v1/admin/upload"
-          list-type="picture-card"
-          :multiple="field.multiple !== false"
-          :on-success="(res) => onImageSuccess(field, res)"
+          :file-list="(localValue[field.key] || []).map((url, i) => ({ url, uid: i }))"
+          :http-request="(opts) => handleImageHttpRequest(opts, field)"
           :on-remove="(file, fileList) => onImageRemove(field, file, fileList)"
           :on-error="() => ElMessage.error('图片上传失败，请重试')"
-          accept="image/*"
+          :accept="'.jpg,.jpeg,.png'"
+          list-type="picture-card"
+          :multiple="field.multiple !== false"
         >
           <el-icon class="upload-icon"><Plus /></el-icon>
         </el-upload>

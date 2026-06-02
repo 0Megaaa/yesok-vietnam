@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getOrderDetail, getOrderActions, performOrderAction, auditOrder } from '@/api/admin/orders'
+import { getOrderDetail, getOrderActions, performOrderAction, auditOrder, uploadAdminOrderMaterial } from '@/api/admin/orders'
 import { request, ORIGIN_URL } from '@/api/request'
 import DynamicForm from '@/components/DynamicForm.vue'
 
@@ -479,6 +479,29 @@ const triggerWxPay = (action) => {
   showToast(`「${action.button_label}」：请引导客户完成微信支付`, 'info')
 }
 
+// handleOrderMaterialUpload 处理订单资料图片上传
+// image/file 类型字段不再手填 URL，直接调用 /admin/orders/:id/materials/upload
+const handleOrderMaterialUpload = async ({ options, field }) => {
+  if (!order.value?.id) {
+    showToast('订单不存在', 'error')
+    return
+  }
+  try {
+    const res = await uploadAdminOrderMaterial(order.value.id, options.file, field.key)
+    const payload = res?.data || res
+    if (!payload?.url) {
+      throw new Error('上传失败，后端未返回文件地址')
+    }
+    // 写入父组件 formInputData
+    formInputData.value[field.key] = payload.url
+    // 同时更新 DynamicForm 内部 localValue（避免显示不一致）
+    dynamicFormRef.value?.exposeUploadedUrls?.(field.key, payload.url)
+    showToast('上传成功', 'success')
+  } catch (error) {
+    showToast(error?.response?.data?.error || error?.message || '上传失败', 'error')
+  }
+}
+
 const goBack = () => {
   if (window.history.length > 1) {
     router.back()
@@ -691,6 +714,7 @@ onMounted(async () => {
         ref="dynamicFormRef"
         v-model="formInputData"
         :fields="formInputAction?.form_fields || []"
+        @upload-order-material="handleOrderMaterialUpload"
       />
       <template #footer>
         <el-button @click="formInputVisible = false">取消</el-button>

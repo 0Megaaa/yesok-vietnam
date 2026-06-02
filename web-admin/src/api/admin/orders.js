@@ -31,3 +31,17 @@ export function performOrderAction(id, data) {
 export function auditOrder(orderId, data) {
   return request.post(`/v1/admin/orders/${orderId}/audit`, data).then((res) => res.data)
 }
+
+// uploadAdminOrderMaterial 上传订单资料图片
+// 调用 POST /api/v1/admin/orders/:id/materials/upload
+// 文件保存到 /material/{service_code}/ 目录，返回 /material/... 相对路径
+export function uploadAdminOrderMaterial(orderId, file, fieldKey) {
+  const fd = new FormData()
+  fd.append('file', file)
+  if (fieldKey) {
+    fd.append('field_key', fieldKey)
+  }
+  return request.post(`/v1/admin/orders/${orderId}/materials/upload`, fd, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  })
+}

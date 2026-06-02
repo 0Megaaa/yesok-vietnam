@@ -1,9 +1,20 @@
 import axios from 'axios'
 import { ElMessage } from 'element-plus'
 
-const BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api'
+const BASE_URL = (() => {
+  const val = import.meta.env.VITE_API_BASE_URL
+  if (!val) {
+    throw new Error('缺少 VITE_API_BASE_URL 环境变量，请配置为 http://host:7625/api 或 https://你的域名/api')
+  }
+  return val
+})()
 
-// ORIGIN_URL 用于拼接静态资源 /material，避免带 /api 前缀
+// 启动校验：建议以 /api 结尾，避免路径拼接错误
+if (!/\/api\/?$/.test(BASE_URL)) {
+  console.warn('[request] VITE_API_BASE_URL 建议以 /api 结尾，当前为：', BASE_URL)
+}
+
+// ORIGIN_URL 用于拼接静态资源 /material 和 /uploads，避免带 /api 前缀
 // 例如：BASE_URL = http://127.0.0.1:7625/api → ORIGIN_URL = http://127.0.0.1:7625
 const ORIGIN_URL = (() => {
   const raw = String(BASE_URL || '').replace(/\/+$/, '')
@@ -167,4 +178,4 @@ function createRequest() {
 
 const request = createRequest()
 export default request
-export { request, ORIGIN_URL }
+export { request, ORIGIN_URL, BASE_URL }
