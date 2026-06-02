@@ -605,26 +605,54 @@ func validatePaymentQuoteFields(actionName string, inputData map[string]interfac
 		return nil
 	}
 
+	if inputData == nil {
+		return errors.New("报价信息不能为空")
+	}
+
 	paymentType := getStringFromMap(inputData, "payment_type", "payment_mode", "pay_mode")
+
+	depositAmount := getNumberFromMap(inputData, "deposit_amount")
+	finalAmount := getNumberFromMap(inputData, "final_amount")
+	fullAmount := getNumberFromMap(inputData, "full_amount")
+	quoteAmount := getNumberFromMap(inputData, "quote_amount", "amount")
+
+	// 固定定金尾款服务：
+	// 租房/租车/个人需求不会传 payment_type，只传 deposit_amount + final_amount。
+	// 此时后端自动识别为 deposit。
+	if paymentType == "" && depositAmount > 0 && finalAmount > 0 {
+		inputData["payment_type"] = "deposit"
+		inputData["quote_amount"] = depositAmount + finalAmount
+		return nil
+	}
+
+	// 兼容部分旧表单：如果传了 quote_amount + deposit_amount + final_amount，也按 deposit 处理。
+	if paymentType == "" && quoteAmount > 0 && depositAmount > 0 && finalAmount > 0 {
+		inputData["payment_type"] = "deposit"
+		inputData["quote_amount"] = depositAmount + finalAmount
+		return nil
+	}
+
 	if paymentType == "" {
 		return errors.New("请选择支付类型")
 	}
 
 	switch paymentType {
 	case "full":
-		// 全款模式：必须填写全款金额
-		fullAmount := getNumberFromMap(inputData, "full_amount")
+		if fullAmount <= 0 {
+			// 兼容旧字段 quote_amount
+			if quoteAmount > 0 {
+				fullAmount = quoteAmount
+			}
+		}
+
 		if fullAmount <= 0 {
 			return errors.New("选择全款支付时，请填写全款金额")
 		}
-		// 统一写入 quote_amount，方便后续支付金额读取
+
+		inputData["payment_type"] = "full"
 		inputData["quote_amount"] = fullAmount
 
 	case "deposit":
-		// 定金+尾款模式：必须填写定金和尾款金额
-		depositAmount := getNumberFromMap(inputData, "deposit_amount")
-		finalAmount := getNumberFromMap(inputData, "final_amount")
-
 		if depositAmount <= 0 {
 			return errors.New("选择定金尾款支付时，请填写定金金额")
 		}
@@ -633,7 +661,7 @@ func validatePaymentQuoteFields(actionName string, inputData map[string]interfac
 			return errors.New("选择定金尾款支付时，请填写尾款金额")
 		}
 
-		// 统一写入 quote_amount = 定金 + 尾款
+		inputData["payment_type"] = "deposit"
 		inputData["quote_amount"] = depositAmount + finalAmount
 
 	default:
