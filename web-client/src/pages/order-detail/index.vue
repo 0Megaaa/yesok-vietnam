@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
 import { get, post, ORIGIN_URL } from '@/api/request'
@@ -507,19 +507,19 @@ const safeToast = (title, icon = 'info') => {
   }
 }
 
-const loadOrderDetail = async () => {
-  loading.value = true
+async function loadOrderDetail() {
+  if (!orderId.value) return
+
+  if (!hasLoadedOnce.value) {
+    loading.value = true
+  }
+
   try {
     const res = await get(`/v1/client/orders/${orderId.value}`)
     const payload = unwrapResponse(res)
     const normalized = normalizeOrder(payload.order || payload)
     order.value = normalized
 
-    // 临时调试日志：确认接口返回和本地兜底生效
-    console.log('[order-detail] raw payload:', payload)
-    console.log('[order-detail] normalized timelines:', normalized.timelines)
-
-    // 后端订单详情已经返回 action_nodes，先用它兜底渲染按钮
     if (Array.isArray(normalized.action_nodes)) {
       actions.value = normalized.action_nodes
     }
@@ -531,7 +531,7 @@ const loadOrderDetail = async () => {
   }
 }
 
-const refreshOrderPage = async ({ showLoading = false } = {}) => {
+async function refreshOrderPage({ showLoading = false } = {}) {
   if (!orderId.value || refreshing.value) return
 
   refreshing.value = true
@@ -547,12 +547,15 @@ const refreshOrderPage = async ({ showLoading = false } = {}) => {
     ])
 
     hasLoadedOnce.value = true
+  } catch (error) {
+    console.error('[order-detail] refreshOrderPage failed:', error)
   } finally {
     refreshing.value = false
   }
 }
 
 const executeButtonClick = async (action) => {
+  if (refreshing.value || actionsLoading.value || submitting.value) return
   const uniApi = typeof uni !== 'undefined' ? uni : null
   if (uniApi?.showModal) {
     uniApi.showModal({
@@ -569,9 +572,23 @@ const executeButtonClick = async (action) => {
   }
 }
 
-const openFormInput = (action) => {
+async function openFormInput(action) {
   if (!orderId.value || !action?.action_name) {
     safeToast('操作信息异常，请稍后重试', 'none')
+    return
+  }
+
+  if (refreshing.value || actionsLoading.value || submitting.value) return
+
+  await loadOrderActions()
+
+  const stillExists = actions.value.some(
+    (item) => item.action_name === action.action_name && item.action_type === 'form_input'
+  )
+
+  if (!stillExists) {
+    safeToast('当前操作已更新，请重新查看', 'none')
+    await refreshOrderPage({ showLoading: false })
     return
   }
 
@@ -580,69 +597,9 @@ const openFormInput = (action) => {
   })
 }
 
-const closeForm = () => {
-  formVisible.value = false
-  currentAction.value = null
-  formData.value = {}
-  localFileMap.value = {}
-  uploadingMap.value = {}
-  resetKeyboardSheet()
-}
-
-const validateField = (field) => {
-  if (!isFieldVisible(field)) return true
-  if (!isFieldRequired(field)) return true
-
-  const val = getFormValue(field)
-
-  if (field.type === 'image' || field.type === 'file') {
-    if (!val || typeof val !== 'string' || val.trim() === '') {
-      safeToast(`请上传${field.label}`, 'none')
-      return false
-    }
-    return true
-  }
-
-  const str = (val || '').toString().trim()
-  if (!str) {
-    safeToast(`请填写 ${field.label}`, 'none')
-    return false
-  }
-
-  return true
-}
-
-const submitForm = async () => {
-  if (submitting.value) return
-
-  const fields = normalizeActionFields(currentAction.value)
-
-  for (const field of fields) {
-    if (!validateField(field)) return
-  }
-
-  submitting.value = true
-
-  try {
-    uni.showLoading({ title: '提交中...' })
-
-    const finalInputData = await uploadPendingLocalFiles(fields)
-
-    const ok = await performAction(currentAction.value, finalInputData)
-
-    if (ok) {
-      closeForm()
-    }
-  } catch (error) {
-    uni.showToast({ title: error?.message || '提交失败', icon: 'none' })
-  } finally {
-    uni.hideLoading()
-    submitting.value = false
-  }
-}
 
 const executeWxPay = async (action) => {
-  if (submitting.value) return
+  if (refreshing.value || actionsLoading.value || submitting.value) return
 
   const uniApi = typeof uni !== 'undefined' ? uni : null
   const payAmount = getActionPayAmount(action)
@@ -731,12 +688,13 @@ onLoad((options) => {
   orderId.value = options.id || ''
 })
 
-onMounted(async () => {
-  if (orderId.value) {
-    await Promise.all([loadOrderDetail(), loadOrderActions()])
-  } else {
+onShow(async () => {
+  if (!orderId.value) {
     loading.value = false
+    return
   }
+
+  await refreshOrderPage({ showLoading: !hasLoadedOnce.value })
 })
 </script>
 
@@ -876,6 +834,7 @@ onMounted(async () => {
             v-for="action in buttonClickActions"
             :key="action.id"
             class="action-btn"
+            :disabled="refreshing || actionsLoading || submitting"
             @click="executeButtonClick(action)"
           >
             {{ action.button_label }}
@@ -885,9 +844,10 @@ onMounted(async () => {
             v-for="action in formInputActions"
             :key="action.id"
             class="action-btn action-material"
+            :disabled="refreshing || actionsLoading || submitting"
             @click="openFormInput(action)"
           >
-            {{ action.button_label }}
+            {{ refreshing || actionsLoading ? '刷新中...' : action.button_label }}
           </button>
           <!-- wx_pay -->
           <button
@@ -907,146 +867,6 @@ onMounted(async () => {
       <text>订单不存在或加载失败</text>
     </view>
 
-    <!-- 表单输入弹窗 -->
-    <view v-if="formVisible" class="form-overlay">
-      <view class="form-mask" @tap="closeForm" @touchmove.stop.prevent></view>
-
-      <view
-        class="form-sheet"
-        :style="formSheetStyle"
-        @tap.stop
-        @click.stop
-      >
-        <view class="form-header">
-          <text class="form-title">填写 {{ currentAction?.button_label }}</text>
-          <view class="form-close" @click="closeForm">✕</view>
-        </view>
-        <scroll-view
-          scroll-y
-          class="form-body"
-          :enhanced="true"
-          :enable-flex="true"
-          :scroll-with-animation="true"
-          :scroll-into-view="activeFieldAnchor"
-          :show-scrollbar="false"
-          @tap.stop
-          @click.stop
-        >
-          <view class="form-scroll-content" :style="formScrollContentStyle">
-            <view
-              v-for="field in normalizeActionFields(currentAction)"
-              v-show="isFieldVisible(field)"
-              :id="fieldDomId(field)"
-              :key="getFieldKey(field)"
-              class="field-wrap"
-            >
-              <view class="field-label">
-                <text>{{ field.label }}</text>
-                <text v-if="isFieldRequired(field)" class="required">*</text>
-              </view>
-              <input
-                v-if="field.type === 'text' || field.type === 'phone' || field.type === 'number'"
-                :value="getFormValue(field)"
-                :type="field.type === 'phone' ? 'number' : field.type === 'number' ? 'digit' : 'text'"
-                class="field-input"
-                :placeholder="`请输入${field.label}`"
-                :adjust-position="false"
-                cursor-spacing="20"
-                @input="(e) => setFormValue(field, e.detail.value)"
-                @focus="handleFieldFocus(field)"
-                @keyboardheightchange="handleKeyboardHeightChange"
-                @blur="handleFieldBlur(field)"
-              />
-              <input
-                v-else-if="field.type === 'date'"
-                :value="getFormValue(field)"
-                class="field-input"
-                type="text"
-                placeholder="格式：2025-01-15"
-                :adjust-position="false"
-                cursor-spacing="20"
-                @input="(e) => setFormValue(field, e.detail.value)"
-                @focus="handleFieldFocus(field)"
-                @keyboardheightchange="handleKeyboardHeightChange"
-                @blur="handleFieldBlur(field)"
-              />
-              <input
-                v-else-if="field.type === 'datetime'"
-                :value="getFormValue(field)"
-                class="field-input"
-                type="text"
-                placeholder="格式：2025-01-15 14:30"
-                :adjust-position="false"
-                cursor-spacing="20"
-                @input="(e) => setFormValue(field, e.detail.value)"
-                @focus="handleFieldFocus(field)"
-                @keyboardheightchange="handleKeyboardHeightChange"
-                @blur="handleFieldBlur(field)"
-              />
-              <textarea
-                v-else-if="field.type === 'textarea'"
-                :value="getFormValue(field)"
-                class="field-textarea"
-                :placeholder="`请输入${field.label}`"
-                :auto-height="false"
-                :adjust-position="false"
-                cursor-spacing="20"
-                @input="(e) => setFormValue(field, e.detail.value)"
-                @focus="handleFieldFocus(field)"
-                @keyboardheightchange="handleKeyboardHeightChange"
-                @blur="handleFieldBlur(field)"
-              />
-              <picker
-                v-else-if="field.type === 'select'"
-                mode="selector"
-                :value="0"
-                :range="field.options || []"
-                :range-key="'label'"
-                @change="(e) => { setFormValue(field, field.options[e.detail.value]?.value ?? field.options[e.detail.value] ?? '') }"
-              >
-                <view class="field-picker">
-                  <text>{{ getOptionLabel(field, getFormValue(field)) || `请选择${field.label}` }}</text>
-                  <text class="arrow">›</text>
-                </view>
-              </picker>
-              <view v-else-if="field.type === 'image' || field.type === 'file'" class="upload-field">
-                <view
-                  class="upload-box"
-                  :class="{ uploading: uploadingMap[getFieldKey(field)] }"
-                  @click.stop="chooseAndUploadFile(field)"
-                >
-                  <image
-                    v-if="getFormValue(field)"
-                    :src="toFullFileUrl(getFormValue(field))"
-                    class="upload-preview"
-                    mode="aspectFill"
-                    @click.stop="previewUploadedFile(getFormValue(field))"
-                  />
-                  <view v-else class="upload-placeholder">
-                    <text class="upload-plus">+</text>
-                    <text class="upload-text">上传图片</text>
-                  </view>
-                  <view v-if="uploadingMap[getFieldKey(field)]" class="upload-mask">
-                    <text class="upload-loading">上传中...</text>
-                  </view>
-                </view>
-                <text v-if="getFormValue(field)" class="upload-change" @click.stop="chooseAndUploadFile(field)">
-                  点击更换
-                </text>
-              </view>
-              <view v-else class="field-input">
-                <text class="placeholder-text">暂不支持此字段类型：{{ field.type }}</text>
-              </view>
-            </view>
-          </view>
-        </scroll-view>
-        <view v-show="!isKeyboardVisible" class="form-footer" @tap.stop @click.stop>
-          <button class="submit-btn" :disabled="submitting" @click="submitForm">
-            {{ submitting ? '提交中...' : '确认提交' }}
-          </button>
-        </view>
-      </view>
-    </view>
   </view>
 </template>
 
@@ -1341,7 +1161,7 @@ onMounted(async () => {
 }
 
 /* 表单弹窗 */
-.form-overlay {
+. {
   position: fixed;
   inset: 0;
   z-index: 50;
@@ -1350,7 +1170,7 @@ onMounted(async () => {
   background: rgba(0, 0, 0, 0.36);
 }
 
-.form-sheet {
+. {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -1387,7 +1207,7 @@ onMounted(async () => {
   font-size: 14px;
 }
 
-.form-body {
+. {
   flex: 1;
   padding: 16px 18px;
   max-height: 60vh;
@@ -1476,7 +1296,7 @@ onMounted(async () => {
   font-weight: 700;
 }
 
-.form-footer {
+. {
   flex-shrink: 0;
   padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
   border-top: 1px solid rgba(0, 77, 64, 0.08);
