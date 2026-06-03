@@ -3,8 +3,6 @@ import { computed, onMounted, ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
 import { get, post, ORIGIN_URL } from '@/api/request'
-import { uploadOrderMaterial } from '@/api/order'
-import { useKeyboardAwareSheet } from '@/composables/useKeyboardAwareSheet'
 
 const client = useClientStore()
 const orderId = ref('')
@@ -12,34 +10,9 @@ const order = ref(null)
 const actions = ref([])
 const loading = ref(true)
 const actionsLoading = ref(false)
-
-// 动态表单显示状态
-const formVisible = ref(false)
-
-// 动态表单数据
-const formData = ref({})
-
-// 本地临时文件缓存，key = field.key
-const localFileMap = ref({})
-
-// 上传中状态，key = field.key
-const uploadingMap = ref({})
-
-const currentAction = ref(null)
 const submitting = ref(false)
 
-const {
-  activeFieldAnchor,
-  isKeyboardVisible,
-  formSheetStyle,
-  formScrollContentStyle,
-  fieldDomId,
-  handleFieldFocus,
-  handleFieldBlur,
-  handleKeyboardHeightChange,
-  hideKeyboard,
-  resetKeyboardSheet,
-} = useKeyboardAwareSheet()
+
 
 // isLocalTempFile 判断是否是本地临时文件路径（不上传后端则不走此路径）
 const isLocalTempFile = (url) => {
@@ -61,80 +34,6 @@ const toFullFileUrl = (url) => {
   const origin = String(ORIGIN_URL || '').replace(/\/+$/, '')
   const path = url.startsWith('/') ? url : `/${url}`
   return `${origin}${path}`
-}
-
-// chooseAndUploadFile：仅选择本地图片，缓存临时路径，不上传
-const chooseAndUploadFile = async (field) => {
-  if (!order.value?.id) {
-    uni.showToast({ title: '订单不存在', icon: 'none' })
-    return
-  }
-
-  uni.chooseImage({
-    count: 1,
-    sizeType: ['compressed'],
-    sourceType: ['album', 'camera'],
-    success: async (res) => {
-      const tempFilePath = res.tempFilePaths?.[0]
-      if (!tempFilePath) return
-
-      const key = getFieldKey(field)
-      if (!key) return
-
-      localFileMap.value[key] = {
-        tempFilePath,
-        name: key,
-        uploadedUrl: '',
-      }
-
-      setFormValue(field, tempFilePath)
-      uni.showToast({ title: '图片已选择', icon: 'success' })
-    },
-    fail: (err) => {
-      console.warn('[chooseAndUploadFile] cancelled or failed:', err)
-    },
-  })
-}
-
-// uploadPendingLocalFiles：提交前上传所有本地临时文件，返回替换了后端 URL 的 inputData
-const uploadPendingLocalFiles = async (fields = []) => {
-  const finalData = { ...formData.value }
-
-  for (const field of fields) {
-    if (field.type !== 'image' && field.type !== 'file') continue
-
-    const key = getFieldKey(field)
-    if (!key) continue
-
-    const currentValue = finalData[key]
-    if (!currentValue) continue
-
-    if (!isLocalTempFile(currentValue)) continue
-
-    const localItem = localFileMap.value[key]
-    const tempFilePath = localItem?.tempFilePath || currentValue
-
-    uploadingMap.value[key] = true
-
-    try {
-      const uploadRes = await uploadOrderMaterial(order.value.id, tempFilePath, key)
-
-      if (!uploadRes?.url) {
-        throw new Error(`${field.label}上传失败`)
-      }
-
-      finalData[key] = uploadRes.url
-
-      localFileMap.value[key] = {
-        ...localItem,
-        uploadedUrl: uploadRes.url,
-      }
-    } finally {
-      uploadingMap.value[key] = false
-    }
-  }
-
-  return finalData
 }
 
 // previewUploadedFile 预览图片（支持本地临时和后端 URL）
@@ -306,51 +205,6 @@ const formatTime = (t) => {
   return new Date(t).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
 }
 
-const normalizeActionFields = (action) => {
-  const fields = action?.form_fields || action?.formFields || []
-
-  if (Array.isArray(fields)) return fields
-
-  if (typeof fields === 'string') {
-    try {
-      const parsed = JSON.parse(fields)
-      return Array.isArray(parsed) ? parsed : []
-    } catch (e) {
-      console.warn('[order-detail] parse action form_fields failed:', e)
-      return []
-    }
-  }
-
-  return []
-}
-
-// ensureFormData 保证 formData 永远是对象
-const ensureFormData = () => {
-  if (!formData.value || typeof formData.value !== 'object' || Array.isArray(formData.value)) {
-    formData.value = {}
-  }
-
-  return formData.value
-}
-
-const getFieldKey = (field = {}) => field.key || field.name || ''
-
-const getFormValue = (field) => {
-  const key = getFieldKey(field)
-  if (!key) return ''
-
-  const data = ensureFormData()
-  return data[key] || ''
-}
-
-const setFormValue = (field, value) => {
-  const key = getFieldKey(field)
-  if (!key) return
-
-  const data = ensureFormData()
-  data[key] = value
-}
-
 const paymentInfo = computed(() => order.value?.payment_info || {})
 
 // paymentSummaryRows 订单摘要中的支付行
@@ -392,26 +246,6 @@ const getActionPayAmount = (action) => {
   return Number(order.value?.total_amount || 0)
 }
 
-// ─── 条件字段支持 ────────────────────────────────────────────────────────────
-const matchCondition = (condition) => {
-  if (!condition) return true
-  const expected = condition.value
-  const data = ensureFormData()
-  const actual = data[condition.key]
-  if (Array.isArray(expected)) return expected.includes(actual)
-  return actual === expected
-}
-
-const isFieldVisible = (field) => {
-  if (!field.visible_when) return true
-  return matchCondition(field.visible_when)
-}
-
-const isFieldRequired = (field) => {
-  if (field.required === true) return true
-  if (field.required_when) return matchCondition(field.required_when)
-  return false
-}
 
 // 业务资料：保留 type/raw_value/display_value 以支持图片识别
 const formEntries = computed(() => {
@@ -735,28 +569,14 @@ const executeButtonClick = async (action) => {
 }
 
 const openFormInput = (action) => {
-  const fields = normalizeActionFields(action)
-  const initialData = {}
-
-  fields.forEach((field) => {
-    const key = getFieldKey(field)
-    if (!key) return
-    initialData[key] = ''
-  })
-
-  formData.value = initialData
-  localFileMap.value = {}
-  uploadingMap.value = {}
-  resetKeyboardSheet()
-
-  // 保证 currentAction 里的 form_fields 一定是数组
-  currentAction.value = {
-    ...action,
-    form_fields: fields,
+  if (!orderId.value || !action?.action_name) {
+    safeToast('操作信息异常，请稍后重试', 'none')
+    return
   }
 
-  // 必须最后再打开弹窗，避免模板先渲染但 formData 还没初始化
-  formVisible.value = true
+  uni.navigateTo({
+    url: `/pages/dynamic-form/index?mode=order&order_id=${orderId.value}&action_name=${encodeURIComponent(action.action_name)}`,
+  })
 }
 
 const closeForm = () => {
