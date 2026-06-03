@@ -12,8 +12,19 @@ const order = ref(null)
 const actions = ref([])
 const loading = ref(true)
 const actionsLoading = ref(false)
+
+// 动态表单显示状态
+const formVisible = ref(false)
+
+// 动态表单数据
+const formData = ref({})
+
+// 本地临时文件缓存，key = field.key
 const localFileMap = ref({})
+
+// 上传中状态，key = field.key
 const uploadingMap = ref({})
+
 const currentAction = ref(null)
 const submitting = ref(false)
 
@@ -21,6 +32,7 @@ const {
   activeFieldAnchor,
   isKeyboardVisible,
   formSheetStyle,
+  formScrollContentStyle,
   fieldDomId,
   handleFieldFocus,
   handleFieldBlur,
@@ -67,6 +79,8 @@ const chooseAndUploadFile = async (field) => {
       if (!tempFilePath) return
 
       const key = getFieldKey(field)
+      if (!key) return
+
       localFileMap.value[key] = {
         tempFilePath,
         name: key,
@@ -292,10 +306,30 @@ const formatTime = (t) => {
   return new Date(t).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
 }
 
+const normalizeActionFields = (action) => {
+  const fields = action?.form_fields || action?.formFields || []
+
+  if (Array.isArray(fields)) return fields
+
+  if (typeof fields === 'string') {
+    try {
+      const parsed = JSON.parse(fields)
+      return Array.isArray(parsed) ? parsed : []
+    } catch (e) {
+      console.warn('[order-detail] parse action form_fields failed:', e)
+      return []
+    }
+  }
+
+  return []
+}
+
+// ensureFormData 保证 formData 永远是对象
 const ensureFormData = () => {
-  if (!formData.value || typeof formData.value !== 'object') {
+  if (!formData.value || typeof formData.value !== 'object' || Array.isArray(formData.value)) {
     formData.value = {}
   }
+
   return formData.value
 }
 
@@ -304,6 +338,7 @@ const getFieldKey = (field = {}) => field.key || field.name || ''
 const getFormValue = (field) => {
   const key = getFieldKey(field)
   if (!key) return ''
+
   const data = ensureFormData()
   return data[key] || ''
 }
@@ -311,6 +346,7 @@ const getFormValue = (field) => {
 const setFormValue = (field, value) => {
   const key = getFieldKey(field)
   if (!key) return
+
   const data = ensureFormData()
   data[key] = value
 }
@@ -360,7 +396,8 @@ const getActionPayAmount = (action) => {
 const matchCondition = (condition) => {
   if (!condition) return true
   const expected = condition.value
-  const actual = formData.value[condition.key]
+  const data = ensureFormData()
+  const actual = data[condition.key]
   if (Array.isArray(expected)) return expected.includes(actual)
   return actual === expected
 }
@@ -698,7 +735,7 @@ const executeButtonClick = async (action) => {
 }
 
 const openFormInput = (action) => {
-  const fields = Array.isArray(action?.form_fields) ? action.form_fields : []
+  const fields = normalizeActionFields(action)
   const initialData = {}
 
   fields.forEach((field) => {
@@ -710,9 +747,15 @@ const openFormInput = (action) => {
   formData.value = initialData
   localFileMap.value = {}
   uploadingMap.value = {}
+  resetKeyboardSheet()
 
-  // 必须先初始化 formData，再设置 currentAction，最后显示弹窗
-  currentAction.value = action
+  // 保证 currentAction 里的 form_fields 一定是数组
+  currentAction.value = {
+    ...action,
+    form_fields: fields,
+  }
+
+  // 必须最后再打开弹窗，避免模板先渲染但 formData 还没初始化
   formVisible.value = true
 }
 
@@ -728,9 +771,9 @@ const closeForm = () => {
 const validateField = (field) => {
   if (!isFieldVisible(field)) return true
   if (!isFieldRequired(field)) return true
-  const val = formData.value[field.key]
 
-  // image/file 类型：检查是否有非空 URL 值
+  const val = getFormValue(field)
+
   if (field.type === 'image' || field.type === 'file') {
     if (!val || typeof val !== 'string' || val.trim() === '') {
       safeToast(`请上传${field.label}`, 'none')
@@ -739,19 +782,19 @@ const validateField = (field) => {
     return true
   }
 
-  // 其他类型：检查字符串非空
   const str = (val || '').toString().trim()
   if (!str) {
     safeToast(`请填写 ${field.label}`, 'none')
     return false
   }
+
   return true
 }
 
 const submitForm = async () => {
   if (submitting.value) return
 
-  const fields = currentAction.value?.form_fields || []
+  const fields = normalizeActionFields(currentAction.value)
 
   for (const field of fields) {
     if (!validateField(field)) return
@@ -1044,8 +1087,15 @@ onMounted(async () => {
     </view>
 
     <!-- 表单输入弹窗 -->
-    <view v-if="formVisible" class="form-overlay" @click.self="closeForm">
-      <view class="form-sheet" @click.stop>
+    <view v-if="formVisible" class="form-overlay">
+      <view class="form-mask" @tap="closeForm" @touchmove.stop.prevent></view>
+
+      <view
+        class="form-sheet"
+        :style="formSheetStyle"
+        @tap.stop
+        @click.stop
+      >
         <view class="form-header">
           <text class="form-title">填写 {{ currentAction?.button_label }}</text>
           <view class="form-close" @click="closeForm">✕</view>
@@ -1063,10 +1113,10 @@ onMounted(async () => {
         >
           <view class="form-scroll-content" :style="formScrollContentStyle">
             <view
-              v-for="field in currentAction?.form_fields || []"
+              v-for="field in normalizeActionFields(currentAction)"
               v-show="isFieldVisible(field)"
               :id="fieldDomId(field)"
-              :key="field.key"
+              :key="getFieldKey(field)"
               class="field-wrap"
             >
               <view class="field-label">
