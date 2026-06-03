@@ -4,6 +4,7 @@ import { onLoad } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
 import { get, post, ORIGIN_URL } from '@/api/request'
 import { uploadOrderMaterial } from '@/api/order'
+import { useKeyboardAwareSheet } from '@/composables/useKeyboardAwareSheet'
 
 const client = useClientStore()
 const orderId = ref('')
@@ -11,16 +12,22 @@ const order = ref(null)
 const actions = ref([])
 const loading = ref(true)
 const actionsLoading = ref(false)
-const formData = ref({})
-const formVisible = ref(false)
+const localFileMap = ref({})
+const uploadingMap = ref({})
 const currentAction = ref(null)
 const submitting = ref(false)
 
-// 图片上传中状态（key = field.key）
-const uploadingMap = ref({})
-
-// 本地临时文件缓存（key = field.key），上传后才替换为后端 URL
-const localFileMap = ref({})
+const {
+  activeFieldAnchor,
+  isKeyboardVisible,
+  formSheetStyle,
+  fieldDomId,
+  handleFieldFocus,
+  handleFieldBlur,
+  handleKeyboardHeightChange,
+  hideKeyboard,
+  resetKeyboardSheet,
+} = useKeyboardAwareSheet()
 
 // isLocalTempFile 判断是否是本地临时文件路径（不上传后端则不走此路径）
 const isLocalTempFile = (url) => {
@@ -59,13 +66,14 @@ const chooseAndUploadFile = async (field) => {
       const tempFilePath = res.tempFilePaths?.[0]
       if (!tempFilePath) return
 
-      localFileMap.value[field.key] = {
+      const key = getFieldKey(field)
+      localFileMap.value[key] = {
         tempFilePath,
-        name: field.key,
+        name: key,
         uploadedUrl: '',
       }
 
-      formData.value[field.key] = tempFilePath
+      setFormValue(field, tempFilePath)
       uni.showToast({ title: '图片已选择', icon: 'success' })
     },
     fail: (err) => {
@@ -81,32 +89,34 @@ const uploadPendingLocalFiles = async (fields = []) => {
   for (const field of fields) {
     if (field.type !== 'image' && field.type !== 'file') continue
 
-    const currentValue = finalData[field.key]
+    const key = getFieldKey(field)
+    if (!key) continue
+
+    const currentValue = finalData[key]
     if (!currentValue) continue
 
-    // 已是后端 URL，跳过
     if (!isLocalTempFile(currentValue)) continue
 
-    const localItem = localFileMap.value[field.key]
+    const localItem = localFileMap.value[key]
     const tempFilePath = localItem?.tempFilePath || currentValue
 
-    uploadingMap.value[field.key] = true
+    uploadingMap.value[key] = true
 
     try {
-      const uploadRes = await uploadOrderMaterial(order.value.id, tempFilePath, field.key)
+      const uploadRes = await uploadOrderMaterial(order.value.id, tempFilePath, key)
 
       if (!uploadRes?.url) {
         throw new Error(`${field.label}上传失败`)
       }
 
-      finalData[field.key] = uploadRes.url
+      finalData[key] = uploadRes.url
 
-      localFileMap.value[field.key] = {
+      localFileMap.value[key] = {
         ...localItem,
         uploadedUrl: uploadRes.url,
       }
     } finally {
-      uploadingMap.value[field.key] = false
+      uploadingMap.value[key] = false
     }
   }
 
@@ -280,6 +290,29 @@ const formatMoney = (amount) => {
 const formatTime = (t) => {
   if (!t) return ''
   return new Date(t).toLocaleString('zh-CN', { dateStyle: 'short', timeStyle: 'short' })
+}
+
+const ensureFormData = () => {
+  if (!formData.value || typeof formData.value !== 'object') {
+    formData.value = {}
+  }
+  return formData.value
+}
+
+const getFieldKey = (field = {}) => field.key || field.name || ''
+
+const getFormValue = (field) => {
+  const key = getFieldKey(field)
+  if (!key) return ''
+  const data = ensureFormData()
+  return data[key] || ''
+}
+
+const setFormValue = (field, value) => {
+  const key = getFieldKey(field)
+  if (!key) return
+  const data = ensureFormData()
+  data[key] = value
 }
 
 const paymentInfo = computed(() => order.value?.payment_info || {})
@@ -665,8 +698,21 @@ const executeButtonClick = async (action) => {
 }
 
 const openFormInput = (action) => {
+  const fields = Array.isArray(action?.form_fields) ? action.form_fields : []
+  const initialData = {}
+
+  fields.forEach((field) => {
+    const key = getFieldKey(field)
+    if (!key) return
+    initialData[key] = ''
+  })
+
+  formData.value = initialData
+  localFileMap.value = {}
+  uploadingMap.value = {}
+
+  // 必须先初始化 formData，再设置 currentAction，最后显示弹窗
   currentAction.value = action
-  formData.value = {}
   formVisible.value = true
 }
 
@@ -676,6 +722,7 @@ const closeForm = () => {
   formData.value = {}
   localFileMap.value = {}
   uploadingMap.value = {}
+  resetKeyboardSheet()
 }
 
 const validateField = (field) => {
@@ -1003,88 +1050,126 @@ onMounted(async () => {
           <text class="form-title">填写 {{ currentAction?.button_label }}</text>
           <view class="form-close" @click="closeForm">✕</view>
         </view>
-        <scroll-view scroll-y class="form-body">
-          <view
-            v-for="field in currentAction?.form_fields || []"
-            v-show="isFieldVisible(field)"
-            :key="field.key"
-            class="field-wrap"
-          >
-            <view class="field-label">
-              <text>{{ field.label }}</text>
-              <text v-if="isFieldRequired(field)" class="required">*</text>
-            </view>
-            <input
-              v-if="field.type === 'text' || field.type === 'phone' || field.type === 'number'"
-              v-model="formData[field.key]"
-              :type="field.type === 'phone' ? 'number' : field.type === 'number' ? 'digit' : 'text'"
-              class="field-input"
-              :placeholder="`请输入${field.label}`"
-            />
-            <input
-              v-else-if="field.type === 'date'"
-              v-model="formData[field.key]"
-              class="field-input"
-              type="text"
-              placeholder="格式：2025-01-15"
-            />
-            <input
-              v-else-if="field.type === 'datetime'"
-              v-model="formData[field.key]"
-              class="field-input"
-              type="text"
-              placeholder="格式：2025-01-15 14:30"
-            />
-            <textarea
-              v-else-if="field.type === 'textarea'"
-              v-model="formData[field.key]"
-              class="field-textarea"
-              :placeholder="`请输入${field.label}`"
-            />
-            <picker
-              v-else-if="field.type === 'select'"
-              mode="selector"
-              :value="0"
-              :range="field.options || []"
-              :range-key="'label'"
-              @change="(e) => { formData[field.key] = field.options[e.detail.value]?.value ?? field.options[e.detail.value] ?? '' }"
+        <scroll-view
+          scroll-y
+          class="form-body"
+          :enhanced="true"
+          :enable-flex="true"
+          :scroll-with-animation="true"
+          :scroll-into-view="activeFieldAnchor"
+          :show-scrollbar="false"
+          @tap.stop
+          @click.stop
+        >
+          <view class="form-scroll-content" :style="formScrollContentStyle">
+            <view
+              v-for="field in currentAction?.form_fields || []"
+              v-show="isFieldVisible(field)"
+              :id="fieldDomId(field)"
+              :key="field.key"
+              class="field-wrap"
             >
-              <view class="field-picker">
-                <text>{{ getOptionLabel(field, formData[field.key]) || `请选择${field.label}` }}</text>
-                <text class="arrow">›</text>
+              <view class="field-label">
+                <text>{{ field.label }}</text>
+                <text v-if="isFieldRequired(field)" class="required">*</text>
               </view>
-            </picker>
-            <view v-else-if="field.type === 'image' || field.type === 'file'" class="upload-field">
-              <view
-                class="upload-box"
-                :class="{ uploading: uploadingMap[field.key] }"
-                @click.stop="chooseAndUploadFile(field)"
+              <input
+                v-if="field.type === 'text' || field.type === 'phone' || field.type === 'number'"
+                :value="getFormValue(field)"
+                :type="field.type === 'phone' ? 'number' : field.type === 'number' ? 'digit' : 'text'"
+                class="field-input"
+                :placeholder="`请输入${field.label}`"
+                :adjust-position="false"
+                cursor-spacing="20"
+                @input="(e) => setFormValue(field, e.detail.value)"
+                @focus="handleFieldFocus(field)"
+                @keyboardheightchange="handleKeyboardHeightChange"
+                @blur="handleFieldBlur(field)"
+              />
+              <input
+                v-else-if="field.type === 'date'"
+                :value="getFormValue(field)"
+                class="field-input"
+                type="text"
+                placeholder="格式：2025-01-15"
+                :adjust-position="false"
+                cursor-spacing="20"
+                @input="(e) => setFormValue(field, e.detail.value)"
+                @focus="handleFieldFocus(field)"
+                @keyboardheightchange="handleKeyboardHeightChange"
+                @blur="handleFieldBlur(field)"
+              />
+              <input
+                v-else-if="field.type === 'datetime'"
+                :value="getFormValue(field)"
+                class="field-input"
+                type="text"
+                placeholder="格式：2025-01-15 14:30"
+                :adjust-position="false"
+                cursor-spacing="20"
+                @input="(e) => setFormValue(field, e.detail.value)"
+                @focus="handleFieldFocus(field)"
+                @keyboardheightchange="handleKeyboardHeightChange"
+                @blur="handleFieldBlur(field)"
+              />
+              <textarea
+                v-else-if="field.type === 'textarea'"
+                :value="getFormValue(field)"
+                class="field-textarea"
+                :placeholder="`请输入${field.label}`"
+                :auto-height="false"
+                :adjust-position="false"
+                cursor-spacing="20"
+                @input="(e) => setFormValue(field, e.detail.value)"
+                @focus="handleFieldFocus(field)"
+                @keyboardheightchange="handleKeyboardHeightChange"
+                @blur="handleFieldBlur(field)"
+              />
+              <picker
+                v-else-if="field.type === 'select'"
+                mode="selector"
+                :value="0"
+                :range="field.options || []"
+                :range-key="'label'"
+                @change="(e) => { setFormValue(field, field.options[e.detail.value]?.value ?? field.options[e.detail.value] ?? '') }"
               >
-                <image
-                  v-if="formData[field.key]"
-                  :src="toFullFileUrl(formData[field.key])"
-                  class="upload-preview"
-                  mode="aspectFill"
-                  @click.stop="previewUploadedFile(formData[field.key])"
-                />
-                <view v-else class="upload-placeholder">
-                  <text class="upload-plus">+</text>
-                  <text class="upload-text">上传图片</text>
+                <view class="field-picker">
+                  <text>{{ getOptionLabel(field, getFormValue(field)) || `请选择${field.label}` }}</text>
+                  <text class="arrow">›</text>
                 </view>
-                <view v-if="uploadingMap[field.key]" class="upload-mask">
-                  <text class="upload-loading">上传中...</text>
+              </picker>
+              <view v-else-if="field.type === 'image' || field.type === 'file'" class="upload-field">
+                <view
+                  class="upload-box"
+                  :class="{ uploading: uploadingMap[getFieldKey(field)] }"
+                  @click.stop="chooseAndUploadFile(field)"
+                >
+                  <image
+                    v-if="getFormValue(field)"
+                    :src="toFullFileUrl(getFormValue(field))"
+                    class="upload-preview"
+                    mode="aspectFill"
+                    @click.stop="previewUploadedFile(getFormValue(field))"
+                  />
+                  <view v-else class="upload-placeholder">
+                    <text class="upload-plus">+</text>
+                    <text class="upload-text">上传图片</text>
+                  </view>
+                  <view v-if="uploadingMap[getFieldKey(field)]" class="upload-mask">
+                    <text class="upload-loading">上传中...</text>
+                  </view>
                 </view>
+                <text v-if="getFormValue(field)" class="upload-change" @click.stop="chooseAndUploadFile(field)">
+                  点击更换
+                </text>
               </view>
-              <text v-if="formData[field.key]" class="upload-change" @click.stop="chooseAndUploadFile(field)">
-                点击更换
-              </text>
-            </view>
-            <view v-else class="field-input">
-              <text class="placeholder-text">暂不支持此字段类型：{{ field.type }}</text>
+              <view v-else class="field-input">
+                <text class="placeholder-text">暂不支持此字段类型：{{ field.type }}</text>
+              </view>
             </view>
           </view>
         </scroll-view>
-        <view class="form-footer">
+        <view v-show="!isKeyboardVisible" class="form-footer" @tap.stop @click.stop>
           <button class="submit-btn" :disabled="submitting" @click="submitForm">
             {{ submitting ? '提交中...' : '确认提交' }}
           </button>

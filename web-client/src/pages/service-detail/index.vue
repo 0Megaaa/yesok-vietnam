@@ -1,10 +1,11 @@
 <script setup>
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
 import { get, post } from '@/api/request'
 import AuthPopup from '@/components/AuthPopup.vue'
 import { useGlobalShare } from '@/composables/useGlobalShare'
+import { useKeyboardAwareSheet } from '@/composables/useKeyboardAwareSheet'
 
 const client = useClientStore()
 const serviceId = ref('')
@@ -18,24 +19,19 @@ const formValues = ref({})              // 用户填写的表单数据
 const formErrors = ref({})              // 字段级错误信息
 const showForm = ref(false)             // 是否展示下单表单弹窗
 const submitAction = ref(null)         // 当前提交动作信息
-const keyboardHeight = ref(0)
-const focusedFieldKey = ref('')
-
-const formSheetStyle = computed(() => {
-  const height = Number(keyboardHeight.value || 0)
-
-  if (height <= 0) {
-    return {
-      bottom: '0px',
-      maxHeight: '88vh',
-    }
-  }
-
-  return {
-    bottom: `${height}px`,
-    maxHeight: `calc(100vh - ${height}px - 16px)`,
-  }
-})
+const {
+  keyboardHeight,
+  activeFieldAnchor,
+  isKeyboardVisible,
+  formSheetStyle,
+  formScrollContentStyle,
+  fieldDomId,
+  handleFieldFocus,
+  handleFieldBlur,
+  handleKeyboardHeightChange,
+  hideKeyboard,
+  resetKeyboardSheet,
+} = useKeyboardAwareSheet()
 
 // 调试日志：监控 showForm 变化
 watch(showForm, (val) => {
@@ -223,42 +219,6 @@ const validateAll = () => {
   })
   return ok
 }
-
-const getFieldKey = (field) => field.key || field.name
-
-const handleFieldFocus = (field) => {
-  focusedFieldKey.value = getFieldKey(field)
-}
-
-const handleFieldBlur = (field) => {
-  const key = getFieldKey(field)
-  validateField(field)
-
-  if (focusedFieldKey.value === key) {
-    focusedFieldKey.value = ''
-  }
-
-  setTimeout(() => {
-    if (!focusedFieldKey.value) {
-      keyboardHeight.value = 0
-    }
-  }, 120)
-}
-
-const handleKeyboardHeightChange = (e) => {
-  const height = Number(e?.detail?.height || 0)
-  keyboardHeight.value = Math.max(0, height)
-}
-
-const hideKeyboardBeforePicker = () => {
-  focusedFieldKey.value = ''
-  keyboardHeight.value = 0
-
-  const uniApi = typeof uni !== 'undefined' ? uni : null
-  if (uniApi?.hideKeyboard) {
-    uniApi.hideKeyboard()
-  }
-}
 // getSelectedLabel 获取 select 字段的显示文本
 const getSelectedLabel = (field) => {
   const key = field.key || field.name
@@ -278,13 +238,8 @@ const openOrderForm = () => {
 const closeForm = () => {
   showForm.value = false
   formErrors.value = {}
-  focusedFieldKey.value = ''
   keyboardHeight.value = 0
-
-  const uniApi = typeof uni !== 'undefined' ? uni : null
-  if (uniApi?.hideKeyboard) {
-    uniApi.hideKeyboard()
-  }
+  resetKeyboardSheet()
 }
 
 // submitOrder 提交订单。
@@ -413,9 +368,8 @@ const safeToast = (title, icon = 'info') => {
     <view
       v-if="showForm"
       class="form-overlay"
-      @touchmove.stop.prevent
     >
-      <view class="form-mask" @tap="closeForm"></view>
+      <view class="form-mask" @tap="closeForm" @touchmove.stop.prevent></view>
 
       <view
         class="form-sheet"
@@ -434,169 +388,165 @@ const safeToast = (title, icon = 'info') => {
           scroll-y
           class="form-body"
           :enhanced="true"
+          :enable-flex="true"
+          :scroll-with-animation="true"
+          :scroll-into-view="activeFieldAnchor"
           :show-scrollbar="false"
           @tap.stop
           @click.stop
         >
-          <view v-if="!formSchema.fields.length" class="empty-form">
-            当前服务暂未配置预约表单，请联系管家处理。
-          </view>
-          <view v-for="field in formSchema.fields" :key="field.key || field.name" class="field-wrap">
-            <!-- 标签 -->
-            <view class="field-label">
-              <text>{{ field.label }}</text>
-              <text v-if="field.required" class="required-star">*</text>
+          <view class="form-scroll-content" :style="formScrollContentStyle">
+            <view v-if="!formSchema.fields.length" class="empty-form">
+              当前服务暂未配置预约表单，请联系管家处理。
             </view>
-
-            <!-- text / phone / number -->
-            <input
-              v-if="field.type === 'text' || field.type === 'phone'"
-              v-model="formValues[field.key || field.name]"
-              :type="field.type === 'phone' ? 'number' : 'text'"
-              class="field-input"
-              :class="{ error: formErrors[field.key || field.name] }"
-              :placeholder="field.placeholder || `请输入${field.label}`"
-              :adjust-position="false"
-              cursor-spacing="20"
-              @tap.stop
-              @click.stop
-              @focus="handleFieldFocus(field)"
-              @keyboardheightchange="handleKeyboardHeightChange"
-              @blur="handleFieldBlur(field)"
-            />
-            <input
-              v-else-if="field.type === 'number'"
-              v-model="formValues[field.key || field.name]"
-              type="digit"
-              class="field-input"
-              :class="{ error: formErrors[field.key || field.name] }"
-              :placeholder="field.placeholder || `请输入${field.label}`"
-              :adjust-position="false"
-              cursor-spacing="20"
-              @tap.stop
-              @click.stop
-              @focus="handleFieldFocus(field)"
-              @keyboardheightchange="handleKeyboardHeightChange"
-              @blur="handleFieldBlur(field)"
-            />
-
-            <!-- date -->
-            <input
-              v-else-if="field.type === 'date'"
-              v-model="formValues[field.key || field.name]"
-              class="field-input"
-              :class="{ error: formErrors[field.key || field.name] }"
-              placeholder="格式：2025-01-15"
-              :adjust-position="false"
-              cursor-spacing="20"
-              @tap.stop
-              @click.stop
-              @focus="handleFieldFocus(field)"
-              @keyboardheightchange="handleKeyboardHeightChange"
-              @blur="handleFieldBlur(field)"
-            />
-
-            <!-- datetime -->
-            <input
-              v-else-if="field.type === 'datetime'"
-              v-model="formValues[field.key || field.name]"
-              class="field-input"
-              :class="{ error: formErrors[field.key || field.name] }"
-              placeholder="格式：2025-01-15 14:30"
-              :adjust-position="false"
-              cursor-spacing="20"
-              @tap.stop
-              @click.stop
-              @focus="handleFieldFocus(field)"
-              @keyboardheightchange="handleKeyboardHeightChange"
-              @blur="handleFieldBlur(field)"
-            />
-
-            <!-- textarea -->
-            <textarea
-              v-else-if="field.type === 'textarea'"
-              v-model="formValues[field.key || field.name]"
-              class="field-textarea"
-              :class="{ error: formErrors[field.key || field.name] }"
-              :placeholder="field.placeholder || `请输入${field.label}`"
-              :auto-height="true"
-              :adjust-position="false"
-              cursor-spacing="20"
-              @tap.stop
-              @click.stop
-              @focus="handleFieldFocus(field)"
-              @keyboardheightchange="handleKeyboardHeightChange"
-              @blur="handleFieldBlur(field)"
-            />
-
-            <!-- select -->
-            <picker
-              v-else-if="field.type === 'select'"
-              mode="selector"
-              :value="0"
-              :range="field.options || []"
-              :range-key="'label'"
-              @tap.stop="hideKeyboardBeforePicker"
-              @click.stop="hideKeyboardBeforePicker"
-              @change="(e) => {
-                const selected = field.options[e.detail.value]
-                formValues[field.key || field.name] = selected?.value ?? selected ?? ''
-                validateField(field)
-              }"
+            <view
+              v-for="field in formSchema.fields"
+              :id="fieldDomId(field)"
+              :key="field.key || field.name"
+              class="field-wrap"
             >
-              <view class="field-picker" :class="{ error: formErrors[field.key || field.name], filled: formValues[field.key || field.name] }">
-                <text>{{ getSelectedLabel(field) }}</text>
-                <text class="picker-arrow">›</text>
+              <!-- 标签 -->
+              <view class="field-label">
+                <text>{{ field.label }}</text>
+                <text v-if="field.required" class="required-star">*</text>
               </view>
-            </picker>
 
-            <!-- file (simple URL input) -->
-            <view
-              v-else-if="field.type === 'file'"
-              class="field-file"
-            >
+              <!-- text / phone / number -->
               <input
+                v-if="field.type === 'text' || field.type === 'phone'"
                 v-model="formValues[field.key || field.name]"
+                :type="field.type === 'phone' ? 'number' : 'text'"
                 class="field-input"
-                style="height: auto; padding: 10px 14px;"
-                placeholder="请输入文件URL，或联系管家上传"
+                :class="{ error: formErrors[field.key || field.name] }"
+                :placeholder="field.placeholder || `请输入${field.label}`"
                 :adjust-position="false"
                 cursor-spacing="20"
-                @tap.stop
-                @click.stop
                 @focus="handleFieldFocus(field)"
                 @keyboardheightchange="handleKeyboardHeightChange"
-                @blur="handleFieldBlur(field)"
+                @blur="handleFieldBlur(field, validateField)"
               />
-            </view>
-
-            <!-- image (URL input) -->
-            <view
-              v-else-if="field.type === 'image'"
-              class="field-file"
-            >
               <input
+                v-else-if="field.type === 'number'"
                 v-model="formValues[field.key || field.name]"
+                type="digit"
                 class="field-input"
-                style="height: auto; padding: 10px 14px;"
-                placeholder="请输入图片URL，或联系管家上传"
+                :class="{ error: formErrors[field.key || field.name] }"
+                :placeholder="field.placeholder || `请输入${field.label}`"
                 :adjust-position="false"
                 cursor-spacing="20"
-                @tap.stop
-                @click.stop
                 @focus="handleFieldFocus(field)"
                 @keyboardheightchange="handleKeyboardHeightChange"
-                @blur="handleFieldBlur(field)"
+                @blur="handleFieldBlur(field, validateField)"
               />
-            </view>
 
-            <!-- 错误提示 -->
-            <text v-if="formErrors[field.key || field.name]" class="field-error">{{ formErrors[field.key || field.name] }}</text>
+              <!-- date -->
+              <input
+                v-else-if="field.type === 'date'"
+                v-model="formValues[field.key || field.name]"
+                class="field-input"
+                :class="{ error: formErrors[field.key || field.name] }"
+                placeholder="格式：2025-01-15"
+                :adjust-position="false"
+                cursor-spacing="20"
+                @focus="handleFieldFocus(field)"
+                @keyboardheightchange="handleKeyboardHeightChange"
+                @blur="handleFieldBlur(field, validateField)"
+              />
+
+              <!-- datetime -->
+              <input
+                v-else-if="field.type === 'datetime'"
+                v-model="formValues[field.key || field.name]"
+                class="field-input"
+                :class="{ error: formErrors[field.key || field.name] }"
+                placeholder="格式：2025-01-15 14:30"
+                :adjust-position="false"
+                cursor-spacing="20"
+                @focus="handleFieldFocus(field)"
+                @keyboardheightchange="handleKeyboardHeightChange"
+                @blur="handleFieldBlur(field, validateField)"
+              />
+
+              <!-- textarea -->
+              <textarea
+                v-else-if="field.type === 'textarea'"
+                v-model="formValues[field.key || field.name]"
+                class="field-textarea"
+                :class="{ error: formErrors[field.key || field.name] }"
+                :placeholder="field.placeholder || `请输入${field.label}`"
+                :auto-height="false"
+                :adjust-position="false"
+                cursor-spacing="20"
+                @focus="handleFieldFocus(field)"
+                @keyboardheightchange="handleKeyboardHeightChange"
+                @blur="handleFieldBlur(field, validateField)"
+              />
+
+              <!-- select -->
+              <picker
+                v-else-if="field.type === 'select'"
+                mode="selector"
+                :value="0"
+                :range="field.options || []"
+                :range-key="'label'"
+                @tap="hideKeyboard"
+                @click="hideKeyboard"
+                @change="(e) => {
+                  const selected = field.options[e.detail.value]
+                  formValues[field.key || field.name] = selected?.value ?? selected ?? ''
+                  validateField(field)
+                }"
+              >
+                <view class="field-picker" :class="{ error: formErrors[field.key || field.name], filled: formValues[field.key || field.name] }">
+                  <text>{{ getSelectedLabel(field) }}</text>
+                  <text class="picker-arrow">›</text>
+                </view>
+              </picker>
+
+              <!-- file (simple URL input) -->
+              <view
+                v-else-if="field.type === 'file'"
+                class="field-file"
+              >
+                <input
+                  v-model="formValues[field.key || field.name]"
+                  class="field-input"
+                  style="height: auto; padding: 10px 14px;"
+                  placeholder="请输入文件URL，或联系管家上传"
+                  :adjust-position="false"
+                  cursor-spacing="20"
+                  @focus="handleFieldFocus(field)"
+                  @keyboardheightchange="handleKeyboardHeightChange"
+                  @blur="handleFieldBlur(field, validateField)"
+                />
+              </view>
+
+              <!-- image (URL input) -->
+              <view
+                v-else-if="field.type === 'image'"
+                class="field-file"
+              >
+                <input
+                  v-model="formValues[field.key || field.name]"
+                  class="field-input"
+                  style="height: auto; padding: 10px 14px;"
+                  placeholder="请输入图片URL，或联系管家上传"
+                  :adjust-position="false"
+                  cursor-spacing="20"
+                  @focus="handleFieldFocus(field)"
+                  @keyboardheightchange="handleKeyboardHeightChange"
+                  @blur="handleFieldBlur(field, validateField)"
+                />
+              </view>
+
+              <!-- 错误提示 -->
+              <text v-if="formErrors[field.key || field.name]" class="field-error">{{ formErrors[field.key || field.name] }}</text>
+            </view>
           </view>
         </scroll-view>
 
         <!-- 提交按钮 -->
-        <view class="form-footer" @tap.stop @click.stop>
+        <view v-show="!isKeyboardVisible" class="form-footer" @tap.stop @click.stop>
           <button
             class="submit-btn"
             :disabled="submitting || !formSchema.fields.length"
@@ -838,11 +788,12 @@ const safeToast = (title, icon = 'info') => {
   display: flex;
   flex-direction: column;
   width: 100%;
+  height: 88vh;
   max-height: 88vh;
   border-radius: 28px 28px 0 0;
   background: #fff;
   box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.18);
-  transition: bottom 0.22s ease, max-height 0.22s ease;
+  transition: none;
   overflow: hidden;
 }
 
@@ -876,14 +827,19 @@ const safeToast = (title, icon = 'info') => {
 .form-body {
   flex: 1;
   min-height: 0;
-  padding: 16px 18px;
+  height: 0;
+  height: 0;
+  overflow: hidden;
 }
 
-/* 动态字段 */
-.field-wrap {
-  position: relative;
-  z-index: 1;
-  margin-bottom: 18px;
+.form-scroll-content {
+  box-sizing: border-box;
+  min-height: 100%;
+  padding: 16px 18px 24px;
+}
+
+.form-scroll-spacer {
+  height: 96px;
 }
 
 .empty-form {
@@ -928,7 +884,7 @@ const safeToast = (title, icon = 'info') => {
 .field-textarea {
   box-sizing: border-box;
   width: 100%;
-  min-height: 80px;
+  min-height: 88px;
   padding: 10px 14px;
   border: 1.5px solid rgba(0, 77, 64, 0.15);
   border-radius: 14px;
@@ -980,9 +936,12 @@ const safeToast = (title, icon = 'info') => {
 
 /* 提交按钮 */
 .form-footer {
+  position: relative;
+  z-index: 5;
   flex-shrink: 0;
   padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
   border-top: 1px solid rgba(0, 77, 64, 0.08);
+  background: #fff;
 }
 
 .submit-btn {
