@@ -1,5 +1,5 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, ref, watch, nextTick } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
 import { get, post } from '@/api/request'
@@ -18,6 +18,24 @@ const formValues = ref({})              // 用户填写的表单数据
 const formErrors = ref({})              // 字段级错误信息
 const showForm = ref(false)             // 是否展示下单表单弹窗
 const submitAction = ref(null)         // 当前提交动作信息
+const keyboardHeight = ref(0)
+const focusedFieldKey = ref('')
+
+const formSheetStyle = computed(() => {
+  const height = Number(keyboardHeight.value || 0)
+
+  if (height <= 0) {
+    return {
+      bottom: '0px',
+      maxHeight: '88vh',
+    }
+  }
+
+  return {
+    bottom: `${height}px`,
+    maxHeight: `calc(100vh - ${height}px - 16px)`,
+  }
+})
 
 // 调试日志：监控 showForm 变化
 watch(showForm, (val) => {
@@ -206,6 +224,41 @@ const validateAll = () => {
   return ok
 }
 
+const getFieldKey = (field) => field.key || field.name
+
+const handleFieldFocus = (field) => {
+  focusedFieldKey.value = getFieldKey(field)
+}
+
+const handleFieldBlur = (field) => {
+  const key = getFieldKey(field)
+  validateField(field)
+
+  if (focusedFieldKey.value === key) {
+    focusedFieldKey.value = ''
+  }
+
+  setTimeout(() => {
+    if (!focusedFieldKey.value) {
+      keyboardHeight.value = 0
+    }
+  }, 120)
+}
+
+const handleKeyboardHeightChange = (e) => {
+  const height = Number(e?.detail?.height || 0)
+  keyboardHeight.value = Math.max(0, height)
+}
+
+const hideKeyboardBeforePicker = () => {
+  focusedFieldKey.value = ''
+  keyboardHeight.value = 0
+
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  if (uniApi?.hideKeyboard) {
+    uniApi.hideKeyboard()
+  }
+}
 // getSelectedLabel 获取 select 字段的显示文本
 const getSelectedLabel = (field) => {
   const key = field.key || field.name
@@ -225,6 +278,13 @@ const openOrderForm = () => {
 const closeForm = () => {
   showForm.value = false
   formErrors.value = {}
+  focusedFieldKey.value = ''
+  keyboardHeight.value = 0
+
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  if (uniApi?.hideKeyboard) {
+    uniApi.hideKeyboard()
+  }
 }
 
 // submitOrder 提交订单。
@@ -359,6 +419,7 @@ const safeToast = (title, icon = 'info') => {
 
       <view
         class="form-sheet"
+        :style="formSheetStyle"
         @tap.stop
         @click.stop
       >
@@ -395,11 +456,13 @@ const safeToast = (title, icon = 'info') => {
               class="field-input"
               :class="{ error: formErrors[field.key || field.name] }"
               :placeholder="field.placeholder || `请输入${field.label}`"
-              :adjust-position="true"
-              cursor-spacing="80"
+              :adjust-position="false"
+              cursor-spacing="20"
               @tap.stop
               @click.stop
-              @blur="validateField(field)"
+              @focus="handleFieldFocus(field)"
+              @keyboardheightchange="handleKeyboardHeightChange"
+              @blur="handleFieldBlur(field)"
             />
             <input
               v-else-if="field.type === 'number'"
@@ -408,11 +471,13 @@ const safeToast = (title, icon = 'info') => {
               class="field-input"
               :class="{ error: formErrors[field.key || field.name] }"
               :placeholder="field.placeholder || `请输入${field.label}`"
-              :adjust-position="true"
-              cursor-spacing="80"
+              :adjust-position="false"
+              cursor-spacing="20"
               @tap.stop
               @click.stop
-              @blur="validateField(field)"
+              @focus="handleFieldFocus(field)"
+              @keyboardheightchange="handleKeyboardHeightChange"
+              @blur="handleFieldBlur(field)"
             />
 
             <!-- date -->
@@ -422,11 +487,13 @@ const safeToast = (title, icon = 'info') => {
               class="field-input"
               :class="{ error: formErrors[field.key || field.name] }"
               placeholder="格式：2025-01-15"
-              :adjust-position="true"
-              cursor-spacing="80"
+              :adjust-position="false"
+              cursor-spacing="20"
               @tap.stop
               @click.stop
-              @blur="validateField(field)"
+              @focus="handleFieldFocus(field)"
+              @keyboardheightchange="handleKeyboardHeightChange"
+              @blur="handleFieldBlur(field)"
             />
 
             <!-- datetime -->
@@ -436,11 +503,13 @@ const safeToast = (title, icon = 'info') => {
               class="field-input"
               :class="{ error: formErrors[field.key || field.name] }"
               placeholder="格式：2025-01-15 14:30"
-              :adjust-position="true"
-              cursor-spacing="80"
+              :adjust-position="false"
+              cursor-spacing="20"
               @tap.stop
               @click.stop
-              @blur="validateField(field)"
+              @focus="handleFieldFocus(field)"
+              @keyboardheightchange="handleKeyboardHeightChange"
+              @blur="handleFieldBlur(field)"
             />
 
             <!-- textarea -->
@@ -451,10 +520,13 @@ const safeToast = (title, icon = 'info') => {
               :class="{ error: formErrors[field.key || field.name] }"
               :placeholder="field.placeholder || `请输入${field.label}`"
               :auto-height="true"
-              cursor-spacing="80"
+              :adjust-position="false"
+              cursor-spacing="20"
               @tap.stop
               @click.stop
-              @blur="validateField(field)"
+              @focus="handleFieldFocus(field)"
+              @keyboardheightchange="handleKeyboardHeightChange"
+              @blur="handleFieldBlur(field)"
             />
 
             <!-- select -->
@@ -464,8 +536,8 @@ const safeToast = (title, icon = 'info') => {
               :value="0"
               :range="field.options || []"
               :range-key="'label'"
-              @tap.stop
-              @click.stop
+              @tap.stop="hideKeyboardBeforePicker"
+              @click.stop="hideKeyboardBeforePicker"
               @change="(e) => {
                 const selected = field.options[e.detail.value]
                 formValues[field.key || field.name] = selected?.value ?? selected ?? ''
@@ -488,10 +560,13 @@ const safeToast = (title, icon = 'info') => {
                 class="field-input"
                 style="height: auto; padding: 10px 14px;"
                 placeholder="请输入文件URL，或联系管家上传"
-                :adjust-position="true"
-                cursor-spacing="80"
+                :adjust-position="false"
+                cursor-spacing="20"
                 @tap.stop
                 @click.stop
+                @focus="handleFieldFocus(field)"
+                @keyboardheightchange="handleKeyboardHeightChange"
+                @blur="handleFieldBlur(field)"
               />
             </view>
 
@@ -505,10 +580,13 @@ const safeToast = (title, icon = 'info') => {
                 class="field-input"
                 style="height: auto; padding: 10px 14px;"
                 placeholder="请输入图片URL，或联系管家上传"
-                :adjust-position="true"
-                cursor-spacing="80"
+                :adjust-position="false"
+                cursor-spacing="20"
                 @tap.stop
                 @click.stop
+                @focus="handleFieldFocus(field)"
+                @keyboardheightchange="handleKeyboardHeightChange"
+                @blur="handleFieldBlur(field)"
               />
             </view>
 
@@ -740,6 +818,7 @@ const safeToast = (title, icon = 'info') => {
   position: fixed;
   inset: 0;
   z-index: 50;
+  overflow: hidden;
   background: transparent;
 }
 
@@ -763,6 +842,8 @@ const safeToast = (title, icon = 'info') => {
   border-radius: 28px 28px 0 0;
   background: #fff;
   box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.18);
+  transition: bottom 0.22s ease, max-height 0.22s ease;
+  overflow: hidden;
 }
 
 .form-header {
@@ -794,12 +875,14 @@ const safeToast = (title, icon = 'info') => {
 
 .form-body {
   flex: 1;
+  min-height: 0;
   padding: 16px 18px;
-  max-height: 60vh;
 }
 
 /* 动态字段 */
 .field-wrap {
+  position: relative;
+  z-index: 1;
   margin-bottom: 18px;
 }
 
@@ -812,6 +895,8 @@ const safeToast = (title, icon = 'info') => {
 }
 
 .field-label {
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   gap: 4px;
@@ -858,20 +943,11 @@ const safeToast = (title, icon = 'info') => {
 .field-textarea:focus { border-color: #004d40; }
 .field-textarea.error { border-color: #e53e3e; }
 
+.field-input,
+.field-textarea,
 .field-picker {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  box-sizing: border-box;
-  width: 100%;
-  height: 44px;
-  padding: 0 14px;
-  border: 1.5px solid rgba(0, 77, 64, 0.15);
-  border-radius: 14px;
-  background: #f8fbfa;
-  color: #9aa3b5;
-  font-size: 14px;
-  transition: border-color 0.2s;
+  position: relative;
+  z-index: 1;
 }
 
 .field-picker.filled { color: #102a55; }

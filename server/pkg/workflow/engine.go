@@ -599,7 +599,10 @@ func mergeJSONMap(old []byte, input map[string]interface{}, extra map[string]int
 }
 
 // validatePaymentQuoteFields 校验 send_quote 动作的支付类型和金额字段。
-// 支持 payment_type: full（全款）/ deposit（定金+尾款）。
+// 支持三种报价模式：
+// 1) 全款型：quote_amount / full_amount
+// 2) 定金尾款型：deposit_amount + final_amount
+// 3) 可选型：显式传 payment_type 后按用户选择校验
 func validatePaymentQuoteFields(actionName string, inputData map[string]interface{}) error {
 	if actionName != "send_quote" {
 		return nil
@@ -616,16 +619,31 @@ func validatePaymentQuoteFields(actionName string, inputData map[string]interfac
 	fullAmount := getNumberFromMap(inputData, "full_amount")
 	quoteAmount := getNumberFromMap(inputData, "quote_amount", "amount")
 
-	// 固定定金尾款服务：
-	// 租房/租车/个人需求不会传 payment_type，只传 deposit_amount + final_amount。
-	// 此时后端自动识别为 deposit。
+	// 1. 固定定金尾款型：
+	// 租房 / 租车 / 个人需求不会传 payment_type，只传 deposit_amount + final_amount。
 	if paymentType == "" && depositAmount > 0 && finalAmount > 0 {
 		inputData["payment_type"] = "deposit"
 		inputData["quote_amount"] = depositAmount + finalAmount
 		return nil
 	}
 
-	// 兼容部分旧表单：如果传了 quote_amount + deposit_amount + final_amount，也按 deposit 处理。
+	// 2. 固定全款型：
+	// 公司注册 / 签证旅游 / 接送出行不会传 payment_type，只传 quote_amount 或 full_amount。
+	if paymentType == "" && depositAmount <= 0 && finalAmount <= 0 {
+		if fullAmount <= 0 && quoteAmount > 0 {
+			fullAmount = quoteAmount
+		}
+
+		if fullAmount > 0 {
+			inputData["payment_type"] = "full"
+			inputData["full_amount"] = fullAmount
+			inputData["quote_amount"] = fullAmount
+			return nil
+		}
+	}
+
+	// 3. 兼容旧表单：
+	// 如果同时传了 quote_amount + deposit_amount + final_amount，仍然按 deposit 处理。
 	if paymentType == "" && quoteAmount > 0 && depositAmount > 0 && finalAmount > 0 {
 		inputData["payment_type"] = "deposit"
 		inputData["quote_amount"] = depositAmount + finalAmount
@@ -638,11 +656,8 @@ func validatePaymentQuoteFields(actionName string, inputData map[string]interfac
 
 	switch paymentType {
 	case "full":
-		if fullAmount <= 0 {
-			// 兼容旧字段 quote_amount
-			if quoteAmount > 0 {
-				fullAmount = quoteAmount
-			}
+		if fullAmount <= 0 && quoteAmount > 0 {
+			fullAmount = quoteAmount
 		}
 
 		if fullAmount <= 0 {
@@ -650,6 +665,7 @@ func validatePaymentQuoteFields(actionName string, inputData map[string]interfac
 		}
 
 		inputData["payment_type"] = "full"
+		inputData["full_amount"] = fullAmount
 		inputData["quote_amount"] = fullAmount
 
 	case "deposit":
