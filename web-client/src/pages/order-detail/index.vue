@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { onLoad } from '@dcloudio/uni-app'
+import { onLoad, onShow } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
 import { get, post, ORIGIN_URL } from '@/api/request'
 
@@ -11,6 +11,8 @@ const actions = ref([])
 const loading = ref(true)
 const actionsLoading = ref(false)
 const submitting = ref(false)
+const hasLoadedOnce = ref(false)
+const refreshing = ref(false)
 
 
 
@@ -529,25 +531,24 @@ const loadOrderDetail = async () => {
   }
 }
 
-const loadOrderActions = async () => {
-  if (!orderId.value) return
-  actionsLoading.value = true
-  try {
-    const res = await get(`/v1/client/orders/${orderId.value}/actions`)
-    const payload = unwrapResponse(res)
+const refreshOrderPage = async ({ showLoading = false } = {}) => {
+  if (!orderId.value || refreshing.value) return
 
-    actions.value =
-      payload.actions ||
-      payload.action_nodes ||
-      payload.actionNodes ||
-      []
-  } catch (error) {
-    console.warn('[order-detail] loadOrderActions failed:', error)
-    // 如果单独 actions 接口失败，不要直接清空；
-    // 订单详情里的 action_nodes 仍可作为兜底。
-    actions.value = order.value?.action_nodes || []
+  refreshing.value = true
+
+  if (showLoading) {
+    loading.value = true
+  }
+
+  try {
+    await Promise.all([
+      loadOrderDetail(),
+      loadOrderActions(),
+    ])
+
+    hasLoadedOnce.value = true
   } finally {
-    actionsLoading.value = false
+    refreshing.value = false
   }
 }
 
