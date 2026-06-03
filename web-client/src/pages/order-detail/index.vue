@@ -14,8 +14,6 @@ const submitting = ref(false)
 const hasLoadedOnce = ref(false)
 const refreshing = ref(false)
 
-
-
 // isLocalTempFile 判断是否是本地临时文件路径（不上传后端则不走此路径）
 const isLocalTempFile = (url) => {
   if (!url || typeof url !== 'string') return false
@@ -247,7 +245,6 @@ const getActionPayAmount = (action) => {
   }
   return Number(order.value?.total_amount || 0)
 }
-
 
 // 业务资料：保留 type/raw_value/display_value 以支持图片识别
 const formEntries = computed(() => {
@@ -531,6 +528,28 @@ async function loadOrderDetail() {
   }
 }
 
+async function loadOrderActions() {
+  if (!orderId.value) return
+
+  actionsLoading.value = true
+
+  try {
+    const res = await get(`/v1/client/orders/${orderId.value}/actions`)
+    const payload = unwrapResponse(res)
+
+    actions.value =
+      payload.actions ||
+      payload.action_nodes ||
+      payload.actionNodes ||
+      []
+  } catch (error) {
+    console.warn('[order-detail] loadOrderActions failed:', error)
+    actions.value = order.value?.action_nodes || []
+  } finally {
+    actionsLoading.value = false
+  }
+}
+
 async function refreshOrderPage({ showLoading = false } = {}) {
   if (!orderId.value || refreshing.value) return
 
@@ -596,7 +615,6 @@ async function openFormInput(action) {
     url: `/pages/dynamic-form/index?mode=order&order_id=${orderId.value}&action_name=${encodeURIComponent(action.action_name)}`,
   })
 }
-
 
 const executeWxPay = async (action) => {
   if (refreshing.value || actionsLoading.value || submitting.value) return
@@ -854,7 +872,7 @@ onShow(async () => {
             v-for="action in wxPayActions"
             :key="action.id"
             class="action-btn action-pay"
-            :disabled="submitting"
+            :disabled="refreshing || actionsLoading || submitting"
             @click="executeWxPay(action)"
           >
             {{ submitting ? '处理中...' : `${action.button_label || '立即支付'}${action.pay_amount_text ? ' ' + action.pay_amount_text : ''}` }}
@@ -1159,233 +1177,6 @@ onShow(async () => {
   color: #12312c;
   background: #c5a059;
 }
-
-/* 表单弹窗 */
-. {
-  position: fixed;
-  inset: 0;
-  z-index: 50;
-  display: flex;
-  align-items: flex-end;
-  background: rgba(0, 0, 0, 0.36);
-}
-
-. {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  max-height: 88vh;
-  border-radius: 28px 28px 0 0;
-  background: #fff;
-  box-shadow: 0 -18px 60px rgba(0, 0, 0, 0.18);
-}
-
-.form-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  flex-shrink: 0;
-  padding: 20px 20px 16px;
-  border-bottom: 1px solid rgba(0, 77, 64, 0.08);
-}
-
-.form-title {
-  color: #102a55;
-  font-size: 17px;
-  font-weight: 900;
-}
-
-.form-close {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border-radius: 50%;
-  background: #f2f6f5;
-  color: #6b7c78;
-  font-size: 14px;
-}
-
-. {
-  flex: 1;
-  padding: 16px 18px;
-  max-height: 60vh;
-}
-
-.field-wrap {
-  margin-bottom: 18px;
-}
-
-.field-label {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  margin-bottom: 8px;
-  color: #102a55;
-  font-size: 13px;
-  font-weight: 800;
-}
-
-.required { color: #e53e3e; }
-
-.field-input {
-  box-sizing: border-box;
-  width: 100%;
-  height: 44px;
-  padding: 0 14px;
-  border: 1.5px solid rgba(0, 77, 64, 0.15);
-  border-radius: 14px;
-  background: #f8fbfa;
-  color: #102a55;
-  font-size: 14px;
-}
-
-.field-textarea {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 80px;
-  padding: 10px 14px;
-  border: 1.5px solid rgba(0, 77, 64, 0.15);
-  border-radius: 14px;
-  background: #f8fbfa;
-  color: #102a55;
-  font-size: 14px;
-}
-
-.field-picker {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  box-sizing: border-box;
-  width: 100%;
-  height: 44px;
-  padding: 0 14px;
-  border: 1.5px solid rgba(0, 77, 64, 0.15);
-  border-radius: 14px;
-  background: #f8fbfa;
-  color: #9aa3b5;
-  font-size: 14px;
-}
-
-.image-field {
-  display: flex;
-  flex-direction: column;
-  height: auto;
-  padding: 8px 0;
-}
-
-.field-url-input {
-  width: 100%;
-  height: 36px;
-  padding: 0 10px;
-  border: 1px solid rgba(0, 77, 64, 0.2);
-  border-radius: 8px;
-  background: #f8fbfa;
-  font-size: 12px;
-}
-
-.placeholder-text {
-  color: #c0c4cc;
-  font-size: 12px;
-}
-
-.arrow {
-  color: #9aa3b5;
-  font-size: 18px;
-  font-weight: 700;
-}
-
-. {
-  flex-shrink: 0;
-  padding: 12px 18px calc(12px + env(safe-area-inset-bottom));
-  border-top: 1px solid rgba(0, 77, 64, 0.08);
-}
-
-.submit-btn {
-  width: 100%;
-  height: 46px;
-  border: none;
-  border-radius: 23px;
-  background: linear-gradient(135deg, #004d40, #00695c);
-  color: #fff;
-  font-size: 15px;
-  font-weight: 900;
-  line-height: 46px;
-}
-
-.audit-reject-card {
-  margin: 24rpx;
-  padding: 28rpx;
-  border-radius: 24rpx;
-  background: #fff5f5;
-  border: 1rpx solid #ffb4b4;
-}
-.audit-reject-title {
-  display: block;
-  color: #d93025;
-  font-size: 30rpx;
-  font-weight: 700;
-  margin-bottom: 12rpx;
-}
-.audit-reject-desc {
-  display: block;
-  color: #9f1c1c;
-  font-size: 26rpx;
-  line-height: 1.6;
-  word-break: break-all;
-}
-
-.audit-status {
-  display: inline-flex;
-  margin-top: 6px;
-  padding: 4px 8px;
-  border-radius: 999px;
-  font-size: 11px;
-  font-weight: 800;
-}
-.audit-status.pending { background: #fff7e6; color: #ad6800; }
-.audit-status.approved { background: #f6ffed; color: #389e0d; }
-.audit-status.rejected {
-  background: #fff0f0;
-  color: #d93025;
-  border: 1rpx solid #ffb4b4;
-}
-.audit-reason,
-.timeline-failed-reason {
-  display: block;
-  margin-top: 8rpx;
-  color: #d93025;
-  font-size: 24rpx;
-  line-height: 1.5;
-  font-weight: 600;
-}
-
-.upload-field { margin-top: 8rpx; }
-
-.upload-box {
-  position: relative;
-  width: 180rpx;
-  height: 180rpx;
-  border-radius: 20rpx;
-  border: 2rpx dashed #d8e8e3;
-  background: #f8fbfa;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  overflow: hidden;
-}
-.upload-preview { width: 100%; height: 100%; }
-.upload-placeholder { display: flex; flex-direction: column; align-items: center; justify-content: center; }
-.upload-plus { font-size: 48rpx; line-height: 1; color: #0b6b55; font-weight: 800; }
-.upload-text { margin-top: 8rpx; color: #7d918c; font-size: 24rpx; }
-.upload-change { display: block; margin-top: 8rpx; color: #0b6b55; font-size: 24rpx; }
-.upload-mask {
-  position: absolute; inset: 0;
-  background: rgba(0,0,0,0.4);
-  display: flex; align-items: center; justify-content: center;
-}
-.upload-loading { color: #fff; font-size: 24rpx; }
 
 /* 办理失败红色提示 */
 .process-failed-alert {
