@@ -78,6 +78,7 @@ const routes = [
         name: 'OrderDetail',
         component: () => import('@/views/admin/order/detail.vue'),
         props: true,
+        meta: { activeMenu: '/orders' },
       },
     ],
   },

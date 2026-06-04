@@ -25,19 +25,18 @@ const toggleSidebar = () => {
 // 路由跳转（替代原来的 selectPanel）
 // router base 是 /admin/，内部路径不带 /admin 前缀。
 const navigateTo = async (path) => {
-  // 如果已经是当前页面，直接返回
+  if (!path) return
   if (route.path === path) return
 
   try {
+    console.log('[admin-menu] navigate:', route.path, '=>', path)
     await router.push(path)
-    // 系统管理子菜单自动展开
     if (path.startsWith('/system')) {
       isSystemOpen.value = true
     }
   } catch (err) {
-    if (err.name !== 'NavigationDuplicated') {
-      ElMessage.error('页面切换失败，请刷新重试')
-    }
+    console.error('[admin-menu] route push failed:', path, err)
+    ElMessage.error(err?.message || '页面切换失败，请刷新重试')
   }
 }
 

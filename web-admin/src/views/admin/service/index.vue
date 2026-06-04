@@ -6,6 +6,7 @@ import { getDictHelp, getDictMeta } from '@/utils/workflowDictMeta'
 
 const loading = ref(true)
 const services = ref([])
+const categoryDictOptions = ref([])
 const actionTypeDictOptions = ref([])
 const executorRoleDictOptions = ref([])
 const workflowActionDictOptions = ref([])
