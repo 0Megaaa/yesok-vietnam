@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { get } from '@/api/request'
+import { get, ORIGIN_URL } from '@/api/request'
 import AuthPopup from '@/components/AuthPopup.vue'
 import { useClientStore } from '@/store/client'
 import { useGlobalShare } from '@/composables/useGlobalShare'
@@ -49,6 +49,12 @@ const formatServicePrice = (item) => {
   return `¥${amount.toLocaleString('zh-CN')}`
 }
 
+const toFullUrl = (url) => {
+  if (!url) return '/static/img.png'
+  if (/^https?:\/\//.test(url)) return url
+  return `${ORIGIN_URL}${url.startsWith('/') ? '' : '/'}${url}`
+}
+
 const normalizeService = (item) => {
   return {
     ...item,
@@ -63,7 +69,7 @@ const normalizeService = (item) => {
 
 const normalizeArticle = (item) => ({
   ...item,
-  cover_img: item.cover_img || bannerImage.value,
+  cover_img: toFullUrl(item.cover_img || '/static/img.png'),
   category: item.category || 'guide',
   author: item.author || 'Yesok Vietnam',
   summary: item.summary || item.content || 'Yesok Vietnam 管家精选资讯',
@@ -102,6 +108,15 @@ const openServiceDetail = (service) => {
 const openNewsList = () => {
   const uniApi = typeof uni !== 'undefined' ? uni : null
   if (uniApi?.switchTab) uniApi.switchTab({ url: '/pages/news/index' })
+}
+
+const openArticleDetail = (article) => {
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  if (uniApi?.navigateTo) {
+    uniApi.navigateTo({
+      url: `/subpkg/article-detail/index?id=${encodeURIComponent(article.id)}`,
+    })
+  }
 }
 
 onMounted(() => {
@@ -163,7 +178,12 @@ onMounted(() => {
       </view>
       <view v-if="loading" class="empty">正在同步后台资讯...</view>
       <view v-else-if="featuredArticles.length === 0" class="empty">暂无相关资讯</view>
-      <view v-for="article in featuredArticles" :key="article.id" class="news-card" @click="openNewsList">
+      <view
+        v-for="article in featuredArticles"
+        :key="article.id"
+        class="news-card"
+        @click="openArticleDetail(article)"
+      >
         <image class="news-cover" :src="article.cover_img" mode="aspectFill" />
         <view class="news-body">
           <text class="news-tag">{{ article.category }}</text>

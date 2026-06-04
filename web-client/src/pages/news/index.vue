@@ -1,6 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
-import { get } from '@/api/request'
+import { get, ORIGIN_URL } from '@/api/request'
 import { useGlobalShare } from '@/composables/useGlobalShare'
 
 const loading = ref(true)
@@ -35,13 +35,19 @@ const showSafeToast = (title) => {
   console.info('[Yesok News]', title)
 }
 
+const toFullUrl = (url) => {
+  if (!url) return '/static/img.png'
+  if (/^https?:\/\//.test(url)) return url
+  return `${ORIGIN_URL}${url.startsWith('/') ? '' : '/'}${url}`
+}
+
 // normalizeArticle 规范化资讯字段。
 // 1.意图 -> 将接口返回的 sys_articles 字段转换为资讯卡片结构。
 // 2.步骤 -> 补齐封面、作者、分类和摘要字段。
 // 3.返回 -> 标准资讯对象。
 const normalizeArticle = (item) => ({
   ...item,
-  cover_img: item.cover_img || '/static/img.png',
+  cover_img: toFullUrl(item.cover_img || '/static/img.png'),
   author: item.author || 'Yesok Vietnam',
   category: item.category || 'guide',
   summary: item.summary || item.content || 'Yesok Vietnam 管家精选资讯',
@@ -71,6 +77,15 @@ const switchCategory = (value) => {
   activeCategory.value = value
 }
 
+const openArticleDetail = (article) => {
+  const uniApi = typeof uni !== 'undefined' ? uni : null
+  if (uniApi?.navigateTo) {
+    uniApi.navigateTo({
+      url: `/subpkg/article-detail/index?id=${encodeURIComponent(article.id)}`,
+    })
+  }
+}
+
 onMounted(loadArticles)
 </script>
 
@@ -95,7 +110,12 @@ onMounted(loadArticles)
     <view v-if="loading" class="empty-card">正在读取后台资讯...</view>
     <view v-else-if="visibleArticles.length === 0" class="empty-card">暂无该分类资讯</view>
     <view v-else class="article-list">
-      <view v-for="article in visibleArticles" :key="article.id" class="article-card">
+      <view
+      v-for="article in visibleArticles"
+      :key="article.id"
+      class="article-card"
+      @click="openArticleDetail(article)"
+    >
         <image class="article-cover" :src="article.cover_img" mode="aspectFill" />
         <view class="article-body">
           <view class="meta-row">

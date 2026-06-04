@@ -35,3 +35,25 @@ func ClientListArticles(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"list": articles})
 	}
 }
+
+// ClientGetArticle 返回 C 端资讯详情，并增加浏览次数。
+func ClientGetArticle(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil || id == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid article id"})
+			return
+		}
+
+		var article models.SysArticle
+		if err := db.Where("id = ? AND status = ?", id, 1).First(&article).Error; err != nil {
+			c.JSON(http.StatusNotFound, gin.H{"error": "article not found"})
+			return
+		}
+
+		_ = db.Model(&article).UpdateColumn("view_count", gorm.Expr("view_count + ?", 1)).Error
+		article.ViewCount++
+
+		c.JSON(http.StatusOK, gin.H{"article": article})
+	}
+}

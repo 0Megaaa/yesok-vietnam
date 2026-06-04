@@ -8,7 +8,7 @@ type SysArticle struct {
 	Title     string    `gorm:"size:160;not null;comment:'文章标题'" json:"title"`
 	CoverImg  string    `gorm:"size:255;comment:'封面图片地址'" json:"cover_img"`
 	Summary   string    `gorm:"size:300;comment:'摘要'" json:"summary"`
-	Content   string    `gorm:"type:text;comment:'正文内容'" json:"content"`
+	Content   string    `gorm:"type:longtext;comment:'正文内容，支持富文本 HTML'" json:"content"`
 	Category  string    `gorm:"size:80;index;comment:'资讯分类'" json:"category"`
 	Author    string    `gorm:"size:80;comment:'作者'" json:"author"`
 	Status    int       `gorm:"comment:'状态：1发布 0草稿'" json:"status"`

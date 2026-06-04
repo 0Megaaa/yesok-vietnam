@@ -116,6 +116,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		publicGroup.GET("/client/services/:id", handlers.ClientGetService(db))
 		publicGroup.GET("/client/services/:id/init-form", handlers.ClientGetServiceInitForm(db))
 		publicGroup.GET("/client/articles", handlers.ClientListArticles(db))
+		publicGroup.GET("/client/articles/:id", handlers.ClientGetArticle(db))
 		publicGroup.POST("/client/auth/tg", handlers.AuthTG(db))
 		publicGroup.POST("/client/auth/wechat", handlers.ClientWechatLogin(db))
 	}
