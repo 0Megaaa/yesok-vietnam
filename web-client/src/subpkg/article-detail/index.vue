@@ -19,6 +19,12 @@ const showSafeToast = (title) => {
 const toFullUrl = (url) => {
   if (!url) return '/static/img.png'
   if (/^https?:\/\//.test(url)) return url
+
+  // 小程序本地静态资源必须保持本地路径，不能拼 ORIGIN_URL
+  if (url.startsWith('/static/') || url.startsWith('static/')) {
+    return url.startsWith('/') ? url : `/${url}`
+  }
+
   return `${ORIGIN_URL}${url.startsWith('/') ? '' : '/'}${url}`
 }
 
