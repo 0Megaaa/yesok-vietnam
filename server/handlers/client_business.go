@@ -516,6 +516,9 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 			"action_name_text":    actionNameText,
 			"button_label":        buttonLabel,
 			"action_type":         n.ActionType,
+			"action_type_text":    dictLabel(db, "action_type", n.ActionType),
+			"executor_role":       n.ExecutorRole,
+			"executor_role_text":  dictLabel(db, "executor_role", n.ExecutorRole),
 			"form_fields":         n.FormFields,
 			"target_status":       n.TargetStatus,
 			"target_status_text":  targetStatusText,
@@ -525,11 +528,13 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 			"notify_type_text":    notifyText,
 			"need_audit":          n.NeedAudit,
 			"audit_reject_status": n.AuditRejectStatus,
+			"is_audit_action":     isAuditActionName(n.ActionName),
 			"sort_order":          n.SortOrder,
 			"stage_code":          n.StageCode,
 			"stage_name":          n.StageName,
 			"pay_amount":          payAmount,
 			"pay_amount_text":     payAmountText,
+			"ui_behavior":         buildWorkflowUIBehavior(n),
 		})
 	}
 
@@ -744,6 +749,9 @@ func GetClientOrderActions(db *gorm.DB) gin.HandlerFunc {
 				"action_name_text":   actionNameText,
 				"button_label":       buttonLabel,
 				"action_type":        n.ActionType,
+				"action_type_text":   dictLabel(db, "action_type", n.ActionType),
+				"executor_role":      n.ExecutorRole,
+				"executor_role_text": dictLabel(db, "executor_role", n.ExecutorRole),
 				"form_fields":        n.FormFields,
 				"target_status":      n.TargetStatus,
 				"target_status_text": targetStatusText,
@@ -752,11 +760,13 @@ func GetClientOrderActions(db *gorm.DB) gin.HandlerFunc {
 				"notify_type":        n.NotifyType,
 				"notify_type_text":   notifyText,
 				"need_audit":         n.NeedAudit,
+				"is_audit_action":    isAuditActionName(n.ActionName),
 				"sort_order":         n.SortOrder,
 				"stage_code":         n.StageCode,
 				"stage_name":         n.StageName,
 				"pay_amount":         payAmount,
 				"pay_amount_text":    payAmountText,
+				"ui_behavior":        buildWorkflowUIBehavior(n),
 			})
 		}
 

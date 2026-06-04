@@ -2,7 +2,8 @@
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
-import { groupWorkflowActions, getActionVariant } from '@/utils/workflowAction'
+import { get, post, ORIGIN_URL } from '@/api/request'
+import { groupWorkflowActions, getActionVariant, getActionRenderer } from '@/utils/workflowAction'
 
 const client = useClientStore()
 const orderId = ref('')
@@ -491,6 +492,7 @@ const timelineAuditRejectReason = (item) => {
   )
 }
 
+const actionGroups = computed(() => groupWorkflowActions(actions.value || []))
 const buttonClickActions = computed(() => actionGroups.value.button)
 const formInputActions = computed(() => actionGroups.value.dynamicForm)
 const wxPayActions = computed(() => actionGroups.value.payment)
@@ -602,7 +604,9 @@ async function openFormInput(action) {
   await loadOrderActions()
 
   const stillExists = actions.value.some(
-    (item) => item.action_name === action.action_name && item.action_type === 'form_input'
+    (item) =>
+      item.action_name === action.action_name &&
+      getActionRenderer(item) === 'dynamic_form'
   )
 
   if (!stillExists) {
@@ -712,7 +716,18 @@ onShow(async () => {
     return
   }
 
-  await refreshOrderPage({ showLoading: !hasLoadedOnce.value })
+  const marker = uni.getStorageSync('yesok_order_detail_need_refresh')
+  const needRefresh =
+    marker &&
+    String(marker.order_id || '') === String(orderId.value)
+
+  if (needRefresh) {
+    uni.removeStorageSync('yesok_order_detail_need_refresh')
+  }
+
+  await refreshOrderPage({
+    showLoading: !hasLoadedOnce.value || needRefresh,
+  })
 })
 </script>
 
@@ -852,6 +867,7 @@ onShow(async () => {
             v-for="action in buttonClickActions"
             :key="action.id"
             class="action-btn"
+            :class="`action-${getActionVariant(action)}`"
             :disabled="refreshing || actionsLoading || submitting"
             @click="executeButtonClick(action)"
           >
@@ -862,6 +878,7 @@ onShow(async () => {
             v-for="action in formInputActions"
             :key="action.id"
             class="action-btn action-material"
+            :class="`action-${getActionVariant(action)}`"
             :disabled="refreshing || actionsLoading || submitting"
             @click="openFormInput(action)"
           >
@@ -872,6 +889,7 @@ onShow(async () => {
             v-for="action in wxPayActions"
             :key="action.id"
             class="action-btn action-pay"
+            :class="`action-${getActionVariant(action)}`"
             :disabled="refreshing || actionsLoading || submitting"
             @click="executeWxPay(action)"
           >

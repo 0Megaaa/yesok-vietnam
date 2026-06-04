@@ -332,6 +332,11 @@ const submitOrderAction = async () => {
 
   uni.showToast({ title: '操作成功', icon: 'success' })
 
+  uni.setStorageSync('yesok_order_detail_need_refresh', {
+    order_id: orderId.value,
+    ts: Date.now(),
+  })
+
   setTimeout(() => {
     uni.navigateBack()
   }, 600)
