@@ -3,10 +3,17 @@
     { "path": "pages/home/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/news/index", "style": { "navigationStyle": "custom" } },
     { "path": "pages/services/index", "style": { "navigationStyle": "custom" } },
-    { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } },
-    { "path": "pages/service-detail/index", "style": { "navigationBarTitleText": "服务详情" } },
-    { "path": "pages/order-detail/index", "style": { "navigationBarTitleText": "订单详情" } },
-    { "path": "pages/dynamic-form/index", "style": { "navigationBarTitleText": "填写信息" } }
+    { "path": "pages/profile/index", "style": { "navigationStyle": "custom" } }
+  ],
+  "subPackages": [
+    {
+      "root": "subpkg",
+      "pages": [
+        { "path": "service-detail/index", "style": { "navigationBarTitleText": "服务详情" } },
+        { "path": "order-detail/index", "style": { "navigationBarTitleText": "订单详情" } },
+        { "path": "dynamic-form/index", "style": { "navigationBarTitleText": "填写信息" } }
+      ]
+    }
   ],
   "globalStyle": {
     "navigationBarTextStyle": "white",

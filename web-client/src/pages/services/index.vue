@@ -51,7 +51,7 @@ const consultService = (service) => {
   const uniApi = typeof uni !== 'undefined' ? uni : null
   if (uniApi?.navigateTo) {
     uniApi.navigateTo({
-      url: `/pages/service-detail/index?id=${encodeURIComponent(service.id)}&code=${encodeURIComponent(service.service_code || '')}`
+      url: `/subpkg/service-detail/index?id=${encodeURIComponent(service.id)}&code=${encodeURIComponent(service.service_code || '')}`
     })
   }
 }

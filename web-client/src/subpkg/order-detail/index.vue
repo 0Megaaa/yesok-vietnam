@@ -616,7 +616,7 @@ async function openFormInput(action) {
   }
 
   uni.navigateTo({
-    url: `/pages/dynamic-form/index?mode=order&order_id=${orderId.value}&action_name=${encodeURIComponent(action.action_name)}`,
+    url: `/subpkg/dynamic-form/index?mode=order&order_id=${orderId.value}&action_name=${encodeURIComponent(action.action_name)}`,
   })
 }
 

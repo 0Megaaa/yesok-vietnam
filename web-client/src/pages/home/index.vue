@@ -94,7 +94,7 @@ const goPage = (page) => {
 }
 
 const openServiceDetail = (service) => {
-  const url = `/pages/service-detail/index?id=${encodeURIComponent(service.id)}&code=${encodeURIComponent(service.service_code || '')}`
+  const url = `/subpkg/service-detail/index?id=${encodeURIComponent(service.id)}&code=${encodeURIComponent(service.service_code || '')}`
   const uniApi = typeof uni !== 'undefined' ? uni : null
   if (uniApi?.navigateTo) uniApi.navigateTo({ url })
 }

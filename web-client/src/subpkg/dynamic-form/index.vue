@@ -317,7 +317,7 @@ const submitServiceOrder = async () => {
   uni.showToast({ title: '订单已提交', icon: 'success' })
 
   setTimeout(() => {
-    uni.redirectTo({ url: `/pages/order-detail/index?id=${newOrderId}` })
+      uni.redirectTo({ url: `/subpkg/order-detail/index?id=${newOrderId}` })
   }, 800)
 }
 

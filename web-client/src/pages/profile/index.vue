@@ -113,7 +113,7 @@ const switchOrderTab = async (tabKey) => {
 const goOrderDetail = (order) => {
   const uniApi = typeof uni !== 'undefined' ? uni : null
   if (uniApi?.navigateTo) {
-    uniApi.navigateTo({ url: `/pages/order-detail/index?id=${order.id}` })
+    uniApi.navigateTo({ url: `/subpkg/order-detail/index?id=${order.id}` })
   }
 }
 

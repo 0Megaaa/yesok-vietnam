@@ -97,7 +97,7 @@ const openOrderForm = () => {
   }
 
   uni.navigateTo({
-    url: `/pages/dynamic-form/index?mode=service&service_id=${id}`,
+    url: `/subpkg/dynamic-form/index?mode=service&service_id=${id}`,
   })
 }
 
