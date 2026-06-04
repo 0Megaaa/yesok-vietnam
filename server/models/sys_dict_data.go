@@ -11,6 +11,7 @@ type SysDictData struct {
 	SortOrder int       `gorm:"default:0;comment:'排序值'" json:"sort_order"`
 	Status    int       `gorm:"comment:'状态：1启用 0禁用'" json:"status"`
 	Remark    string    `gorm:"size:255;comment:'备注说明'" json:"remark"`
+	MetaJSON  JSONText  `gorm:"column:meta_json;type:json;comment:'字典扩展元数据'" json:"meta_json"`
 	CreatedAt time.Time `gorm:"comment:'创建时间'" json:"created_at"`
 	UpdatedAt time.Time `gorm:"comment:'更新时间'" json:"updated_at"`
 }

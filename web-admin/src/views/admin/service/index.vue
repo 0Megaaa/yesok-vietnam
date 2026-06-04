@@ -2,10 +2,16 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import request from '@/api/request'
+import { getDictHelp, getDictMeta } from '@/utils/workflowDictMeta'
 
 const loading = ref(true)
 const services = ref([])
-const categoryDictOptions = ref([])
+const actionTypeDictOptions = ref([])
+const executorRoleDictOptions = ref([])
+const workflowActionDictOptions = ref([])
+const macroStatusDictOptions = ref([])
+const notifyTypeDictOptions = ref([])
+const nodeStageDictOptions = ref([])
 
 const commonEmojis = ['🌴', '🎫', '🏦', '🏠', '✈️', '🚗', '📄', '💼', '🩺', '🎓', '🍜', '🌟']
 

@@ -98,16 +98,20 @@ func ClientGetServiceInitForm(db *gorm.DB) gin.HandlerFunc {
 
 		if found && len(startNode.FormFields) > 0 {
 			c.JSON(http.StatusOK, gin.H{
-				"service_id":    service.ID,
-				"service_name":  service.ServiceName,
-				"action_name":   startNode.ActionName,
-				"button_label":  startNode.ButtonLabel,
-				"action_type":   startNode.ActionType,
-				"form_fields":   startNode.FormFields,
-				"target_status": startNode.TargetStatus,
-				"macro_status":  startNode.MacroStatus,
-				"notify_type":   startNode.NotifyType,
-				"source":        "workflow_node",
+				"service_id":         service.ID,
+				"service_name":       service.ServiceName,
+				"action_name":        startNode.ActionName,
+				"button_label":       startNode.ButtonLabel,
+				"action_type":        startNode.ActionType,
+				"action_type_text":   dictLabel(db, "action_type", startNode.ActionType),
+				"executor_role":      startNode.ExecutorRole,
+				"executor_role_text": dictLabel(db, "executor_role", startNode.ExecutorRole),
+				"form_fields":        startNode.FormFields,
+				"target_status":      startNode.TargetStatus,
+				"macro_status":       startNode.MacroStatus,
+				"notify_type":        startNode.NotifyType,
+				"ui_behavior":        buildWorkflowUIBehavior(startNode),
+				"source":             "workflow_node",
 			})
 			return
 		}

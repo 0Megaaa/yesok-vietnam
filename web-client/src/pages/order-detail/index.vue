@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { onLoad, onShow } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
-import { get, post, ORIGIN_URL } from '@/api/request'
+import { groupWorkflowActions, getActionVariant } from '@/utils/workflowAction'
 
 const client = useClientStore()
 const orderId = ref('')
@@ -491,9 +491,9 @@ const timelineAuditRejectReason = (item) => {
   )
 }
 
-const buttonClickActions = computed(() => actions.value.filter(a => a.action_type === 'button_click'))
-const formInputActions = computed(() => actions.value.filter(a => a.action_type === 'form_input'))
-const wxPayActions = computed(() => actions.value.filter(a => a.action_type === 'wx_pay'))
+const buttonClickActions = computed(() => actionGroups.value.button)
+const formInputActions = computed(() => actionGroups.value.dynamicForm)
+const wxPayActions = computed(() => actionGroups.value.payment)
 
 const safeToast = (title, icon = 'info') => {
   const uniApi = typeof uni !== 'undefined' ? uni : null

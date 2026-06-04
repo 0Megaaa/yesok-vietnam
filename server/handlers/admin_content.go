@@ -22,12 +22,13 @@ type SaveDictTypeRequest struct {
 }
 
 type SaveDictDataRequest struct {
-	DictCode  string `json:"dict_code"`
-	DictLabel string `json:"dict_label"`
-	DictValue string `json:"dict_value"`
-	SortOrder int    `json:"sort_order"`
-	Status    int    `json:"status"`
-	Remark    string `json:"remark"`
+	DictCode  string          `json:"dict_code"`
+	DictLabel string          `json:"dict_label"`
+	DictValue string          `json:"dict_value"`
+	SortOrder int             `json:"sort_order"`
+	Status    int             `json:"status"`
+	Remark    string          `json:"remark"`
+	MetaJSON  models.JSONText `json:"meta_json"`
 }
 
 type SaveArticleRequest struct {
@@ -246,7 +247,7 @@ func AdminUpdateDictData(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 			return
 		}
-		updates := map[string]interface{}{"dict_code": strings.TrimSpace(req.DictCode), "dict_label": strings.TrimSpace(req.DictLabel), "dict_value": strings.TrimSpace(req.DictValue), "sort_order": req.SortOrder, "status": req.Status, "remark": req.Remark}
+		updates := map[string]interface{}{"dict_code": strings.TrimSpace(req.DictCode), "dict_label": strings.TrimSpace(req.DictLabel), "dict_value": strings.TrimSpace(req.DictValue), "sort_order": req.SortOrder, "status": req.Status, "remark": req.Remark, "meta_json": req.MetaJSON}
 		if err := db.Model(&item).Updates(updates).Error; err != nil {
 
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update dict data"})
@@ -368,7 +369,7 @@ func AdminDeleteArticle(db *gorm.DB) gin.HandlerFunc {
 // 2.步骤 -> 裁剪关键字符串并保留显式启停状态。
 // 3.返回 -> 可直接 Create 或 Updates 的 SysDictData。
 func dictDataFromRequest(req SaveDictDataRequest) models.SysDictData {
-	return models.SysDictData{DictCode: strings.TrimSpace(req.DictCode), DictLabel: strings.TrimSpace(req.DictLabel), DictValue: strings.TrimSpace(req.DictValue), SortOrder: req.SortOrder, Status: req.Status, Remark: req.Remark}
+	return models.SysDictData{DictCode: strings.TrimSpace(req.DictCode), DictLabel: strings.TrimSpace(req.DictLabel), DictValue: strings.TrimSpace(req.DictValue), SortOrder: req.SortOrder, Status: req.Status, Remark: req.Remark, MetaJSON: req.MetaJSON}
 }
 
 // articleFromRequest 将资讯请求转换为模型。

@@ -253,13 +253,16 @@ func AdminGetOrderActions(db *gorm.DB) gin.HandlerFunc {
 			if notifyText == "" {
 				notifyText = n.NotifyType
 			}
-			isAuditAction := n.ActionName == "audit_approve" || n.ActionName == "audit_reject"
+			isAuditAction := isAuditActionName(n.ActionName)
 			actions = append(actions, gin.H{
 				"id":                  n.ID,
 				"action_name":         n.ActionName,
 				"action_name_text":    actionNameText,
 				"button_label":        n.ButtonLabel,
 				"action_type":         n.ActionType,
+				"action_type_text":    dictLabel(db, "action_type", n.ActionType),
+				"executor_role":       n.ExecutorRole,
+				"executor_role_text":  dictLabel(db, "executor_role", n.ExecutorRole),
 				"form_fields":         n.FormFields,
 				"target_status":       n.TargetStatus,
 				"target_status_text":  targetStatusText,
@@ -273,6 +276,7 @@ func AdminGetOrderActions(db *gorm.DB) gin.HandlerFunc {
 				"sort_order":          n.SortOrder,
 				"stage_code":          n.StageCode,
 				"stage_name":          n.StageName,
+				"ui_behavior":         buildWorkflowUIBehavior(n),
 			})
 		}
 
