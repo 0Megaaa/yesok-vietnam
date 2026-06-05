@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import request from '@/api/request'
+import request, { BASE_URL, ORIGIN_URL } from '@/api/request'
 
 const loading = ref(true)
 const saving = ref(false)
@@ -42,6 +42,8 @@ const showToast = (title, type = 'info') => {
 const getAdminToken = () =>
   typeof localStorage !== 'undefined' ? localStorage.getItem('admin_token') || '' : ''
 
+const uploadApiUrl = `${String(BASE_URL || '').replace(/\/+$/, '')}/v1/admin/upload`
+
 const articleCategories = computed(() =>
   dictData.value.filter((item) => item.dict_code === 'article_category' && Number(item.status) === 1)
 )
@@ -51,13 +53,27 @@ const categoryOptions = computed(() => [
   ...articleCategories.value,
 ])
 
+const stripHtml = (html = '') =>
+  String(html || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const articleExcerpt = (article) => {
+  const text = stripHtml(article.content || article.summary || '')
+  return text ? `${text.slice(0, 90)}${text.length > 90 ? '...' : ''}` : '暂无正文'
+}
+
 const filteredArticles = computed(() => {
   const keyword = filters.value.keyword.trim().toLowerCase()
 
   return articles.value.filter((item) => {
     const matchKeyword =
       !keyword ||
-      `${item.title || ''}${item.summary || ''}${item.content || ''}${item.author || ''}`
+      `${item.title || ''}${item.content || ''}${item.author || ''}${item.category || ''}${
+        item.summary || ''
+      }`
         .toLowerCase()
         .includes(keyword)
 
@@ -81,7 +97,22 @@ const statusText = (status) => (Number(status) === 1 ? '已发布' : '草稿')
 const resolveImageUrl = (url) => {
   if (!url) return '/static/img.png'
   if (/^https?:\/\//.test(url)) return url
-  return url
+
+  if (url.startsWith('/static/') || url.startsWith('static/')) {
+    return url.startsWith('/') ? url : `/${url}`
+  }
+
+  if (url.startsWith('/uploads/') || url.startsWith('uploads/')) {
+    const path = url.startsWith('/') ? url : `/${url}`
+    return `${ORIGIN_URL}${path}`
+  }
+
+  if (url.startsWith('/material/') || url.startsWith('material/')) {
+    const path = url.startsWith('/') ? url : `/${url}`
+    return `${ORIGIN_URL}${path}`
+  }
+
+  return url.startsWith('/') ? `${ORIGIN_URL}${url}` : `${ORIGIN_URL}/${url}`
 }
 
 const loadArticles = async () => {
@@ -124,6 +155,7 @@ const openEditDialog = (item) => {
     ...item,
     cover_img: item.cover_img || '/static/img.png',
     content: item.content || '',
+    summary: item.summary || '',
   }
   dialogVisible.value = true
 }
@@ -133,17 +165,17 @@ const closeDialog = () => {
 }
 
 const validateArticle = () => {
-  if (!articleForm.value.title.trim()) {
+  if (!String(articleForm.value.category || '').trim()) {
+    showToast('请选择资讯分类', 'warning')
+    return false
+  }
+
+  if (!String(articleForm.value.title || '').trim()) {
     showToast('请输入资讯标题', 'warning')
     return false
   }
 
-  if (!articleForm.value.summary.trim()) {
-    showToast('请输入资讯摘要', 'warning')
-    return false
-  }
-
-  if (!articleForm.value.content.trim()) {
+  if (!String(articleForm.value.content || '').trim()) {
     showToast('请输入资讯正文', 'warning')
     return false
   }
@@ -160,6 +192,8 @@ const saveArticle = async () => {
       ...articleForm.value,
       title: articleForm.value.title.trim(),
       cover_img: articleForm.value.cover_img || '/static/img.png',
+      summary: '',
+      content: articleForm.value.content.trim(),
       category: articleForm.value.category || 'guide',
       author: articleForm.value.author || 'Yesok Vietnam',
       sort_order: Number(articleForm.value.sort_order || 0),
@@ -212,7 +246,7 @@ const uploadArticleCover = async (options) => {
     const formData = new FormData()
     formData.append('file', file)
 
-    const res = await fetch('/api/v1/admin/upload', {
+    const res = await fetch(uploadApiUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${getAdminToken()}` },
       body: formData,
@@ -249,6 +283,13 @@ const insertRichTag = (tag) => {
   articleForm.value.content = `${current}\n${map[tag] || ''}`.trim()
 }
 
+const buildArticleImageHtml = (url) => {
+  const safeUrl = String(url || '').trim()
+  if (!safeUrl) return ''
+
+  return `<p style="margin: 20px 0; text-align: center;"><img src="${safeUrl}" alt="资讯图片" style="display: block; width: 100%; max-width: 100%; height: auto; margin: 0 auto; border-radius: 14px;" /></p>`
+}
+
 const insertImageToContent = async (options) => {
   const file = options?.file
   if (!file) return
@@ -257,7 +298,7 @@ const insertImageToContent = async (options) => {
     const formData = new FormData()
     formData.append('file', file)
 
-    const res = await fetch('/api/v1/admin/upload', {
+    const res = await fetch(uploadApiUrl, {
       method: 'POST',
       headers: { Authorization: `Bearer ${getAdminToken()}` },
       body: formData,
@@ -269,7 +310,7 @@ const insertImageToContent = async (options) => {
       throw new Error(body?.error || '图片上传失败')
     }
 
-    const imgHtml = `<p><img src="${body.url}" alt="资讯图片" /></p>`
+    const imgHtml = buildArticleImageHtml(body.url)
     articleForm.value.content = `${articleForm.value.content || ''}\n${imgHtml}`.trim()
 
     options?.onSuccess?.(body)
@@ -303,7 +344,7 @@ onMounted(loadData)
       <el-input
         v-model="filters.keyword"
         class="filter-input"
-        placeholder="搜索标题、摘要、作者"
+        placeholder="搜索标题、正文、作者"
         clearable
       />
 
@@ -343,7 +384,7 @@ onMounted(loadData)
             </span>
           </div>
 
-          <div class="article-summary">{{ article.summary }}</div>
+          <div class="article-summary">{{ articleExcerpt(article) }}</div>
 
           <div class="article-actions">
             <el-button class="ghost-btn" @click="openEditDialog(article)">编辑</el-button>
@@ -376,8 +417,6 @@ onMounted(loadData)
           >
             <el-button :loading="uploadLoading" class="ghost-btn"> 上传封面 </el-button>
           </el-upload>
-
-          <el-input v-model="articleForm.cover_img" class="cover-url" placeholder="封面地址" />
         </div>
 
         <div class="form-panel">
@@ -418,17 +457,6 @@ onMounted(loadData)
                 </el-radio-group>
               </el-form-item>
             </div>
-
-            <el-form-item label="摘要">
-              <el-input
-                v-model="articleForm.summary"
-                type="textarea"
-                :rows="3"
-                maxlength="300"
-                show-word-limit
-                placeholder="请输入摘要"
-              />
-            </el-form-item>
 
             <el-form-item label="富文本正文">
               <div class="rich-toolbar">
@@ -662,10 +690,6 @@ onMounted(loadData)
 }
 
 .cover-uploader {
-  margin-top: 12px;
-}
-
-.cover-url {
   margin-top: 12px;
 }
 

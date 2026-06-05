@@ -299,8 +299,12 @@ func AdminListArticles(db *gorm.DB) gin.HandlerFunc {
 func AdminSaveArticle(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req SaveArticleRequest
-		if err := c.ShouldBindJSON(&req); err != nil || strings.TrimSpace(req.Title) == "" {
+		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid article"})
+			return
+		}
+		if msg := validateArticleRequest(req); msg != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 			return
 		}
 		item := articleFromRequest(req)
@@ -327,6 +331,10 @@ func AdminUpdateArticle(db *gorm.DB) gin.HandlerFunc {
 		var req SaveArticleRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+			return
+		}
+		if msg := validateArticleRequest(req); msg != "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 			return
 		}
 		updates := map[string]interface{}{"title": strings.TrimSpace(req.Title), "cover_img": strings.TrimSpace(req.CoverImg), "summary": req.Summary, "content": req.Content, "category": strings.TrimSpace(req.Category), "author": strings.TrimSpace(req.Author), "status": req.Status, "sort_order": req.SortOrder, "view_count": req.ViewCount}
@@ -370,6 +378,23 @@ func AdminDeleteArticle(db *gorm.DB) gin.HandlerFunc {
 // 3.返回 -> 可直接 Create 或 Updates 的 SysDictData。
 func dictDataFromRequest(req SaveDictDataRequest) models.SysDictData {
 	return models.SysDictData{DictCode: strings.TrimSpace(req.DictCode), DictLabel: strings.TrimSpace(req.DictLabel), DictValue: strings.TrimSpace(req.DictValue), SortOrder: req.SortOrder, Status: req.Status, Remark: req.Remark, MetaJSON: req.MetaJSON}
+}
+
+func validateArticleRequest(req SaveArticleRequest) string {
+	title := strings.TrimSpace(req.Title)
+	category := strings.TrimSpace(req.Category)
+	content := strings.TrimSpace(req.Content)
+
+	if title == "" {
+		return "title is required"
+	}
+	if category == "" {
+		return "category is required"
+	}
+	if content == "" {
+		return "content is required"
+	}
+	return ""
 }
 
 // articleFromRequest 将资讯请求转换为模型。

@@ -30,9 +30,51 @@ const toFullUrl = (url) => {
 
 const coverUrl = computed(() => toFullUrl(article.value?.cover_img || '/static/img.png'))
 
-const contentHtml = computed(() => {
-  return article.value?.content || '<p>暂无正文内容</p>'
-})
+const normalizeRichTextHtml = (html = '') => {
+  const origin = String(ORIGIN_URL || '').replace(/\/+$/, '')
+  let text = String(html || '').trim()
+
+  if (!text) return '<p>暂无正文内容</p>'
+
+  text = text.replace(/src=(["'])(?!https?:\/\/)([^"']+)\1/g, (match, quote, rawSrc) => {
+    const src = String(rawSrc || '').trim()
+    if (!src) return match
+
+    if (src.startsWith('/static/') || src.startsWith('static/')) {
+      const localPath = src.startsWith('/') ? src : `/${src}`
+      return `src=${quote}${localPath}${quote}`
+    }
+
+    if (
+      src.startsWith('/uploads/') ||
+      src.startsWith('uploads/') ||
+      src.startsWith('/material/') ||
+      src.startsWith('material/')
+    ) {
+      const path = src.startsWith('/') ? src : `/${src}`
+      return `src=${quote}${origin}${path}${quote}`
+    }
+
+    if (src.startsWith('/')) {
+      return `src=${quote}${origin}${src}${quote}`
+    }
+
+    return `src=${quote}${src}${quote}`
+  })
+
+  text = text.replace(/<img\b([^>]*)>/gi, (match, attrs = '') => {
+    const cleanedAttrs = attrs
+      .replace(/\sstyle=(["']).*?\1/gi, '')
+      .replace(/\swidth=(["']).*?\1/gi, '')
+      .replace(/\sheight=(["']).*?\1/gi, '')
+
+    return `<img${cleanedAttrs} style="display:block;width:100%;max-width:100%;height:auto;margin:24rpx auto;border-radius:20rpx;" />`
+  })
+
+  return text
+}
+
+const contentHtml = computed(() => normalizeRichTextHtml(article.value?.content || ''))
 
 const formatTime = (t) => {
   if (!t) return ''
@@ -82,17 +124,22 @@ onLoad((query = {}) => {
 
 <template>
   <view class="article-page">
-    <view class="top-bar">
-      <view class="back-btn" @click="goBack">‹</view>
-      <text class="top-title">资讯详情</text>
+    <view v-if="loading" class="empty-state">
+      <view class="floating-back" @click="goBack">‹</view>
+      <view class="empty-card">正在加载资讯...</view>
     </view>
 
-    <view v-if="loading" class="empty-card">正在加载资讯...</view>
+    <view v-else-if="!article" class="empty-state">
+      <view class="floating-back" @click="goBack">‹</view>
+      <view class="empty-card">资讯不存在或已下架</view>
+    </view>
 
-    <view v-else-if="!article" class="empty-card">资讯不存在或已下架</view>
-
-    <view v-else class="detail-card">
-      <image class="cover" :src="coverUrl" mode="aspectFill" />
+    <view v-else class="article-detail">
+      <view class="cover-wrap">
+        <image class="cover" :src="coverUrl" mode="aspectFill" />
+        <view class="cover-mask"></view>
+        <view class="back-btn" @click="goBack">‹</view>
+      </view>
 
       <view class="body">
         <view class="meta-row">
@@ -102,14 +149,14 @@ onLoad((query = {}) => {
 
         <text class="title">{{ article.title }}</text>
 
-        <view class="sub-row">
-          <text>{{ article.author || 'Yesok Vietnam' }}</text>
-          <text>{{ formatTime(article.created_at) }}</text>
-        </view>
-
         <text v-if="article.summary" class="summary">{{ article.summary }}</text>
 
         <rich-text class="rich-content" :nodes="contentHtml"></rich-text>
+
+        <view class="footer-row">
+          <text>{{ article.author || 'Yesok Vietnam' }}</text>
+          <text>{{ formatTime(article.created_at) }}</text>
+        </view>
       </view>
     </view>
   </view>
@@ -118,127 +165,165 @@ onLoad((query = {}) => {
 <style scoped>
 .article-page {
   min-height: 100vh;
-  padding: 72px 14px 28px;
+  padding: 0;
   background: #f2f6f5;
   color: #12312c;
 }
 
-.top-bar {
-  position: fixed;
-  z-index: 10;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 64px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: rgba(242, 246, 245, 0.92);
-  backdrop-filter: blur(12px);
+.article-detail {
+  min-height: 100vh;
+  background: #fff;
 }
 
-.back-btn {
-  position: absolute;
-  left: 16px;
-  top: 14px;
-  width: 36px;
-  height: 36px;
-  border-radius: 18px;
-  background: rgba(255,255,255,.86);
-  color: #12312c;
-  font-size: 30px;
-  line-height: 32px;
-  text-align: center;
-  box-shadow: 0 10px 26px rgba(0,77,64,.1);
-}
-
-.top-title {
-  color: #12312c;
-  font-size: 16px;
-  font-weight: 900;
-}
-
-.detail-card {
+.cover-wrap {
+  position: relative;
+  width: 100%;
+  height: 520rpx;
   overflow: hidden;
-  border-radius: 32px;
-  background: rgba(255,255,255,.9);
-  box-shadow: 0 18px 52px rgba(0,77,64,.07);
+  background: #dfeae6;
 }
 
 .cover {
   display: block;
   width: 100%;
-  height: 210px;
-  background: #dfeae6;
+  height: 100%;
+}
+
+.cover-mask {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 180rpx;
+  background: linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,.22));
+}
+
+.back-btn,
+.floating-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72rpx;
+  height: 72rpx;
+  border-radius: 50%;
+  background: rgba(255,255,255,.92);
+  color: #12312c;
+  font-size: 54rpx;
+  line-height: 72rpx;
+  box-shadow: 0 10rpx 28rpx rgba(0,0,0,.14);
+}
+
+.back-btn {
+  position: absolute;
+  z-index: 2;
+  left: 28rpx;
+  top: calc(env(safe-area-inset-top) + 24rpx);
+}
+
+.floating-back {
+  position: fixed;
+  z-index: 2;
+  left: 28rpx;
+  top: calc(env(safe-area-inset-top) + 24rpx);
 }
 
 .body {
-  padding: 18px;
+  position: relative;
+  z-index: 1;
+  margin-top: -36rpx;
+  padding: 36rpx 32rpx 48rpx;
+  border-radius: 36rpx 36rpx 0 0;
+  background: #fff;
 }
 
-.meta-row,
-.sub-row {
+.meta-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 24rpx;
 }
 
 .tag {
-  padding: 4px 10px;
-  border-radius: 999px;
+  padding: 10rpx 24rpx;
+  border-radius: 999rpx;
   background: rgba(197,160,89,.16);
   color: #a37a29;
-  font-size: 11px;
+  font-size: 24rpx;
   font-weight: 900;
 }
 
-.views,
-.sub-row {
+.views {
   color: #9aa7a3;
-  font-size: 12px;
+  font-size: 24rpx;
+  font-weight: 700;
 }
 
 .title {
   display: block;
-  margin-top: 14px;
+  margin-top: 32rpx;
   color: #12312c;
-  font-size: 24px;
+  font-size: 46rpx;
   font-weight: 900;
-  line-height: 1.35;
-}
-
-.sub-row {
-  margin-top: 12px;
+  line-height: 1.32;
 }
 
 .summary {
   display: block;
-  margin-top: 16px;
-  padding: 14px;
-  border-radius: 18px;
+  margin-top: 28rpx;
+  padding: 28rpx;
+  border-radius: 24rpx;
   background: rgba(0,77,64,.06);
   color: #4c5d59;
-  font-size: 14px;
-  line-height: 1.8;
+  font-size: 29rpx;
+  line-height: 1.85;
 }
 
 .rich-content {
   display: block;
-  margin-top: 18px;
+  margin-top: 34rpx;
   color: #12312c;
-  font-size: 15px;
-  line-height: 1.9;
+  font-size: 31rpx;
+  line-height: 2;
+}
+
+.rich-content :deep(img) {
+  display: block;
+  max-width: 100%;
+  width: 100%;
+  height: auto;
+  margin: 24rpx auto;
+  border-radius: 20rpx;
+}
+
+.rich-content :deep(p) {
+  margin: 20rpx 0;
+}
+
+.footer-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24rpx;
+  margin-top: 52rpx;
+  padding-top: 28rpx;
+  border-top: 1rpx solid rgba(0,77,64,.08);
+  color: #9aa7a3;
+  font-size: 25rpx;
+}
+
+.empty-state {
+  min-height: 100vh;
+  padding-top: calc(env(safe-area-inset-top) + 120rpx);
 }
 
 .empty-card {
-  margin-top: 40px;
-  padding: 28px;
-  border-radius: 28px;
+  margin: 40rpx 28rpx 0;
+  padding: 56rpx;
+  border-radius: 28rpx;
   background: rgba(255,255,255,.82);
   color: #6b7c78;
   text-align: center;
-  box-shadow: 0 18px 52px rgba(0,77,64,.07);
+  box-shadow: 0 18rpx 52rpx rgba(0,77,64,.07);
 }
 
 @media (min-width: 768px) {
@@ -246,11 +331,6 @@ onLoad((query = {}) => {
     max-width: 560px;
     margin: 0 auto;
     box-shadow: 0 0 80px rgba(0,77,64,.08);
-  }
-
-  .top-bar {
-    max-width: 560px;
-    margin: 0 auto;
   }
 }
 </style>
