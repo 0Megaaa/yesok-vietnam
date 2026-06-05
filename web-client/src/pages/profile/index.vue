@@ -158,42 +158,16 @@ const goAllOrders = () => {
   loadOrders('all')
 }
 
-const completeWechatProfile = async () => {
+const openProfileEditor = () => {
   if (!client.isLoggedIn) {
     client.openLoginSheet('完善个人资料')
     return
   }
 
-  const uniApi = typeof uni !== 'undefined' ? uni : null
-  if (!uniApi?.getUserProfile) {
-    uniApi?.showToast?.({ title: '当前环境暂不支持获取微信资料', icon: 'none' })
-    return
-  }
-
-  try {
-    const res = await new Promise((resolve, reject) => {
-      uniApi.getUserProfile({
-        desc: '用于完善个人资料展示',
-        success: resolve,
-        fail: reject,
-      })
-    })
-
-    const userInfo = res.userInfo || {}
-    const nickname = userInfo.nickName || ''
-    const avatarUrl = userInfo.avatarUrl || ''
-
-    if (!nickname && !avatarUrl) {
-      uniApi.showToast({ title: '未获取到微信资料', icon: 'none' })
-      return
-    }
-
-    await client.updateProfile({ nickname, avatar_url: avatarUrl })
-    uniApi.showToast({ title: '资料已更新', icon: 'success' })
-  } catch (error) {
-    console.warn('[profile] getUserProfile failed:', error)
-    uniApi?.showToast?.({ title: '已取消授权', icon: 'none' })
-  }
+  client.openProfileSheet({
+    nickname: client.userInfo?.nickname || '',
+    avatar_url: client.userInfo?.avatar_url || client.userInfo?.avatarUrl || '',
+  })
 }
 
 const sendMessage = () => {
@@ -232,7 +206,7 @@ watch(
       <view class="hero-orb right"></view>
       <view
         class="avatar-wrap"
-        @click="client.isLoggedIn ? completeWechatProfile() : client.openLoginSheet('登录后查看我的页面')"
+        @click="!client.isLoggedIn && client.openLoginSheet('登录后查看我的页面')"
       >
         <image v-if="avatarUrl" class="avatar-img" :src="avatarUrl" mode="aspectFill" />
         <text v-else class="avatar-text">👤</text>
@@ -241,7 +215,7 @@ watch(
       <text class="user-role">
         {{ client.isLoggedIn ? `尊贵用户 · ${client.userInfo?.vip_level || 1}` : '点击登录后查看个人信息' }}
       </text>
-      <view v-if="needCompleteProfile" class="complete-profile-btn" @click="completeWechatProfile">
+      <view v-if="needCompleteProfile" class="complete-profile-btn" @click="openProfileEditor">
         完善微信头像昵称
       </view>
       <view class="wallet-row">
@@ -371,9 +345,9 @@ watch(
         <view class="menu-main"><text class="menu-name">关于我们</text><text class="menu-desc">了解 Yesok</text></view>
         <text class="arrow">›</text>
       </view>
-      <view class="menu-row">
+      <view class="menu-row" @click="openProfileEditor">
         <view class="menu-icon">设</view>
-        <view class="menu-main"><text class="menu-name">设置</text><text class="menu-desc">账号与偏好</text></view>
+        <view class="menu-main"><text class="menu-name">设置</text><text class="menu-desc">修改头像与昵称</text></view>
         <text class="arrow">›</text>
       </view>
     </view>
