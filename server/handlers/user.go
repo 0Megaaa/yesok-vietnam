@@ -1,13 +1,34 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"yesok-vietnam/server/models"
 )
+
+func sanitizeClientAvatarName(name string) string {
+	var builder strings.Builder
+	for _, r := range name {
+		if (r >= '0' && r <= '9') ||
+			(r >= 'a' && r <= 'z') ||
+			(r >= 'A' && r <= 'Z') ||
+			r == '_' ||
+			r == '-' ||
+			(r >= '\u4e00' && r <= '\u9fa5') {
+			builder.WriteRune(r)
+		} else {
+			builder.WriteRune('_')
+		}
+	}
+	return strings.Trim(builder.String(), "_")
+}
 
 // ClientMe 返回已认证 C 端用户资料（基于 app_users 表）。
 // 1.意图 -> 为微信小程序等 C 端用户提供个人资料查询接口。
@@ -108,6 +129,70 @@ func ClientUpdateProfile(db *gorm.DB) gin.HandlerFunc {
 				"login_provider":  appUser.LoginProvider,
 				"client_platform": appUser.ClientPlatform,
 			},
+		})
+	}
+}
+
+// ClientUploadAvatar 上传 C端用户头像，返回 /uploads/avatar/... 静态路径。
+func ClientUploadAvatar(db *gorm.DB) gin.HandlerFunc {
+	_ = db
+	return func(c *gin.Context) {
+		uidVal, ok := c.Get("uid")
+		if !ok {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		uid, ok := uidVal.(uint)
+		if !ok || uid == 0 {
+			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+
+		file, err := c.FormFile("file")
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "file is required"})
+			return
+		}
+
+		ext := strings.ToLower(filepath.Ext(file.Filename))
+		if ext == "" {
+			ext = ".png"
+		}
+		if ext != ".jpg" && ext != ".jpeg" && ext != ".png" && ext != ".webp" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "only jpg/jpeg/png/webp avatar is allowed"})
+			return
+		}
+
+		if file.Size > 5*1024*1024 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "avatar file too large"})
+			return
+		}
+
+		safeBase := sanitizeClientAvatarName(strings.TrimSuffix(file.Filename, filepath.Ext(file.Filename)))
+		if safeBase == "" {
+			safeBase = "avatar"
+		}
+
+		day := time.Now().Format("20060102")
+		dir := filepath.Join("uploads", "avatar", day)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to prepare upload dir"})
+			return
+		}
+
+		name := fmt.Sprintf("u%d_%s_%d%s", uid, safeBase, time.Now().UnixNano(), ext)
+		savePath := filepath.Join(dir, name)
+
+		if err := c.SaveUploadedFile(file, savePath); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save avatar"})
+			return
+		}
+
+		url := "/" + filepath.ToSlash(savePath)
+		c.JSON(http.StatusOK, gin.H{
+			"url":  url,
+			"name": name,
+			"size": file.Size,
 		})
 	}
 }

@@ -172,6 +172,7 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		// C 端用户私有路由
 		authGroup.GET("/client/user/me", handlers.ClientMe(db))
 		authGroup.PUT("/client/user/me", handlers.ClientUpdateProfile(db))
+		authGroup.POST("/client/user/avatar/upload", handlers.ClientUploadAvatar(db))
 		authGroup.GET("/client/state", handlers.GetState(db))
 		authGroup.PUT("/client/state", handlers.UpdateState(db, orderEngine))
 		authGroup.POST("/client/orders", handlers.ClientCreateOrder(db, orderEngine))

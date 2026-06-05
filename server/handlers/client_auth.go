@@ -114,8 +114,8 @@ func ClientWechatLogin(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		log.Printf("[WechatLogin] code=%s nickname=%s dev_identity=%s",
-			req.Code, req.Nickname, req.DevIdentity)
+		log.Printf("[WechatLogin] code_len=%d nickname=%s has_avatar=%t dev_identity=%s",
+			len(req.Code), req.Nickname, strings.TrimSpace(req.AvatarURL) != "", req.DevIdentity)
 
 		// 换取 openid
 		openid, unionid, err := exchangeWechatCode(req.Code, req.DevIdentity)
