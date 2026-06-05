@@ -135,7 +135,6 @@ func ClientUpdateProfile(db *gorm.DB) gin.HandlerFunc {
 
 // ClientUploadAvatar 上传 C端用户头像，返回 /uploads/avatar/... 静态路径。
 func ClientUploadAvatar(db *gorm.DB) gin.HandlerFunc {
-	_ = db
 	return func(c *gin.Context) {
 		uidVal, ok := c.Get("uid")
 		if !ok {
@@ -189,10 +188,36 @@ func ClientUploadAvatar(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		url := "/" + filepath.ToSlash(savePath)
+
+		if err := db.Model(&models.AppUser{}).
+			Where("id = ?", uid).
+			Update("avatar_url", url).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update avatar"})
+			return
+		}
+
+		var appUser models.AppUser
+		if err := db.First(&appUser, uid).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to reload user"})
+			return
+		}
+
 		c.JSON(http.StatusOK, gin.H{
-			"url":  url,
-			"name": name,
-			"size": file.Size,
+			"url":      url,
+			"filename": name,
+			"name":     name,
+			"size":     file.Size,
+			"user": gin.H{
+				"id":              appUser.ID,
+				"wechat_open_id":  appUser.WechatOpenID,
+				"nickname":        appUser.Nickname,
+				"avatar_url":      appUser.AvatarURL,
+				"phone":           appUser.Phone,
+				"vip_level":       appUser.VipLevel,
+				"balance":         appUser.Balance,
+				"login_provider":  appUser.LoginProvider,
+				"client_platform": appUser.ClientPlatform,
+			},
 		})
 	}
 }

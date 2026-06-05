@@ -305,7 +305,12 @@ export const useClientStore = defineStore('client', {
 
       if (isLocalAvatarPath(avatarUrl)) {
         const uploadRes = await uploadClientAvatar(avatarUrl)
-        avatarUrl = uploadRes.url || uploadRes.data?.url || ''
+        avatarUrl =
+          uploadRes?.url ||
+          uploadRes?.data?.url ||
+          uploadRes?.user?.avatar_url ||
+          uploadRes?.data?.user?.avatar_url ||
+          ''
       }
 
       if (!avatarUrl) {

@@ -1,10 +1,45 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
+import { ORIGIN_URL } from '@/api/request'
 import AuthPopup from '@/components/AuthPopup.vue'
 import { useClientStore } from '@/store/client'
 
 const client = useClientStore()
+
+const toAvatarUrl = (url) => {
+  if (!url) return ''
+  const value = String(url || '').trim()
+  if (!value) return ''
+
+  if (
+    value.startsWith('wxfile://') ||
+    value.startsWith('file://') ||
+    value.startsWith('http://tmp/') ||
+    value.includes('/tmp/') ||
+    value.includes('/temp/')
+  ) {
+    return value
+  }
+
+  if (/^https?:\/\//.test(value)) return value
+
+  if (value.startsWith('/static/') || value.startsWith('static/')) {
+    return value.startsWith('/') ? value : `/${value}`
+  }
+
+  if (
+    value.startsWith('/uploads/') ||
+    value.startsWith('uploads/') ||
+    value.startsWith('/material/') ||
+    value.startsWith('material/')
+  ) {
+    const path = value.startsWith('/') ? value : `/${value}`
+    return `${ORIGIN_URL}${path}`
+  }
+
+  return `${ORIGIN_URL}${value.startsWith('/') ? '' : '/'}${value}`
+}
 
 const loadingProfile = ref(false)
 const loadingOrders = ref(false)
@@ -21,7 +56,8 @@ const displayName = computed(() => {
 })
 
 const avatarUrl = computed(() => {
-  return client.userInfo?.avatar_url || client.userInfo?.avatarUrl || ''
+  const raw = client.userInfo?.avatar_url || client.userInfo?.avatarUrl || ''
+  return toAvatarUrl(raw)
 })
 
 const needCompleteProfile = computed(() => {

@@ -1,11 +1,46 @@
 <script setup>
 import { computed } from 'vue'
+import { ORIGIN_URL } from '@/api/request'
 import { useClientStore } from '@/store/client'
 
 const client = useClientStore()
 const visible = computed(() => client.loginSheetVisible)
 const profileVisible = computed(() => client.profileSheetVisible)
 const profileForm = computed(() => client.profileForm || {})
+const toAvatarUrl = (url) => {
+  if (!url) return ''
+  const value = String(url || '').trim()
+  if (!value) return ''
+
+  if (
+    value.startsWith('wxfile://') ||
+    value.startsWith('file://') ||
+    value.startsWith('http://tmp/') ||
+    value.includes('/tmp/') ||
+    value.includes('/temp/')
+  ) {
+    return value
+  }
+
+  if (/^https?:\/\//.test(value)) return value
+
+  if (value.startsWith('/static/') || value.startsWith('static/')) {
+    return value.startsWith('/') ? value : `/${value}`
+  }
+
+  if (
+    value.startsWith('/uploads/') ||
+    value.startsWith('uploads/') ||
+    value.startsWith('/material/') ||
+    value.startsWith('material/')
+  ) {
+    const path = value.startsWith('/') ? value : `/${value}`
+    return `${ORIGIN_URL}${path}`
+  }
+
+  return `${ORIGIN_URL}${value.startsWith('/') ? '' : '/'}${value}`
+}
+const profileAvatarPreview = computed(() => toAvatarUrl(profileForm.value.avatar_url))
 
 const showSafeToast = (title) => {
   if (typeof uni !== 'undefined' && uni?.showToast) {
@@ -101,9 +136,9 @@ const handleSaveProfile = async () => {
         <!-- #ifdef MP-WEIXIN -->
         <button class="avatar-picker" open-type="chooseAvatar" @chooseavatar="handleChooseAvatar">
           <image
-            v-if="profileForm.avatar_url"
+            v-if="profileAvatarPreview"
             class="avatar-preview"
-            :src="profileForm.avatar_url"
+            :src="profileAvatarPreview"
             mode="aspectFill"
           />
           <text v-else>选择头像</text>
