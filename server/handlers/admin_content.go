@@ -337,7 +337,7 @@ func AdminUpdateArticle(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": msg})
 			return
 		}
-		updates := map[string]interface{}{"title": strings.TrimSpace(req.Title), "cover_img": strings.TrimSpace(req.CoverImg), "summary": req.Summary, "content": req.Content, "category": strings.TrimSpace(req.Category), "author": strings.TrimSpace(req.Author), "status": req.Status, "sort_order": req.SortOrder, "view_count": req.ViewCount}
+		updates := map[string]interface{}{"title": strings.TrimSpace(req.Title), "cover_img": strings.TrimSpace(req.CoverImg), "summary": strings.TrimSpace(req.Summary), "content": req.Content, "category": strings.TrimSpace(req.Category), "author": strings.TrimSpace(req.Author), "status": req.Status, "sort_order": req.SortOrder, "view_count": req.ViewCount}
 		if updates["cover_img"] == "" {
 			updates["cover_img"] = "/static/img.png"
 		}
@@ -383,13 +383,20 @@ func dictDataFromRequest(req SaveDictDataRequest) models.SysDictData {
 func validateArticleRequest(req SaveArticleRequest) string {
 	title := strings.TrimSpace(req.Title)
 	category := strings.TrimSpace(req.Category)
+	summary := strings.TrimSpace(req.Summary)
 	content := strings.TrimSpace(req.Content)
 
+	if category == "" {
+		return "category is required"
+	}
 	if title == "" {
 		return "title is required"
 	}
-	if category == "" {
-		return "category is required"
+	if summary == "" {
+		return "summary is required"
+	}
+	if len([]rune(summary)) > 100 {
+		return "summary must be less than or equal to 100 characters"
 	}
 	if content == "" {
 		return "content is required"
@@ -411,7 +418,7 @@ func articleFromRequest(req SaveArticleRequest) models.SysArticle {
 	if strings.TrimSpace(req.Category) == "" {
 		req.Category = "guide"
 	}
-	return models.SysArticle{Title: strings.TrimSpace(req.Title), CoverImg: strings.TrimSpace(req.CoverImg), Summary: req.Summary, Content: req.Content, Category: strings.TrimSpace(req.Category), Author: strings.TrimSpace(req.Author), Status: req.Status, SortOrder: req.SortOrder, ViewCount: req.ViewCount}
+	return models.SysArticle{Title: strings.TrimSpace(req.Title), CoverImg: strings.TrimSpace(req.CoverImg), Summary: strings.TrimSpace(req.Summary), Content: req.Content, Category: strings.TrimSpace(req.Category), Author: strings.TrimSpace(req.Author), Status: req.Status, SortOrder: req.SortOrder, ViewCount: req.ViewCount}
 }
 
 // sanitizeUploadName 清洗上传文件基础名。

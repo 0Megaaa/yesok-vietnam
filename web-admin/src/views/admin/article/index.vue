@@ -61,8 +61,8 @@ const stripHtml = (html = '') =>
     .trim()
 
 const articleExcerpt = (article) => {
-  const text = stripHtml(article.content || article.summary || '')
-  return text ? `${text.slice(0, 90)}${text.length > 90 ? '...' : ''}` : '暂无正文'
+  const text = String(article.summary || '').trim() || stripHtml(article.content || '')
+  return text ? `${text.slice(0, 90)}${text.length > 90 ? '...' : ''}` : '暂无摘要'
 }
 
 const filteredArticles = computed(() => {
@@ -175,6 +175,17 @@ const validateArticle = () => {
     return false
   }
 
+  const summary = String(articleForm.value.summary || '').trim()
+  if (!summary) {
+    showToast('请输入资讯摘要', 'warning')
+    return false
+  }
+
+  if (summary.length > 100) {
+    showToast('资讯摘要不能超过100字', 'warning')
+    return false
+  }
+
   if (!String(articleForm.value.content || '').trim()) {
     showToast('请输入资讯正文', 'warning')
     return false
@@ -192,7 +203,7 @@ const saveArticle = async () => {
       ...articleForm.value,
       title: articleForm.value.title.trim(),
       cover_img: articleForm.value.cover_img || '/static/img.png',
-      summary: '',
+      summary: String(articleForm.value.summary || '').trim().slice(0, 100),
       content: articleForm.value.content.trim(),
       category: articleForm.value.category || 'guide',
       author: articleForm.value.author || 'Yesok Vietnam',
@@ -287,8 +298,37 @@ const buildArticleImageHtml = (url) => {
   const safeUrl = String(url || '').trim()
   if (!safeUrl) return ''
 
-  return `<p style="margin: 20px 0; text-align: center;"><img src="${safeUrl}" alt="资讯图片" style="display: block; width: 100%; max-width: 100%; height: auto; margin: 0 auto; border-radius: 14px;" /></p>`
+  return `<img src="${safeUrl}" alt="资讯图片" style="display:block;width:100%;max-width:100%;height:auto;margin:20px auto;border-radius:14px;" />`
 }
+
+const normalizePreviewHtml = (html = '') => {
+  let text = String(html || '').trim()
+  if (!text) return ''
+
+  text = text.replace(/<img\b([^>]*)>/gi, (match, attrs = '') => {
+    let nextAttrs = attrs
+
+    nextAttrs = nextAttrs.replace(/src=(["'])([^"']+)\1/i, (srcMatch, quote, rawSrc) => {
+      const fullUrl = resolveImageUrl(rawSrc)
+      return `src=${quote}${fullUrl}${quote}`
+    })
+
+    if (!/src=(["'])[^"']+\1/i.test(nextAttrs)) {
+      return match
+    }
+
+    nextAttrs = nextAttrs
+      .replace(/\sstyle=(["']).*?\1/gi, '')
+      .replace(/\swidth=(["']).*?\1/gi, '')
+      .replace(/\sheight=(["']).*?\1/gi, '')
+
+    return `<img${nextAttrs} style="display:block;width:100%;max-width:100%;height:auto;margin:20px auto;border-radius:14px;" />`
+  })
+
+  return text
+}
+
+const previewHtml = computed(() => normalizePreviewHtml(articleForm.value.content))
 
 const insertImageToContent = async (options) => {
   const file = options?.file
@@ -458,6 +498,17 @@ onMounted(loadData)
               </el-form-item>
             </div>
 
+            <el-form-item label="摘要">
+              <el-input
+                v-model="articleForm.summary"
+                type="textarea"
+                :rows="3"
+                maxlength="100"
+                show-word-limit
+                placeholder="请输入资讯摘要，最多100字，将展示在C端资讯列表"
+              />
+            </el-form-item>
+
             <el-form-item label="富文本正文">
               <div class="rich-toolbar">
                 <el-button size="small" @click="insertRichTag('h2')">小标题</el-button>
@@ -480,11 +531,11 @@ onMounted(loadData)
                 v-model="articleForm.content"
                 type="textarea"
                 :rows="14"
-                placeholder="请输入 HTML 富文本内容，例如 <p>正文</p><h2>标题</h2><img src='/uploads/xxx.png' />"
+                placeholder="请输入 HTML 富文本内容，例如 <h2>标题</h2><p>正文</p>，也可以点击“插入图片”自动插入图片"
               />
 
               <div class="rich-preview-title">预览</div>
-              <div class="rich-preview" v-html="articleForm.content"></div>
+              <div class="rich-preview" v-html="previewHtml"></div>
             </el-form-item>
           </el-form>
         </div>
@@ -729,8 +780,13 @@ onMounted(loadData)
 }
 
 .rich-preview :deep(img) {
+  display: block;
+  width: 100%;
   max-width: 100%;
+  height: auto;
+  margin: 20px auto;
   border-radius: 14px;
+  object-fit: contain;
 }
 
 .rich-preview :deep(h2) {

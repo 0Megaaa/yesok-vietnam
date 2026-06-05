@@ -47,6 +47,18 @@ const toFullUrl = (url) => {
   return `${ORIGIN_URL}${url.startsWith('/') ? '' : '/'}${url}`
 }
 
+const plainText = (value = '') =>
+  String(value || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const articleSummaryText = (item = {}) => {
+  const summary = plainText(item.summary || '')
+  return summary || '暂无摘要'
+}
+
 // normalizeArticle 规范化资讯字段。
 // 1.意图 -> 将接口返回的 sys_articles 字段转换为资讯卡片结构。
 // 2.步骤 -> 补齐封面、作者、分类和摘要字段。
@@ -56,7 +68,8 @@ const normalizeArticle = (item) => ({
   cover_img: toFullUrl(item.cover_img || '/static/img.png'),
   author: item.author || 'Yesok Vietnam',
   category: item.category || 'guide',
-  summary: item.summary || item.content || 'Yesok Vietnam 管家精选资讯',
+  category_text: item.category_text || item.categoryText || item.category || '未分类',
+  summary: item.summary || '暂无摘要',
 })
 
 // loadArticles 拉取资讯列表。
@@ -125,7 +138,7 @@ onMounted(loadArticles)
         <image class="article-cover" :src="article.cover_img" mode="aspectFill" />
         <view class="article-body">
           <view class="meta-row">
-            <text class="tag">{{ article.category }}</text>
+            <text class="tag">{{ article.category_text || article.category }}</text>
             <text class="views">{{ article.view_count || 0 }} 浏览</text>
           </view>
           <text class="article-title">{{ article.title }}</text>

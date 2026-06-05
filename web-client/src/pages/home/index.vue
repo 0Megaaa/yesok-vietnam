@@ -61,6 +61,18 @@ const toFullUrl = (url) => {
   return `${ORIGIN_URL}${url.startsWith('/') ? '' : '/'}${url}`
 }
 
+const plainText = (value = '') =>
+  String(value || '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+
+const articleSummaryText = (item = {}) => {
+  const summary = plainText(item.summary || '')
+  return summary || '暂无摘要'
+}
+
 const normalizeService = (item) => {
   return {
     ...item,
@@ -77,8 +89,9 @@ const normalizeArticle = (item) => ({
   ...item,
   cover_img: toFullUrl(item.cover_img || '/static/img.png'),
   category: item.category || 'guide',
+  category_text: item.category_text || item.categoryText || item.category || '未分类',
   author: item.author || 'Yesok Vietnam',
-  summary: item.summary || item.content || 'Yesok Vietnam 管家精选资讯',
+  summary: item.summary || '暂无摘要',
 })
 
 // 独立并发加载，杜绝熔断
@@ -192,7 +205,7 @@ onMounted(() => {
       >
         <image class="news-cover" :src="article.cover_img" mode="aspectFill" />
         <view class="news-body">
-          <text class="news-tag">{{ article.category }}</text>
+          <text class="news-tag">{{ article.category_text || article.category }}</text>
           <text class="news-title">{{ article.title }}</text>
           <text class="news-summary">{{ article.summary }}</text>
         </view>

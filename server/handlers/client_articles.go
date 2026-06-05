@@ -4,11 +4,73 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"yesok-vietnam/server/models"
 )
+
+type ClientArticlePayload struct {
+	ID           uint      `json:"id"`
+	Title        string    `json:"title"`
+	CoverImg     string    `json:"cover_img"`
+	Summary      string    `json:"summary"`
+	Content      string    `json:"content,omitempty"`
+	Category     string    `json:"category"`
+	CategoryText string    `json:"category_text"`
+	Author       string    `json:"author"`
+	Status       int       `json:"status"`
+	SortOrder    int       `json:"sort_order"`
+	ViewCount    int       `json:"view_count"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+func articleCategoryLabel(db *gorm.DB, category string) string {
+	category = strings.TrimSpace(category)
+	if category == "" {
+		return ""
+	}
+
+	var dict models.SysDictData
+	if err := db.Where(
+		"dict_code = ? AND dict_value = ? AND status = ?",
+		"article_category",
+		category,
+		1,
+	).First(&dict).Error; err == nil {
+		label := strings.TrimSpace(dict.DictLabel)
+		if label != "" {
+			return label
+		}
+	}
+
+	return category
+}
+
+func buildClientArticlePayload(db *gorm.DB, article models.SysArticle, includeContent bool) ClientArticlePayload {
+	payload := ClientArticlePayload{
+		ID:           article.ID,
+		Title:        article.Title,
+		CoverImg:     article.CoverImg,
+		Summary:      article.Summary,
+		Category:     article.Category,
+		CategoryText: articleCategoryLabel(db, article.Category),
+		Author:       article.Author,
+		Status:       article.Status,
+		SortOrder:    article.SortOrder,
+		ViewCount:    article.ViewCount,
+		CreatedAt:    article.CreatedAt,
+		UpdatedAt:    article.UpdatedAt,
+	}
+
+	if includeContent {
+		payload.Content = article.Content
+	}
+
+	return payload
+}
 
 // ClientListArticles 输出已发布资讯列表，驱动 C 端首页和资讯 Tab。
 // 1.意图 -> 消灭 C 端资讯标题、封面、摘要和分类硬编码。
@@ -32,7 +94,12 @@ func ClientListArticles(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch articles"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"list": articles})
+
+		list := make([]ClientArticlePayload, 0, len(articles))
+		for _, article := range articles {
+			list = append(list, buildClientArticlePayload(db, article, false))
+		}
+		c.JSON(http.StatusOK, gin.H{"list": list})
 	}
 }
 
@@ -54,6 +121,8 @@ func ClientGetArticle(db *gorm.DB) gin.HandlerFunc {
 		_ = db.Model(&article).UpdateColumn("view_count", gorm.Expr("view_count + ?", 1)).Error
 		article.ViewCount++
 
-		c.JSON(http.StatusOK, gin.H{"article": article})
+		c.JSON(http.StatusOK, gin.H{
+			"article": buildClientArticlePayload(db, article, true),
+		})
 	}
 }

@@ -34,7 +34,7 @@ const normalizeRichTextHtml = (html = '') => {
   const origin = String(ORIGIN_URL || '').replace(/\/+$/, '')
   let text = String(html || '').trim()
 
-  if (!text) return '<p>暂无正文内容</p>'
+  if (!text) return '<span>暂无正文内容</span>'
 
   text = text.replace(/src=(["'])(?!https?:\/\/)([^"']+)\1/g, (match, quote, rawSrc) => {
     const src = String(rawSrc || '').trim()
@@ -143,13 +143,11 @@ onLoad((query = {}) => {
 
       <view class="body">
         <view class="meta-row">
-          <text class="tag">{{ article.category || 'guide' }}</text>
+          <text class="tag">{{ article.category_text || article.category || '未分类' }}</text>
           <text class="views">{{ article.view_count || 0 }} 浏览</text>
         </view>
 
         <text class="title">{{ article.title }}</text>
-
-        <text v-if="article.summary" class="summary">{{ article.summary }}</text>
 
         <rich-text class="rich-content" :nodes="contentHtml"></rich-text>
 
@@ -267,17 +265,6 @@ onLoad((query = {}) => {
   line-height: 1.32;
 }
 
-.summary {
-  display: block;
-  margin-top: 28rpx;
-  padding: 28rpx;
-  border-radius: 24rpx;
-  background: rgba(0,77,64,.06);
-  color: #4c5d59;
-  font-size: 29rpx;
-  line-height: 1.85;
-}
-
 .rich-content {
   display: block;
   margin-top: 34rpx;
@@ -293,10 +280,6 @@ onLoad((query = {}) => {
   height: auto;
   margin: 24rpx auto;
   border-radius: 20rpx;
-}
-
-.rich-content :deep(p) {
-  margin: 20rpx 0;
 }
 
 .footer-row {
