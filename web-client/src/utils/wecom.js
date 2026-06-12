@@ -24,3 +24,38 @@ export function openWecomCustomerService({ corpId, url } = {}) {
     })
   })
 }
+
+export function openWecomContact(payload = {}) {
+  const mode = payload.contact_mode || 'customer_service'
+
+  if (mode === 'customer_service') {
+    return openWecomCustomerService({
+      corpId: payload.corp_id,
+      url: payload.service_url,
+    })
+  }
+
+  if (mode === 'contact_me') {
+    if (payload.service_url) {
+      return openWecomCustomerService({
+        corpId: payload.corp_id,
+        url: payload.service_url,
+      })
+    }
+
+    if (payload.contact_way_config_id) {
+      console.warn('[WeCom] contact_me config_id:', payload.contact_way_config_id)
+      uni.showToast({
+        title: '请接入企业微信联系我按钮',
+        icon: 'none',
+      })
+      return Promise.reject(new Error('contact_me needs mini program integration'))
+    }
+
+    uni.showToast({ title: '管家联系配置缺失', icon: 'none' })
+    return Promise.reject(new Error('missing contact_way_config_id'))
+  }
+
+  uni.showToast({ title: '管家联系配置异常', icon: 'none' })
+  return Promise.reject(new Error('invalid wecom contact mode'))
+}

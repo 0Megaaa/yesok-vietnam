@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -89,6 +90,11 @@ func (c *Client) SendTextCard(ctx context.Context, toUser, title, description, l
 		return fmt.Errorf("wecom toUser is empty")
 	}
 
+	agentID, err := strconv.Atoi(strings.TrimSpace(c.AgentID))
+	if err != nil || agentID <= 0 {
+		return fmt.Errorf("invalid wecom agent id")
+	}
+
 	token, err := c.AccessToken(ctx)
 	if err != nil {
 		return err
@@ -97,7 +103,7 @@ func (c *Client) SendTextCard(ctx context.Context, toUser, title, description, l
 	body := map[string]any{
 		"touser":  toUser,
 		"msgtype": "textcard",
-		"agentid": c.AgentID,
+		"agentid": agentID,
 		"textcard": map[string]any{
 			"title":       title,
 			"description": description,

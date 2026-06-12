@@ -112,6 +112,7 @@ const normalizeOrder = (raw = {}) => {
     butler_wecom_userid: o.butler_wecom_userid || o.butlerWecomUserID || o.butlerWecomUserid || '',
     butler_contact_url: o.butler_contact_url || o.butlerContactURL || '',
     butler_assigned_at: o.butler_assigned_at || o.butlerAssignedAt || '',
+    butler_contacted_at: o.butler_contacted_at || o.butlerContactedAt || '',
   }
 }
 
@@ -706,6 +707,10 @@ onMounted(async () => {
           <div>
             <span class="label">分配时间</span>
             <span class="value">{{ formatTime(order.butler_assigned_at) || '—' }}</span>
+          </div>
+          <div>
+            <span class="label">客户联系时间</span>
+            <span class="value">{{ formatTime(order.butler_contacted_at) || '—' }}</span>
           </div>
           <div
             v-for="row in paymentSummaryRows(order)"

@@ -13,6 +13,7 @@ type WecomButler struct {
 	AgentSecret        string     `json:"-" gorm:"size:256"`
 	WecomUserID        string     `json:"wecom_userid" gorm:"size:128;index"`
 	WecomName          string     `json:"wecom_name" gorm:"size:128"`
+	ContactMode        string     `json:"contact_mode" gorm:"size:32;default:contact_me;comment:'contact_me/customer_service'"`
 	CustomerServiceURL string     `json:"customer_service_url" gorm:"size:1024"`
 	ContactWayConfigID string     `json:"contact_way_config_id" gorm:"size:128"`
 	IsDefaultPublic    int        `json:"is_default_public" gorm:"default:0;index"`

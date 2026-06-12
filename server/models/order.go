@@ -57,6 +57,7 @@ type Order struct {
 	ButlerWecomUserID string         `json:"butler_wecom_userid" gorm:"size:128;comment:'分配管家企业微信UserID'"`
 	ButlerContactURL  string         `json:"butler_contact_url" gorm:"size:1024;comment:'订单专属管家微信客服/联系我链接'"`
 	ButlerAssignedAt  *time.Time     `json:"butler_assigned_at" gorm:"datetime(3);comment:'管家分配时间'"`
+	ButlerContactedAt *time.Time     `json:"butler_contacted_at" gorm:"datetime(3);comment:'客户最近一次点击联系管家时间'"`
 }
 
 func (Order) TableName() string { return "orders" }

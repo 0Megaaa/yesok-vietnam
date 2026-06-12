@@ -48,19 +48,21 @@ func AdminListWecomButlers(db *gorm.DB) gin.HandlerFunc {
 		list := make([]gin.H, 0, len(butlers))
 		for _, butler := range butlers {
 			list = append(list, gin.H{
-				"id":                   butler.ID,
-				"name":                 butler.Name,
-				"phone":                butler.Phone,
-				"avatar_url":           butler.AvatarURL,
-				"corp_id":              butler.CorpID,
-				"agent_id":             butler.AgentID,
-				"wecom_userid":         butler.WecomUserID,
-				"wecom_name":           butler.WecomName,
-				"customer_service_url": butler.CustomerServiceURL,
-				"butler_type":          butler.ButlerType,
-				"is_assignable":        butler.IsAssignable,
-				"status":               butler.Status,
-				"sort_order":           butler.SortOrder,
+				"id":                    butler.ID,
+				"name":                  butler.Name,
+				"phone":                 butler.Phone,
+				"avatar_url":            butler.AvatarURL,
+				"corp_id":               butler.CorpID,
+				"agent_id":              butler.AgentID,
+				"wecom_userid":          butler.WecomUserID,
+				"wecom_name":            butler.WecomName,
+				"contact_mode":          butler.ContactMode,
+				"contact_way_config_id": butler.ContactWayConfigID,
+				"customer_service_url":  butler.CustomerServiceURL,
+				"butler_type":           butler.ButlerType,
+				"is_assignable":         butler.IsAssignable,
+				"status":                butler.Status,
+				"sort_order":            butler.SortOrder,
 			})
 		}
 
@@ -116,10 +118,12 @@ func AdminAssignOrderButler(db *gorm.DB) gin.HandlerFunc {
 			}
 
 			payload := gin.H{
-				"butler_id":            assignedButler.ID,
-				"butler_name":          strings.TrimSpace(assignedButler.Name),
-				"wecom_userid":         strings.TrimSpace(assignedButler.WecomUserID),
-				"customer_service_url": strings.TrimSpace(assignedButler.CustomerServiceURL),
+				"butler_id":             assignedButler.ID,
+				"butler_name":           strings.TrimSpace(assignedButler.Name),
+				"wecom_userid":          strings.TrimSpace(assignedButler.WecomUserID),
+				"contact_mode":          assignedButler.ContactMode,
+				"contact_way_config_id": assignedButler.ContactWayConfigID,
+				"customer_service_url":  strings.TrimSpace(assignedButler.CustomerServiceURL),
 			}
 			if err := tx.Create(&models.OrderTimeline{
 				OrderID:      order.ID,

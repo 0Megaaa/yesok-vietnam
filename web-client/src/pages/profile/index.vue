@@ -2,7 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
 import { get, ORIGIN_URL } from '@/api/request'
-import { openWecomCustomerService } from '@/utils/wecom'
+import { openWecomContact } from '@/utils/wecom'
 import AuthPopup from '@/components/AuthPopup.vue'
 import { useClientStore } from '@/store/client'
 
@@ -176,10 +176,7 @@ const sendMessage = async () => {
     const res = await get('/v1/client/wecom/public-contact')
     const payload = res.data || res
 
-    await openWecomCustomerService({
-      corpId: payload.corp_id,
-      url: payload.service_url,
-    })
+    await openWecomContact(payload)
   } catch (error) {
     console.error('[profile] open public wecom failed:', error)
     const uniApi = typeof uni !== 'undefined' ? uni : null

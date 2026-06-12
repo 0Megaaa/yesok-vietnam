@@ -4,7 +4,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
 import { get, post, ORIGIN_URL } from '@/api/request'
 import { groupWorkflowActions, getActionVariant, getActionRenderer } from '@/utils/workflowAction'
-import { openWecomCustomerService } from '@/utils/wecom'
+import { openWecomContact } from '@/utils/wecom'
 
 const client = useClientStore()
 const orderId = ref('')
@@ -535,10 +535,11 @@ const contactOrderButler = async () => {
       safeToast('暂未分配专属管家，将为您接入订单客服', 'none')
     }
 
-    await openWecomCustomerService({
-      corpId: payload.corp_id,
-      url: payload.service_url,
-    })
+    if (payload.warning === 'recently notified') {
+      console.warn('[order-detail] recently notified, skipping error toast')
+    }
+
+    await openWecomContact(payload)
   } catch (error) {
     console.error('[order-detail] contactOrderButler failed:', error)
     safeToast('打开订单管家失败', 'none')
