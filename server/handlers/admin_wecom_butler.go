@@ -128,12 +128,12 @@ func AdminAssignOrderButler(db *gorm.DB) gin.HandlerFunc {
 			}
 
 			updates := map[string]any{
-				"butler_id":           assignedButler.ID,
-				"butler_name":         strings.TrimSpace(assignedButler.Name),
-				"butler_wecom_userid": strings.TrimSpace(assignedButler.WecomUserID),
-				"butler_contact_url":  strings.TrimSpace(assignedButler.CustomerServiceURL),
-				"butler_assigned_at":  now,
-				"updated_at":          now,
+				"butler_id":            assignedButler.ID,
+				"butler_name":          strings.TrimSpace(assignedButler.Name),
+				"butler_wecom_user_id": strings.TrimSpace(assignedButler.WecomUserID),
+				"butler_contact_url":   strings.TrimSpace(assignedButler.CustomerServiceURL),
+				"butler_assigned_at":   now,
+				"updated_at":           now,
 			}
 			if beforeStage == "wait_butler_assign" {
 				updates["current_stage"] = afterStage
