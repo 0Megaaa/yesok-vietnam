@@ -437,6 +437,12 @@ const buildActionRemark = (action, inputData = {}) => {
 
 // --- button_click 类型：直接执行备注确认 ---
 const executeButtonClick = async (action) => {
+  // 分配管家动作
+  if (isAssignButlerAction(action)) {
+    await openAssignButlerDialog(action)
+    return
+  }
+
   // 兜底拦截审核动作
   if (isAuditAction(action)) {
     showToast('审核动作必须通过审核按钮执行，请刷新页面后重试', 'warning')
@@ -624,6 +630,9 @@ const requireButlerBeforeAction = (action) => {
       (stage === 'aftersale_butler_contact' && actionName === 'butler_start_intervention')
     )
 }
+
+// 分配管家动作
+const isAssignButlerAction = (action) => action?.action_name === 'assign_butler'
 
 // 打开分配管家弹窗
 const openAssignButlerDialog = async () => {

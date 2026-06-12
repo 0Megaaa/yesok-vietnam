@@ -510,31 +510,38 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 			payAmountText = fmt.Sprintf("¥%d", payAmount)
 		}
 
+		requiresButler := false
+		if role == "admin" {
+			requiresButler = shouldRequireButlerBeforeAdminAction(order, n.ActionName)
+		}
+
 		actionNodes = append(actionNodes, gin.H{
-			"id":                  n.ID,
-			"action_name":         n.ActionName,
-			"action_name_text":    actionNameText,
-			"button_label":        buttonLabel,
-			"action_type":         n.ActionType,
-			"action_type_text":    dictLabel(db, "action_type", n.ActionType),
-			"executor_role":       n.ExecutorRole,
-			"executor_role_text":  dictLabel(db, "executor_role", n.ExecutorRole),
-			"form_fields":         n.FormFields,
-			"target_status":       n.TargetStatus,
-			"target_status_text":  targetStatusText,
-			"macro_status":        n.MacroStatus,
-			"macro_status_text":   macroText,
-			"notify_type":         n.NotifyType,
-			"notify_type_text":    notifyText,
-			"need_audit":          n.NeedAudit,
-			"audit_reject_status": n.AuditRejectStatus,
-			"is_audit_action":     isAuditActionName(n.ActionName),
-			"sort_order":          n.SortOrder,
-			"stage_code":          n.StageCode,
-			"stage_name":          n.StageName,
-			"pay_amount":          payAmount,
-			"pay_amount_text":     payAmountText,
-			"ui_behavior":         buildWorkflowUIBehavior(n),
+			"id":                         n.ID,
+			"action_name":                n.ActionName,
+			"action_name_text":           actionNameText,
+			"button_label":               buttonLabel,
+			"action_type":                n.ActionType,
+			"action_type_text":           dictLabel(db, "action_type", n.ActionType),
+			"executor_role":              n.ExecutorRole,
+			"executor_role_text":         dictLabel(db, "executor_role", n.ExecutorRole),
+			"form_fields":                n.FormFields,
+			"target_status":              n.TargetStatus,
+			"target_status_text":         targetStatusText,
+			"macro_status":               n.MacroStatus,
+			"macro_status_text":          macroText,
+			"notify_type":                n.NotifyType,
+			"notify_type_text":           notifyText,
+			"need_audit":                 n.NeedAudit,
+			"audit_reject_status":        n.AuditRejectStatus,
+			"is_audit_action":            isAuditActionName(n.ActionName),
+			"sort_order":                 n.SortOrder,
+			"stage_code":                 n.StageCode,
+			"stage_name":                 n.StageName,
+			"pay_amount":                 payAmount,
+			"pay_amount_text":            payAmountText,
+			"ui_behavior":                buildWorkflowUIBehavior(n),
+			"requires_butler":            requiresButler,
+			"butler_required_unassigned": requiresButler && order.ButlerID == 0,
 		})
 	}
 
@@ -577,6 +584,7 @@ func buildOrderPayloadForRole(db *gorm.DB, order models.Order, role string) gin.
 		"butler_wecom_userid": order.ButlerWecomUserID,
 		"butler_contact_url":  order.ButlerContactURL,
 		"butler_assigned_at":  order.ButlerAssignedAt,
+		"butler_contacted_at": order.ButlerContactedAt,
 		"created_at":          order.CreatedAt,
 		"updated_at":          order.UpdatedAt,
 		"timelines":           timelineItems,

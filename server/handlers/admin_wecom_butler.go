@@ -105,6 +105,28 @@ func AdminAssignOrderButler(db *gorm.DB) gin.HandlerFunc {
 				return err
 			}
 
+			beforeStage := strings.TrimSpace(order.CurrentStage)
+			afterStage := beforeStage
+			nextMacroStatus := strings.TrimSpace(order.MacroStatus)
+
+			if beforeStage == "wait_butler_assign" {
+				var assignNode models.SysWorkflowNode
+				if err := tx.Where(
+					"service_id = ? AND stage_code = ? AND action_name = ? AND (executor_role = ? OR executor_role = 'both')",
+					order.ServiceID,
+					beforeStage,
+					"assign_butler",
+					"admin",
+				).Order("sort_order ASC, id ASC").First(&assignNode).Error; err == nil {
+					if strings.TrimSpace(assignNode.TargetStatus) != "" {
+						afterStage = strings.TrimSpace(assignNode.TargetStatus)
+					}
+					if strings.TrimSpace(assignNode.MacroStatus) != "" {
+						nextMacroStatus = strings.TrimSpace(assignNode.MacroStatus)
+					}
+				}
+			}
+
 			updates := map[string]any{
 				"butler_id":           assignedButler.ID,
 				"butler_name":         strings.TrimSpace(assignedButler.Name),
@@ -112,6 +134,10 @@ func AdminAssignOrderButler(db *gorm.DB) gin.HandlerFunc {
 				"butler_contact_url":  strings.TrimSpace(assignedButler.CustomerServiceURL),
 				"butler_assigned_at":  now,
 				"updated_at":          now,
+			}
+			if beforeStage == "wait_butler_assign" {
+				updates["current_stage"] = afterStage
+				updates["macro_status"] = nextMacroStatus
 			}
 			if err := tx.Model(&order).Updates(updates).Error; err != nil {
 				return err
@@ -127,8 +153,8 @@ func AdminAssignOrderButler(db *gorm.DB) gin.HandlerFunc {
 			}
 			if err := tx.Create(&models.OrderTimeline{
 				OrderID:      order.ID,
-				BeforeStatus: order.CurrentStage,
-				AfterStatus:  order.CurrentStage,
+				BeforeStatus: beforeStage,
+				AfterStatus:  afterStage,
 				Operator:     "admin",
 				Remark:       fmt.Sprintf("已分配管家：%s", strings.TrimSpace(assignedButler.Name)),
 				ActionName:   "assign_butler",

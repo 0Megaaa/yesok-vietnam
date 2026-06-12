@@ -511,6 +511,13 @@ const buttonClickActions = computed(() => actionGroups.value.button)
 const formInputActions = computed(() => actionGroups.value.dynamicForm)
 const wxPayActions = computed(() => actionGroups.value.payment)
 
+const hasAnyNextAction = computed(() => {
+  return shouldShowOrderButlerContact.value ||
+    buttonClickActions.value.length ||
+    formInputActions.value.length ||
+    wxPayActions.value.length
+})
+
 const safeToast = (title, icon = 'info') => {
   const uniApi = typeof uni !== 'undefined' ? uni : null
   if (uniApi?.showToast) {
@@ -897,22 +904,21 @@ onShow(async () => {
         </view>
       </view>
 
-      <view v-if="shouldShowOrderButlerContact" class="section-card butler-contact-card">
-        <view class="section-title"><view class="section-bar"></view>专属管家</view>
-        <text class="empty-text">
-          {{ order.butler_name ? `已分配管家：${order.butler_name}` : '暂未分配专属管家，可先联系订单客服' }}
-        </text>
-        <button class="action-btn action-primary" @click="contactOrderButler">
-          联系专属管家
-        </button>
-      </view>
-
       <!-- 下一步动作 -->
       <view class="section-card action-card">
         <view class="section-title"><view class="section-bar"></view>下一步操作</view>
         <view v-if="actionsLoading" class="loading-text">加载中...</view>
-        <view v-else-if="!actions.length" class="empty-text">当前没有可执行的操作</view>
+        <view v-else-if="!hasAnyNextAction" class="empty-text">当前没有可执行的操作</view>
         <view v-else class="action-list">
+          <!-- 联系专属管家 -->
+          <button
+            v-if="shouldShowOrderButlerContact"
+            class="action-btn action-primary"
+            :disabled="refreshing || actionsLoading || submitting"
+            @click="contactOrderButler"
+          >
+            联系专属管家
+          </button>
           <!-- button_click -->
           <button
             v-for="action in buttonClickActions"

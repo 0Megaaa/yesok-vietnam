@@ -19,6 +19,15 @@ const formInputAction = ref(null)
 const formInputData = ref({})
 const formInputLoading = ref(false)
 
+// 分配管家弹窗状态
+const assignButlerVisible = ref(false)
+const assignButlersLoading = ref(false)
+const assignButlersSubmitting = ref(false)
+const assignButlerList = ref([])
+const assignTargetOrder = ref(null)
+const assignTargetAction = ref(null)
+const selectedButlerId = ref(null)
+
 const showToast = (title, type = 'info') => {
   ElMessage({ message: title, type })
 }
@@ -190,6 +199,9 @@ const isAuditAction = (action) => {
     ['audit_approve', 'audit_reject', 'audit_rejected'].includes(action.action_name)
 }
 
+// 分配管家动作
+const isAssignButlerAction = (node) => node?.action_name === 'assign_butler'
+
 // 列表可见动作：待审核时返回空数组，隐藏普通 action_nodes
 const visibleActionNodes = (order) => {
   if (!order) return []
@@ -307,6 +319,75 @@ const rejectAuditFromList = async (order) => {
   }
 }
 
+// 打开分配管家弹窗
+const openAssignButlerDialog = async (order, action = null) => {
+  if (!order?.id) return
+
+  assignTargetOrder.value = order
+  assignTargetAction.value = action
+  selectedButlerId.value = order.butler_id || null
+  assignButlerVisible.value = true
+  assignButlersLoading.value = true
+
+  try {
+    const res = await request.get('/v1/admin/wecom-butlers', {
+      params: { butler_type: 'order', is_assignable: 1, status: 1 },
+    })
+    const body = res?.data ?? res ?? {}
+    assignButlerList.value = body.list || body.data?.list || []
+  } catch (error) {
+    assignButlerList.value = []
+    showToast(error?.response?.data?.error || error?.message || '加载管家失败', 'error')
+  } finally {
+    assignButlersLoading.value = false
+  }
+}
+
+// 提交分配管家
+const submitAssignButler = async () => {
+  if (!assignTargetOrder.value?.id) return
+
+  if (!selectedButlerId.value) {
+    showToast('请选择管家', 'warning')
+    return
+  }
+
+  assignButlersSubmitting.value = true
+
+  try {
+    const res = await request.post(`/v1/admin/orders/${assignTargetOrder.value.id}/assign-butler`, {
+      butler_id: selectedButlerId.value,
+      action_name: assignTargetAction.value?.action_name || 'assign_butler',
+    })
+
+    const body = res?.data ?? res ?? {}
+
+    if (body.order?.id) {
+      const next = normalizeOrder(body.order)
+      orders.value = orders.value.map((item) =>
+        item.id === next.id ? next : item
+      )
+    } else {
+      await loadOrders()
+    }
+
+    assignButlerVisible.value = false
+    assignTargetOrder.value = null
+    assignTargetAction.value = null
+    selectedButlerId.value = null
+
+    if (body.warning) {
+      showToast(`管家分配成功，但${body.warning}`, 'warning')
+    } else {
+      showToast('管家分配成功', 'success')
+    }
+  } catch (error) {
+    showToast(error?.response?.data?.error || error?.message || '分配失败', 'error')
+  } finally {
+    assignButlersSubmitting.value = false
+  }
+}
+
 const loadOrders = async () => {
   loading.value = true
   try {
@@ -324,6 +405,12 @@ const loadOrders = async () => {
 
 // 根据 action_type 分流处理工作流动作
 const handleWorkflowAction = async (order, node) => {
+  // 分配管家动作
+  if (isAssignButlerAction(node)) {
+    await openAssignButlerDialog(order, node)
+    return
+  }
+
   // 兜底拦截审核动作
   if (isAuditAction(node)) {
     showToast('审核动作必须通过审核按钮执行，请刷新页面后重试', 'warning')
@@ -726,6 +813,42 @@ onUnmounted(() => {
         </el-button>
       </template>
     </el-dialog>
+
+    <!-- 分配管家弹窗 -->
+    <el-dialog
+      v-model="assignButlerVisible"
+      title="分配管家"
+      width="520px"
+      :close-on-click-modal="false"
+    >
+      <div v-if="assignButlersLoading" class="empty-line">正在加载可分配管家...</div>
+      <div v-else-if="!assignButlerList.length" class="empty-line">暂无可分配管家</div>
+
+      <el-radio-group v-else v-model="selectedButlerId" class="butler-radio-group">
+        <el-radio
+          v-for="item in assignButlerList"
+          :key="item.id"
+          :label="item.id"
+          class="butler-radio"
+        >
+          <div class="butler-option">
+            <div class="butler-name">{{ item.name || '未命名管家' }}</div>
+            <div class="butler-meta">{{ item.wecom_userid || '未配置企业微信UserID' }}</div>
+          </div>
+        </el-radio>
+      </el-radio-group>
+
+      <template #footer>
+        <el-button @click="assignButlerVisible = false">取消</el-button>
+        <el-button
+          type="primary"
+          :loading="assignButlersSubmitting"
+          @click="submitAssignButler"
+        >
+          确认分配
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -972,5 +1095,41 @@ onUnmounted(() => {
   border: 1px solid #e5efeb;
   background: #f6faf8;
   overflow: hidden;
+}
+
+.empty-line {
+  color: #6b7c78;
+  font-size: 13px;
+  text-align: center;
+  padding: 18px 0;
+}
+
+.butler-radio-group {
+  display: grid;
+  gap: 10px;
+}
+
+.butler-radio {
+  height: auto;
+  margin-right: 0;
+  padding: 12px;
+  border: 1px solid rgba(0, 77, 64, 0.12);
+  border-radius: 14px;
+}
+
+.butler-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.butler-name {
+  color: #12312c;
+  font-weight: 900;
+}
+
+.butler-meta {
+  color: #6b7c78;
+  font-size: 12px;
 }
 </style>

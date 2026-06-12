@@ -45,11 +45,19 @@ export function openWecomContact(payload = {}) {
 
     if (payload.contact_way_config_id) {
       console.warn('[WeCom] contact_me config_id:', payload.contact_way_config_id)
-      uni.showToast({
-        title: '请接入企业微信联系我按钮',
-        icon: 'none',
+
+      uni.showModal({
+        title: '已通知专属管家',
+        content: '管家已收到您的订单联系提醒，请等待管家主动联系您。',
+        showCancel: false,
+        confirmText: '我知道了',
       })
-      return Promise.reject(new Error('contact_me needs mini program integration'))
+
+      return Promise.resolve({
+        mode: 'contact_me',
+        contactWayConfigId: payload.contact_way_config_id,
+        notified: true,
+      })
     }
 
     uni.showToast({ title: '管家联系配置缺失', icon: 'none' })
