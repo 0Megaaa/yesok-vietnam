@@ -142,7 +142,74 @@ func (c *Client) SendTextCard(ctx context.Context, toUser, title, description, l
 		return fmt.Errorf("wecom send message http status %d", response.StatusCode)
 	}
 	if payload.ErrCode != 0 {
-		return fmt.Errorf("wecom send message failed: %s", payload.ErrMsg)
+		return fmt.Errorf("wecom send textcard failed: %d %s", payload.ErrCode, payload.ErrMsg)
 	}
+	return nil
+}
+
+func (c *Client) SendText(ctx context.Context, toUser, content string) error {
+	if !c.Enabled() {
+		return fmt.Errorf("wecom client is not configured")
+	}
+
+	toUser = strings.TrimSpace(toUser)
+	if toUser == "" {
+		return fmt.Errorf("wecom toUser is empty")
+	}
+
+	agentID, err := strconv.Atoi(strings.TrimSpace(c.AgentID))
+	if err != nil || agentID <= 0 {
+		return fmt.Errorf("invalid wecom agent id")
+	}
+
+	token, err := c.AccessToken(ctx)
+	if err != nil {
+		return err
+	}
+
+	body := map[string]any{
+		"touser":  toUser,
+		"msgtype": "text",
+		"agentid": agentID,
+		"text": map[string]any{
+			"content": content,
+		},
+		"enable_duplicate_check": 0,
+	}
+
+	bodyBytes, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+
+	endpoint := fmt.Sprintf("%s/cgi-bin/message/send?access_token=%s", apiBase, url.QueryEscape(token))
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(bodyBytes))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Content-Type", "application/json")
+
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	var payload struct {
+		ErrCode int    `json:"errcode"`
+		ErrMsg  string `json:"errmsg"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		return err
+	}
+
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return fmt.Errorf("wecom send text http status %d", response.StatusCode)
+	}
+
+	if payload.ErrCode != 0 {
+		return fmt.Errorf("wecom send text failed: %d %s", payload.ErrCode, payload.ErrMsg)
+	}
+
 	return nil
 }

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -14,6 +15,29 @@ import (
 	"yesok-vietnam/server/models"
 	wecompkg "yesok-vietnam/server/pkg/wecom"
 )
+
+// buildAdminOrderURL builds the admin order detail URL
+func buildAdminOrderURL(orderID uint) string {
+	adminOrigin := strings.TrimSpace(os.Getenv("ADMIN_ORIGIN_URL"))
+	if adminOrigin == "" {
+		return ""
+	}
+	return strings.TrimRight(adminOrigin, "/") + fmt.Sprintf("/admin/orders/detail?id=%d", orderID)
+}
+
+// buildAssignButlerTextMessage builds a plain text message for assign butler notification
+func buildAssignButlerTextMessage(order models.Order) string {
+	return strings.Join([]string{
+		"【YesOK 待管家沟通】",
+		fmt.Sprintf("订单号：%s", order.OrderNo),
+		fmt.Sprintf("服务名称：%s", order.ServiceName),
+		fmt.Sprintf("客户姓名：%s", order.ContactName),
+		fmt.Sprintf("客户电话：%s", order.ContactPhone),
+		fmt.Sprintf("当前节点：%s", order.CurrentStage),
+		fmt.Sprintf("订单金额：%s", formatMoney(order.TotalAmount)),
+		"请及时联系客户并跟进订单。",
+	}, "\n")
+}
 
 type AdminAssignButlerRequest struct {
 	ButlerID uint `json:"butler_id" binding:"required"`
@@ -182,30 +206,68 @@ func AdminAssignOrderButler(db *gorm.DB) gin.HandlerFunc {
 
 		messageSent := false
 		warning := ""
+		warningDetail := ""
+
 		client := wecompkg.New(assignedButler.CorpID, assignedButler.AgentID, assignedButler.AgentSecret)
 		if client.Enabled() && strings.TrimSpace(assignedButler.WecomUserID) != "" {
-			adminOrigin := strings.TrimSpace(os.Getenv("ADMIN_ORIGIN_URL"))
-			linkURL := adminOrigin
-			if adminOrigin != "" {
-				linkURL = strings.TrimRight(adminOrigin, "/") + fmt.Sprintf("/admin/orders/detail?id=%d", updatedOrder.ID)
-			}
-			description := strings.Join([]string{
-				fmt.Sprintf("<div class=\"gray\">订单号：%s</div>", updatedOrder.OrderNo),
-				fmt.Sprintf("<div class=\"normal\">服务名称：%s</div>", updatedOrder.ServiceName),
-				fmt.Sprintf("<div class=\"normal\">客户姓名：%s</div>", updatedOrder.ContactName),
-				fmt.Sprintf("<div class=\"normal\">客户电话：%s</div>", updatedOrder.ContactPhone),
-				fmt.Sprintf("<div class=\"normal\">当前节点：%s</div>", updatedOrder.CurrentStage),
-				fmt.Sprintf("<div class=\"highlight\">订单金额：%s</div>", formatMoney(updatedOrder.TotalAmount)),
-			}, "")
+			linkURL := buildAdminOrderURL(updatedOrder.ID)
+
 			ctx, cancel := context.WithTimeout(c.Request.Context(), 8*time.Second)
 			defer cancel()
-			if err := client.SendTextCard(ctx, assignedButler.WecomUserID, "YesOK 待管家沟通", description, linkURL); err != nil {
+
+			var sendErr error
+
+			if linkURL != "" {
+				description := strings.Join([]string{
+					fmt.Sprintf("<div class=\"gray\">订单号：%s</div>", updatedOrder.OrderNo),
+					fmt.Sprintf("<div class=\"normal\">服务名称：%s</div>", updatedOrder.ServiceName),
+					fmt.Sprintf("<div class=\"normal\">客户姓名：%s</div>", updatedOrder.ContactName),
+					fmt.Sprintf("<div class=\"normal\">客户电话：%s</div>", updatedOrder.ContactPhone),
+					fmt.Sprintf("<div class=\"normal\">当前节点：%s</div>", updatedOrder.CurrentStage),
+					fmt.Sprintf("<div class=\"highlight\">订单金额：%s</div>", formatMoney(updatedOrder.TotalAmount)),
+				}, "")
+
+				sendErr = client.SendTextCard(
+					ctx,
+					assignedButler.WecomUserID,
+					"YesOK 待管家沟通",
+					description,
+					linkURL,
+				)
+			} else {
+				sendErr = client.SendText(
+					ctx,
+					assignedButler.WecomUserID,
+					buildAssignButlerTextMessage(updatedOrder),
+				)
+			}
+
+			if sendErr != nil {
 				warning = "企业微信通知发送失败"
+				warningDetail = sendErr.Error()
+				log.Printf("[wecom] assign butler notify failed: order_id=%d butler_id=%d to_user=%s err=%v",
+					updatedOrder.ID,
+					assignedButler.ID,
+					assignedButler.WecomUserID,
+					sendErr,
+				)
 			} else {
 				messageSent = true
 			}
 		} else {
-			warning = "企业微信通知发送失败"
+			warning = "企业微信通知配置不完整"
+			warningDetail = fmt.Sprintf(
+				"corp_id=%t agent_id=%t agent_secret=%t wecom_userid=%t",
+				strings.TrimSpace(assignedButler.CorpID) != "",
+				strings.TrimSpace(assignedButler.AgentID) != "",
+				strings.TrimSpace(assignedButler.AgentSecret) != "",
+				strings.TrimSpace(assignedButler.WecomUserID) != "",
+			)
+			log.Printf("[wecom] assign butler notify config missing: order_id=%d butler_id=%d detail=%s",
+				updatedOrder.ID,
+				assignedButler.ID,
+				warningDetail,
+			)
 		}
 
 		response := gin.H{
@@ -215,6 +277,9 @@ func AdminAssignOrderButler(db *gorm.DB) gin.HandlerFunc {
 		}
 		if warning != "" {
 			response["warning"] = warning
+		}
+		if warningDetail != "" && gin.Mode() != gin.ReleaseMode {
+			response["warning_detail"] = warningDetail
 		}
 		c.JSON(http.StatusOK, response)
 	}
