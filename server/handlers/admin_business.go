@@ -80,6 +80,22 @@ func httpError(c *gin.Context, status int, code, message string) {
 	c.JSON(status, gin.H{"error": message, "code": code})
 }
 
+// shouldRequireButlerBeforeAdminAction 判断在当前阶段和动作下，是否必须先分配管家才能执行。
+func shouldRequireButlerBeforeAdminAction(order models.Order, actionName string) bool {
+	stage := strings.TrimSpace(order.CurrentStage)
+	actionName = strings.TrimSpace(actionName)
+
+	if stage == "wait_butler_contact" && actionName == "butler_contacted" {
+		return true
+	}
+
+	if stage == "aftersale_butler_contact" && actionName == "butler_start_intervention" {
+		return true
+	}
+
+	return false
+}
+
 // safeHTTPError 是带 recover 的安全包装，防止 panic 泄露。
 func safeHTTPError(c *gin.Context, status int, code, message string) {
 	defer func() {
@@ -254,29 +270,32 @@ func AdminGetOrderActions(db *gorm.DB) gin.HandlerFunc {
 				notifyText = n.NotifyType
 			}
 			isAuditAction := isAuditActionName(n.ActionName)
+			requiresButler := shouldRequireButlerBeforeAdminAction(order, n.ActionName)
 			actions = append(actions, gin.H{
-				"id":                  n.ID,
-				"action_name":         n.ActionName,
-				"action_name_text":    actionNameText,
-				"button_label":        n.ButtonLabel,
-				"action_type":         n.ActionType,
-				"action_type_text":    dictLabel(db, "action_type", n.ActionType),
-				"executor_role":       n.ExecutorRole,
-				"executor_role_text":  dictLabel(db, "executor_role", n.ExecutorRole),
-				"form_fields":         n.FormFields,
-				"target_status":       n.TargetStatus,
-				"target_status_text":  targetStatusText,
-				"macro_status":        n.MacroStatus,
-				"macro_status_text":   macroText,
-				"notify_type":         n.NotifyType,
-				"notify_type_text":    notifyText,
-				"need_audit":          n.NeedAudit,
-				"audit_reject_status": n.AuditRejectStatus,
-				"is_audit_action":     isAuditAction,
-				"sort_order":          n.SortOrder,
-				"stage_code":          n.StageCode,
-				"stage_name":          n.StageName,
-				"ui_behavior":         buildWorkflowUIBehavior(n),
+				"id":                         n.ID,
+				"action_name":                n.ActionName,
+				"action_name_text":           actionNameText,
+				"button_label":               n.ButtonLabel,
+				"action_type":                n.ActionType,
+				"action_type_text":           dictLabel(db, "action_type", n.ActionType),
+				"executor_role":              n.ExecutorRole,
+				"executor_role_text":         dictLabel(db, "executor_role", n.ExecutorRole),
+				"form_fields":                n.FormFields,
+				"target_status":              n.TargetStatus,
+				"target_status_text":         targetStatusText,
+				"macro_status":               n.MacroStatus,
+				"macro_status_text":          macroText,
+				"notify_type":                n.NotifyType,
+				"notify_type_text":           notifyText,
+				"need_audit":                 n.NeedAudit,
+				"audit_reject_status":        n.AuditRejectStatus,
+				"is_audit_action":            isAuditAction,
+				"sort_order":                 n.SortOrder,
+				"stage_code":                 n.StageCode,
+				"stage_name":                 n.StageName,
+				"ui_behavior":                buildWorkflowUIBehavior(n),
+				"requires_butler":            requiresButler,
+				"butler_required_unassigned": requiresButler && order.ButlerID == 0,
 			})
 		}
 
@@ -301,11 +320,19 @@ func AdminUpdateOrder(db *gorm.DB, engine *workflow.OrderEngine) gin.HandlerFunc
 			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "action_name is required")
 			return
 		}
+		var order models.Order
+		if err := db.First(&order, id).Error; err != nil {
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found")
+			return
+		}
+		if shouldRequireButlerBeforeAdminAction(order, req.ActionName) && order.ButlerID == 0 {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "请先分配管家后再推进流程")
+			return
+		}
 		if err := engine.AdvanceStage(uint(id), req.ActionName, "后台管家", "admin", req.InputData, req.Remark); err != nil {
 			httpError(c, http.StatusBadRequest, ErrCodeTransactionFailed, "流程推进失败: "+err.Error())
 			return
 		}
-		var order models.Order
 		if err := db.First(&order, id).Error; err != nil {
 			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found after advance")
 			return
@@ -341,11 +368,19 @@ func AdminPostOrderAction(db *gorm.DB, engine *workflow.OrderEngine) gin.Handler
 			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "action_name is required")
 			return
 		}
+		var order models.Order
+		if err := db.First(&order, id).Error; err != nil {
+			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found")
+			return
+		}
+		if shouldRequireButlerBeforeAdminAction(order, req.ActionName) && order.ButlerID == 0 {
+			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "请先分配管家后再推进流程")
+			return
+		}
 		if err := engine.AdvanceStage(uint(id), req.ActionName, "后台管家", "admin", req.InputData, req.Remark); err != nil {
 			httpError(c, http.StatusBadRequest, ErrCodeTransactionFailed, "流程推进失败: "+err.Error())
 			return
 		}
-		var order models.Order
 		if err := db.First(&order, id).Error; err != nil {
 			httpError(c, http.StatusNotFound, ErrCodeNotFound, "order not found after advance")
 			return

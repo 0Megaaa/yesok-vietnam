@@ -443,6 +443,12 @@ const executeButtonClick = async (action) => {
     return
   }
 
+  // 兜底拦截需要管家但未分配的情况
+  if (requireButlerBeforeAction(action)) {
+    showToast('请先分配管家后再推进流程', 'warning')
+    return
+  }
+
   try {
     const { value: remark } = await ElMessageBox.prompt(
       `执行动作「${action.button_label}」，请输入备注（可选）：`,
@@ -472,6 +478,10 @@ const executeButtonClick = async (action) => {
 
 // --- form_input 类型：弹窗收集表单数据（DynamicForm 组件驱动）---
 const openFormInput = (action) => {
+  if (requireButlerBeforeAction(action)) {
+    showToast('请先分配管家后再推进流程', 'warning')
+    return
+  }
   formInputAction.value = action
   formInputData.value = {}
   formInputVisible.value = true
@@ -481,6 +491,12 @@ const submitFormInput = async () => {
   // 兜底拦截审核动作
   if (isAuditAction(formInputAction.value)) {
     showToast('审核动作必须通过审核按钮执行，请刷新页面后重试', 'warning')
+    return
+  }
+
+  // 兜底拦截需要管家但未分配的情况
+  if (requireButlerBeforeAction(formInputAction.value)) {
+    showToast('请先分配管家后再推进流程', 'warning')
     return
   }
 
@@ -594,6 +610,20 @@ const shouldShowAssignButler = computed(() => {
   const macro = order.value?.macro_status || ''
   return BUTLER_STAGES.includes(stage) || BUTLER_MACROS.includes(macro)
 })
+
+const requireButlerBeforeAction = (action) => {
+  if (!action) return false
+  if (action.butler_required_unassigned === true) return true
+
+  const stage = order.value?.current_stage || ''
+  const actionName = action.action_name || ''
+
+  return !order.value?.butler_id &&
+    (
+      (stage === 'wait_butler_contact' && actionName === 'butler_contacted') ||
+      (stage === 'aftersale_butler_contact' && actionName === 'butler_start_intervention')
+    )
+}
 
 // 打开分配管家弹窗
 const openAssignButlerDialog = async () => {
@@ -799,6 +829,13 @@ onMounted(async () => {
             分配管家
           </el-button>
         </div>
+        <el-alert
+          v-if="['wait_butler_contact', 'aftersale_butler_contact'].includes(order.current_stage) && !order.butler_id"
+          type="warning"
+          show-icon
+          :closable="false"
+          title="请先分配管家，再推进沟通流程"
+        />
         <div v-if="actionsLoading" class="actions-skeleton">
           <div class="skeleton-btn"></div>
           <div class="skeleton-btn"></div>
@@ -831,6 +868,7 @@ onMounted(async () => {
               :key="`${action.id || action.action_name}-${action.target_status || ''}-${action.sort_order || ''}`"
               class="action-btn"
               :title="`${action.button_label}（${action.stage_name}）`"
+              :disabled="requireButlerBeforeAction(action)"
               @click="executeButtonClick(action)"
             >
               {{ action.button_label }}
@@ -841,6 +879,7 @@ onMounted(async () => {
               :key="`${action.id || action.action_name}-${action.target_status || ''}-${action.sort_order || ''}`"
               class="action-btn action-material"
               :title="`${action.button_label}（需填写表单）`"
+              :disabled="requireButlerBeforeAction(action)"
               @click="openFormInput(action)"
             >
               {{ action.button_label }}

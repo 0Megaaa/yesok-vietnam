@@ -290,6 +290,7 @@ const shouldShowOrderButlerContact = computed(() => {
     'wait_butler_contact',
     'aftersale_butler_contact',
     'aftersale_processing',
+    'service_following',
     'process_failed',
   ].includes(stage) || ['aftersale', 'failed'].includes(macro)
 })
