@@ -23,6 +23,11 @@ const formInputVisible = ref(false)
 const formInputAction = ref(null)
 const formInputData = ref({})
 const formInputLoading = ref(false)
+const assignButlerVisible = ref(false)
+const assignButlersLoading = ref(false)
+const assignButlersSubmitting = ref(false)
+const assignButlerList = ref([])
+const selectedButlerId = ref(null)
 
 const statusLabel = (code) => {
   const m = {
@@ -102,6 +107,11 @@ const normalizeOrder = (raw = {}) => {
     payments: o.payments || [],
     payment_info: o.payment_info || o.paymentInfo || {},
     action_nodes: o.action_nodes || o.actionNodes || [],
+    butler_id: o.butler_id || o.butlerId || 0,
+    butler_name: o.butler_name || o.butlerName || '',
+    butler_wecom_userid: o.butler_wecom_userid || o.butlerWecomUserID || o.butlerWecomUserid || '',
+    butler_contact_url: o.butler_contact_url || o.butlerContactURL || '',
+    butler_assigned_at: o.butler_assigned_at || o.butlerAssignedAt || '',
   }
 }
 
@@ -573,6 +583,68 @@ const goBack = () => {
   }
 }
 
+// B端分配管家：判断条件
+const BUTLER_STAGES = ['wait_butler_contact', 'aftersale_butler_contact', 'aftersale_processing', 'process_failed']
+const BUTLER_MACROS = ['failed', 'aftersale']
+
+const shouldShowAssignButler = computed(() => {
+  if (!order.value?.id) return false
+  const stage = order.value?.current_stage || ''
+  const macro = order.value?.macro_status || ''
+  return BUTLER_STAGES.includes(stage) || BUTLER_MACROS.includes(macro)
+})
+
+// 打开分配管家弹窗
+const openAssignButlerDialog = async () => {
+  if (!order.value?.id) return
+  selectedButlerId.value = null
+  assignButlersSubmitting.value = false
+  assignButlerVisible.value = true
+  assignButlersLoading.value = true
+  try {
+    const res = await request.get('/v1/admin/wecom-butlers', {
+      params: { butler_type: 'order', is_assignable: 1, status: 1 },
+    })
+    const body = res?.data ?? res ?? {}
+    assignButlerList.value = body.list || body.data?.list || []
+  } catch {
+    assignButlerList.value = []
+  } finally {
+    assignButlersLoading.value = false
+  }
+}
+
+// 提交分配管家
+const submitAssignButler = async () => {
+  if (!selectedButlerId.value || !order.value?.id) {
+    showToast('请选择管家', 'warning')
+    return
+  }
+  assignButlersSubmitting.value = true
+  try {
+    const res = await request.post(`/v1/admin/orders/${order.value.id}/assign-butler`, {
+      butler_id: selectedButlerId.value,
+    })
+    const body = res?.data ?? res ?? {}
+    if (body.order?.id) {
+      order.value = normalizeOrder(body.order)
+    } else {
+      await loadOrderDetail()
+      await loadOrderActions()
+    }
+    assignButlerVisible.value = false
+    if (body.warning) {
+      showToast('分配成功，' + body.warning, 'warning')
+    } else {
+      showToast('管家分配成功', 'success')
+    }
+  } catch (error) {
+    showToast(error?.response?.data?.error || error?.message || '分配失败', 'error')
+  } finally {
+    assignButlersSubmitting.value = false
+  }
+}
+
 onMounted(async () => {
   if (route.params.id) orderId.value = route.params.id
   if (!orderId.value) {
@@ -622,6 +694,18 @@ onMounted(async () => {
           <div>
             <span class="label">当前节点</span>
             <span class="value">{{ order.current_stage_text || statusLabel(order.current_stage) || '—' }}</span>
+          </div>
+          <div>
+            <span class="label">当前管家</span>
+            <span class="value">{{ order.butler_name || '—' }}</span>
+          </div>
+          <div>
+            <span class="label">企业微信</span>
+            <span class="value">{{ order.butler_wecom_userid || '—' }}</span>
+          </div>
+          <div>
+            <span class="label">分配时间</span>
+            <span class="value">{{ formatTime(order.butler_assigned_at) || '—' }}</span>
           </div>
           <div
             v-for="row in paymentSummaryRows(order)"
@@ -704,7 +788,12 @@ onMounted(async () => {
 
       <!-- 下一步动作 -->
       <div class="info-card action-card">
-        <div class="section-title">下一步动作</div>
+        <div class="section-title action-title-row">
+          <span>下一步动作</span>
+          <el-button v-if="shouldShowAssignButler" type="primary" plain size="small" @click="openAssignButlerDialog">
+            分配管家
+          </el-button>
+        </div>
         <div v-if="actionsLoading" class="actions-skeleton">
           <div class="skeleton-btn"></div>
           <div class="skeleton-btn"></div>
@@ -803,6 +892,28 @@ onMounted(async () => {
       <template #footer>
         <el-button @click="rejectAuditVisible = false">取消</el-button>
         <el-button type="danger" :loading="auditLoading" @click="submitRejectAudit">确认驳回</el-button>
+      </template>
+    </el-dialog>
+
+    <el-dialog v-model="assignButlerVisible" title="分配管家" width="520px" :close-on-click-modal="false">
+      <div v-if="assignButlersLoading" class="empty-line">正在加载可分配管家...</div>
+      <div v-else-if="!assignButlerList.length" class="empty-line">暂无可分配管家</div>
+      <el-radio-group v-else v-model="selectedButlerId" class="butler-radio-group">
+        <el-radio
+          v-for="item in assignButlerList"
+          :key="item.id"
+          :label="item.id"
+          class="butler-radio"
+        >
+          <div class="butler-option">
+            <div class="butler-name">{{ item.name || '未命名管家' }}</div>
+            <div class="butler-meta">{{ item.wecom_userid || '未配置企业微信UserID' }}</div>
+          </div>
+        </el-radio>
+      </el-radio-group>
+      <template #footer>
+        <el-button @click="assignButlerVisible = false">取消</el-button>
+        <el-button type="primary" :loading="assignButlersSubmitting" @click="submitAssignButler">确认分配</el-button>
       </template>
     </el-dialog>
   </div>
@@ -935,6 +1046,13 @@ onMounted(async () => {
   font-weight: 900;
 }
 
+.action-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .json-row {
   display: flex;
   justify-content: space-between;
@@ -993,6 +1111,37 @@ onMounted(async () => {
 .payment-status.success { color: #2a7a3a; }
 
 .workflow-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+.butler-radio-group {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.butler-radio {
+  margin-right: 0;
+  padding: 12px 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+}
+
+.butler-option {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.butler-name {
+  color: #12312c;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.butler-meta {
+  color: #6b7c78;
+  font-size: 12px;
+}
 
 /* 操作按钮样式 */
 .action-btn {

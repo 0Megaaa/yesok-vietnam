@@ -4,6 +4,7 @@ import { onLoad, onShow } from '@dcloudio/uni-app'
 import { useClientStore } from '@/store/client'
 import { get, post, ORIGIN_URL } from '@/api/request'
 import { groupWorkflowActions, getActionVariant, getActionRenderer } from '@/utils/workflowAction'
+import { openWecomCustomerService } from '@/utils/wecom'
 
 const client = useClientStore()
 const orderId = ref('')
@@ -281,6 +282,18 @@ const deliveryEntries = computed(() => {
   return entries
 })
 
+const shouldShowOrderButlerContact = computed(() => {
+  const stage = order.value?.current_stage || ''
+  const macro = order.value?.macro_status || ''
+
+  return [
+    'wait_butler_contact',
+    'aftersale_butler_contact',
+    'aftersale_processing',
+    'process_failed',
+  ].includes(stage) || ['aftersale', 'failed'].includes(macro)
+})
+
 const timelineEntries = computed(() => {
   const list = order.value?.timelines || []
   return [...list].map(normalizeTimeline).reverse()
@@ -503,6 +516,32 @@ const safeToast = (title, icon = 'info') => {
     uniApi.showToast({ title, icon })
   } else {
     console.info(`[Toast] ${title}`)
+  }
+}
+
+const contactOrderButler = async () => {
+  if (!order.value?.id) {
+    safeToast('订单不存在', 'none')
+    return
+  }
+
+  try {
+    const res = await post(`/v1/client/orders/${order.value.id}/wecom/contact`, {
+      source: 'order_detail',
+    })
+    const payload = unwrapResponse(res)
+
+    if (payload.contact_type !== 'order_butler') {
+      safeToast('暂未分配专属管家，将为您接入订单客服', 'none')
+    }
+
+    await openWecomCustomerService({
+      corpId: payload.corp_id,
+      url: payload.service_url,
+    })
+  } catch (error) {
+    console.error('[order-detail] contactOrderButler failed:', error)
+    safeToast('打开订单管家失败', 'none')
   }
 }
 
@@ -856,6 +895,16 @@ onShow(async () => {
         </view>
       </view>
 
+      <view v-if="shouldShowOrderButlerContact" class="section-card butler-contact-card">
+        <view class="section-title"><view class="section-bar"></view>专属管家</view>
+        <text class="empty-text">
+          {{ order.butler_name ? `已分配管家：${order.butler_name}` : '暂未分配专属管家，可先联系订单客服' }}
+        </text>
+        <button class="action-btn action-primary" @click="contactOrderButler">
+          联系专属管家
+        </button>
+      </view>
+
       <!-- 下一步动作 -->
       <view class="section-card action-card">
         <view class="section-title"><view class="section-bar"></view>下一步操作</view>
@@ -1166,6 +1215,10 @@ onShow(async () => {
 }
 
 .action-card { margin-bottom: 20px; }
+
+.butler-contact-card {
+  margin-bottom: 20px;
+}
 
 .action-list {
   display: flex;

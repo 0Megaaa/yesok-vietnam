@@ -1,7 +1,8 @@
 <script setup>
 import { computed, onMounted, ref, watch } from 'vue'
 import { onShow } from '@dcloudio/uni-app'
-import { ORIGIN_URL } from '@/api/request'
+import { get, ORIGIN_URL } from '@/api/request'
+import { openWecomCustomerService } from '@/utils/wecom'
 import AuthPopup from '@/components/AuthPopup.vue'
 import { useClientStore } from '@/store/client'
 
@@ -170,10 +171,19 @@ const openProfileEditor = () => {
   })
 }
 
-const sendMessage = () => {
-  const uniApi = typeof uni !== 'undefined' ? uni : null
-  if (uniApi?.showToast) {
-    uniApi.showToast({ title: '专属管家功能建设中', icon: 'none' })
+const sendMessage = async () => {
+  try {
+    const res = await get('/v1/client/wecom/public-contact')
+    const payload = res.data || res
+
+    await openWecomCustomerService({
+      corpId: payload.corp_id,
+      url: payload.service_url,
+    })
+  } catch (error) {
+    console.error('[profile] open public wecom failed:', error)
+    const uniApi = typeof uni !== 'undefined' ? uni : null
+    uniApi?.showToast?.({ title: '打开管家客服失败', icon: 'none' })
   }
 }
 

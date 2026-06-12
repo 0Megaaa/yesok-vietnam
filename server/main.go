@@ -87,7 +87,7 @@ func connectDatabase() *gorm.DB {
 
 // migrateCoreTables 迁移核心业务表。
 func migrateCoreTables(db *gorm.DB) {
-	if err := db.AutoMigrate(&models.AppUser{}, &models.SysUser{}, &models.SysService{}, &models.SysWorkflowNode{}, &models.Order{}, &models.OrderTimeline{}, &models.PaymentRecord{}, &models.SysConfig{}, &models.SysDictType{}, &models.SysDictData{}, &models.SysArticle{}); err != nil {
+	if err := db.AutoMigrate(&models.AppUser{}, &models.SysUser{}, &models.SysService{}, &models.SysWorkflowNode{}, &models.Order{}, &models.OrderTimeline{}, &models.PaymentRecord{}, &models.SysConfig{}, &models.SysDictType{}, &models.SysDictData{}, &models.SysArticle{}, &models.WecomButler{}); err != nil {
 		log.Fatalf("failed to auto-migrate core tables: %v", err)
 	}
 }
@@ -133,8 +133,10 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		authGroup.GET("/admin/auth/me", handlers.AdminMe(db))
 		authGroup.GET("/admin/dashboard/stats", handlers.DashboardStats(db))
 		authGroup.GET("/admin/orders", handlers.AdminListOrders(db))
+		authGroup.GET("/admin/wecom-butlers", handlers.AdminListWecomButlers(db))
 		authGroup.GET("/admin/orders/:id", handlers.AdminGetOrder(db))
 		authGroup.GET("/admin/orders/:id/actions", handlers.AdminGetOrderActions(db))
+		authGroup.POST("/admin/orders/:id/assign-butler", handlers.AdminAssignOrderButler(db))
 		authGroup.PUT("/admin/orders/:id", handlers.AdminUpdateOrder(db, orderEngine))
 		authGroup.POST("/admin/orders/:id/action", handlers.AdminPostOrderAction(db, orderEngine))
 		authGroup.POST("/admin/orders/:id/audit", handlers.AdminAuditOrder(db))
@@ -178,7 +180,9 @@ func registerAPIRoutes(r *gin.Engine, db *gorm.DB, authMw *middleware.AuthMiddle
 		authGroup.POST("/client/orders", handlers.ClientCreateOrder(db, orderEngine))
 		authGroup.GET("/client/orders", handlers.ClientListOrders(db))
 		authGroup.GET("/client/orders/:id", handlers.ClientGetOrder(db))
+		authGroup.GET("/client/wecom/public-contact", handlers.ClientWecomPublicContact(db))
 		authGroup.GET("/client/orders/:id/actions", handlers.GetClientOrderActions(db))
+		authGroup.POST("/client/orders/:id/wecom/contact", handlers.ClientOrderWecomContact(db))
 		authGroup.POST("/client/orders/:id/action", handlers.PostClientOrderAction(db, orderEngine))
 		authGroup.POST("/client/orders/:id/materials/upload", handlers.ClientUploadOrderMaterial(db))
 		authGroup.POST("/client/auth/logout", handlers.AuthLogout(db))
