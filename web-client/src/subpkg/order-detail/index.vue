@@ -16,6 +16,10 @@ const submitting = ref(false)
 const hasLoadedOnce = ref(false)
 const refreshing = ref(false)
 
+// 企业微信管家联系方式弹层
+const wecomContactVisible = ref(false)
+const wecomContactPayload = ref({})
+
 // isLocalTempFile 判断是否是本地临时文件路径（不上传后端则不走此路径）
 const isLocalTempFile = (url) => {
   if (!url || typeof url !== 'string') return false
@@ -534,23 +538,32 @@ const contactOrderButler = async () => {
   }
 
   try {
+    submitting.value = true
+
     const res = await post(`/v1/client/orders/${order.value.id}/wecom/contact`, {
       source: 'order_detail',
+      notify_butler: false,
     })
-    const payload = unwrapResponse(res)
 
-    if (payload.contact_type !== 'order_butler') {
-      safeToast('暂未分配专属管家，将为您接入订单客服', 'none')
+    const payload = unwrapResponse(res) || {}
+    const result = await openWecomContact(payload)
+
+    if (result?.needsContactMeButton) {
+      wecomContactPayload.value = {
+        ...payload,
+        contactWayConfigId: result.contactWayConfigId,
+        butlerName: result.butlerName || payload.butler_name || '专属管家',
+      }
+      wecomContactVisible.value = true
+      return
     }
 
-    if (payload.warning === 'recently notified') {
-      console.warn('[order-detail] recently notified, skipping error toast')
-    }
-
-    await openWecomContact(payload)
+    await loadOrderDetail()
   } catch (error) {
     console.error('[order-detail] contactOrderButler failed:', error)
-    safeToast('打开订单管家失败', 'none')
+    safeToast('打开管家联系方式失败', 'none')
+  } finally {
+    submitting.value = false
   }
 }
 
@@ -960,6 +973,31 @@ onShow(async () => {
       <text>订单不存在或加载失败</text>
     </view>
 
+    <!-- 企业微信管家联系方式弹层 -->
+    <view v-if="wecomContactVisible" class="wecom-mask" @click="wecomContactVisible = false">
+      <view class="wecom-dialog" @click.stop>
+        <view class="wecom-title">添加企业微信管家</view>
+        <view class="wecom-desc">
+          请点击下方按钮添加 {{ wecomContactPayload.butlerName || '专属管家' }}，添加后可直接沟通订单事项。
+        </view>
+
+        <!--
+          重要：
+          这里需要接入企业微信后台【联系我 → 在小程序中联系 → 使用指引】给出的原生联系我按钮/组件。
+          使用 wecomContactPayload.contactWayConfigId 作为 config_id。
+          不要再用 wx.openCustomerServiceChat 硬打开 contact_me。
+        -->
+
+        <button class="wecom-contact-btn">
+          添加企业微信管家
+        </button>
+
+        <button class="wecom-cancel-btn" @click="wecomContactVisible = false">
+          暂不添加
+        </button>
+      </view>
+    </view>
+
   </view>
 </template>
 
@@ -1296,5 +1334,60 @@ onShow(async () => {
   font-size: 26rpx;
   line-height: 1.5;
   font-weight: 600;
+}
+
+/* 企业微信管家联系方式弹层 */
+.wecom-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48rpx;
+}
+
+.wecom-dialog {
+  width: 100%;
+  background: #fff;
+  border-radius: 32rpx;
+  padding: 40rpx 32rpx 32rpx;
+}
+
+.wecom-title {
+  font-size: 34rpx;
+  font-weight: 900;
+  color: #12312c;
+  text-align: center;
+}
+
+.wecom-desc {
+  margin-top: 24rpx;
+  font-size: 28rpx;
+  line-height: 1.7;
+  color: #6b7c78;
+  text-align: center;
+}
+
+.wecom-contact-btn {
+  margin-top: 32rpx;
+  height: 88rpx;
+  line-height: 88rpx;
+  border-radius: 999rpx;
+  background: #00513f;
+  color: #fff;
+  font-size: 30rpx;
+  font-weight: 900;
+}
+
+.wecom-cancel-btn {
+  margin-top: 20rpx;
+  height: 80rpx;
+  line-height: 80rpx;
+  border-radius: 999rpx;
+  background: #f3f7f5;
+  color: #6b7c78;
+  font-size: 28rpx;
 }
 </style>

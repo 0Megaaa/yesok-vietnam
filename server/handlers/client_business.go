@@ -667,12 +667,61 @@ func marshalJSON(v any) []byte {
 	return data
 }
 
-// formatMoney 将分单位金额转换为越南盾展示文案。
-// 1.意图 -> 为前端提供可读的价格字符串，避免前端重复格式化金额。
-// 2.步骤 -> 将分单位换算为主币单位，并拼接越南盾符号。
-// 3.返回 -> 例如 650000 ₫ 的展示字符串。
+// formatNumber formats a number with thousand separators
+func formatNumber(n int64) string {
+	raw := fmt.Sprintf("%d", n)
+	if len(raw) <= 3 {
+		return raw
+	}
+	var parts []string
+	for len(raw) > 3 {
+		parts = append([]string{raw[len(raw)-3:]}, parts...)
+		raw = raw[:len(raw)-3]
+	}
+	if raw != "" {
+		parts = append([]string{raw}, parts...)
+	}
+	return strings.Join(parts, ",")
+}
+
+// formatMoneyWithCurrency formats amount (in cents) with proper currency symbol
+func formatMoneyWithCurrency(amount int64, currency string) string {
+	currency = strings.ToUpper(strings.TrimSpace(currency))
+	if currency == "" {
+		currency = "CNY"
+	}
+
+	main := amount / 100
+	fen := amount % 100
+	if fen < 0 {
+		fen = -fen
+	}
+
+	number := formatNumber(main)
+	if fen > 0 {
+		number = fmt.Sprintf("%s.%02d", number, fen)
+	}
+
+	switch currency {
+	case "CNY", "RMB":
+		return "¥" + number
+	case "USD":
+		return "$" + number
+	case "VND":
+		return number + " ₫"
+	default:
+		return number + " " + currency
+	}
+}
+
+// formatOrderMoney formats order total amount with order's currency
+func formatOrderMoney(order models.Order) string {
+	return formatMoneyWithCurrency(order.TotalAmount, order.Currency)
+}
+
+// formatMoney 将分单位金额转换为越南盾展示文案（保留兼容，默认 CNY）。
 func formatMoney(amount int64) string {
-	return fmt.Sprintf("%d ₫", amount/100)
+	return formatMoneyWithCurrency(amount, "CNY")
 }
 
 // CEndOrderActionRequest C 端执行订单动作的请求体。

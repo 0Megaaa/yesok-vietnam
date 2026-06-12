@@ -44,19 +44,12 @@ export function openWecomContact(payload = {}) {
     }
 
     if (payload.contact_way_config_id) {
-      console.warn('[WeCom] contact_me config_id:', payload.contact_way_config_id)
-
-      uni.showModal({
-        title: '已通知专属管家',
-        content: '管家已收到您的订单联系提醒，请等待管家主动联系您。',
-        showCancel: false,
-        confirmText: '我知道了',
-      })
-
       return Promise.resolve({
         mode: 'contact_me',
+        corpId: payload.corp_id,
         contactWayConfigId: payload.contact_way_config_id,
-        notified: true,
+        butlerName: payload.butler_name || '',
+        needsContactMeButton: true,
       })
     }
 

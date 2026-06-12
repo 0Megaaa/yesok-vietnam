@@ -34,7 +34,7 @@ func buildAssignButlerTextMessage(order models.Order) string {
 		fmt.Sprintf("客户姓名：%s", order.ContactName),
 		fmt.Sprintf("客户电话：%s", order.ContactPhone),
 		fmt.Sprintf("当前节点：%s", order.CurrentStage),
-		fmt.Sprintf("订单金额：%s", formatMoney(order.TotalAmount)),
+		fmt.Sprintf("订单金额：%s", formatOrderMoney(order)),
 		"请及时联系客户并跟进订单。",
 	}, "\n")
 }
@@ -224,7 +224,7 @@ func AdminAssignOrderButler(db *gorm.DB) gin.HandlerFunc {
 					fmt.Sprintf("<div class=\"normal\">客户姓名：%s</div>", updatedOrder.ContactName),
 					fmt.Sprintf("<div class=\"normal\">客户电话：%s</div>", updatedOrder.ContactPhone),
 					fmt.Sprintf("<div class=\"normal\">当前节点：%s</div>", updatedOrder.CurrentStage),
-					fmt.Sprintf("<div class=\"highlight\">订单金额：%s</div>", formatMoney(updatedOrder.TotalAmount)),
+					fmt.Sprintf("<div class=\"highlight\">订单金额：%s</div>", formatOrderMoney(updatedOrder)),
 				}, "")
 
 				sendErr = client.SendTextCard(

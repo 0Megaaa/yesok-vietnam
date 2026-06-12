@@ -42,7 +42,7 @@ func buildOrderButlerContactDescription(order models.Order, butler models.WecomB
 		fmt.Sprintf(`<div class="normal">客户：%s</div>`, order.ContactName),
 		fmt.Sprintf(`<div class="normal">电话：%s</div>`, order.ContactPhone),
 		fmt.Sprintf(`<div class="normal">当前节点：%s</div>`, order.CurrentStage),
-		fmt.Sprintf(`<div class="highlight">订单金额：%s</div>`, fmt.Sprintf("%d", order.TotalAmount)),
+		fmt.Sprintf(`<div class="highlight">订单金额：%s</div>`, formatOrderMoney(order)),
 		`<div class="highlight">请及时联系客户并跟进订单。</div>`,
 	}, "")
 }
@@ -56,7 +56,7 @@ func buildContactButlerTextMessage(order models.Order) string {
 		fmt.Sprintf("客户姓名：%s", order.ContactName),
 		fmt.Sprintf("客户电话：%s", order.ContactPhone),
 		fmt.Sprintf("当前节点：%s", order.CurrentStage),
-		fmt.Sprintf("订单金额：%s", formatMoney(order.TotalAmount)),
+		fmt.Sprintf("订单金额：%s", formatOrderMoney(order)),
 		"客户已在小程序点击联系专属管家，请及时跟进。",
 	}, "\n")
 }
@@ -73,6 +73,12 @@ func ClientWecomPublicContact(db *gorm.DB) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, buildWecomContactPayload(butler, "public"))
 	}
+}
+
+// ClientOrderWecomContactRequest is the request body for client order wecom contact
+type ClientOrderWecomContactRequest struct {
+	Source       string `json:"source"`
+	NotifyButler bool   `json:"notify_butler"`
 }
 
 func ClientOrderWecomContact(db *gorm.DB) gin.HandlerFunc {
@@ -93,6 +99,9 @@ func ClientOrderWecomContact(db *gorm.DB) gin.HandlerFunc {
 			httpError(c, http.StatusBadRequest, ErrCodeInvalidRequest, "invalid order id")
 			return
 		}
+
+		var req ClientOrderWecomContactRequest
+		_ = c.ShouldBindJSON(&req)
 
 		var order models.Order
 		if err := db.Where("id = ? AND app_user_id = ?", id, uid).First(&order).Error; err != nil {
@@ -159,7 +168,7 @@ func ClientOrderWecomContact(db *gorm.DB) gin.HandlerFunc {
 				BeforeStatus:  order.CurrentStage,
 				AfterStatus:   order.CurrentStage,
 				Operator:      fmt.Sprintf("client:%d", uid),
-				Remark:        "用户点击联系专属管家",
+				Remark:        "用户打开专属管家联系方式",
 				ActionName:    "contact_order_butler",
 				Payload:       marshalJSON(payload),
 				AuditStatus:   models.AuditStatusApproved,
@@ -170,7 +179,10 @@ func ClientOrderWecomContact(db *gorm.DB) gin.HandlerFunc {
 				httpError(c, http.StatusInternalServerError, ErrCodeInternalError, "failed to write timeline")
 				return
 			}
+		}
 
+		// Only send wecom notification when explicitly requested
+		if req.NotifyButler && recentCount == 0 {
 			client := wecompkg.New(selectedButler.CorpID, selectedButler.AgentID, selectedButler.AgentSecret)
 			if client.Enabled() && strings.TrimSpace(selectedButler.WecomUserID) != "" {
 				linkURL := buildAdminOrderURL(order.ID)
